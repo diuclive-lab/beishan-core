@@ -1,0 +1,5 @@
+{
+  "name": "go_example",
+  "entry": "go_example",
+  "type": "go"
+}
