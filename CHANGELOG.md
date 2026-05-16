@@ -1,14 +1,44 @@
 # 开发日志
 
-## 2026-05-17 法律编排插件 + L3 标准模板
+## 2026-05-17 L3 法律分析插件簇 + 中国法律适配
 
 ### 新增
 
 | 文件 | 类型 | 用途 |
 |---|---|---|
-| `plugins/legal_review_plugin.go` | L4 插件 | 法律审查编排：访谈→检索→分析→生成四步流程 |
+| `plugins/legal_review_plugin.go` | L4 编排 | 法律审查编排：访谈→检索→分析→生成四步流程 |
 | `plugins/l3_echo_go/` | L3 Go 示例 | Go 语言 L3 子进程标准模板（IPC 协议） |
 | `plugins/l3_echo_python/` | L3 Python 示例 | Python 语言 L3 子进程标准模板（IPC 协议） |
+| `plugins/cold_start_plugin.go` | L3 插件 | 冷启动访谈：合同类型识别、角色分析、法律画像构建 |
+| `plugins/legal_search_plugin.go` | L3 插件 | 中国法律检索：适配北大法宝/威科先行查询结构，法律效力层级排序 |
+| `plugins/clause_analyzer_plugin.go` | L3 插件 | 条款分析：三段论（大前提-小前提-结论）替代 IRAC，风险三档评级 |
+| `plugins/legal_write_plugin.go` | L3 插件 | 法律文书生成：合同审查报告/法律意见书/风险矩阵，AI 标识合规 |
+
+### 中国法律适配
+
+所有法律插件遵循以下中国法域适配规则：
+- **法律关系分析**：使用《民法典》合同编典型合同分类体系（第595-978条）
+- **三段论推理**：大前提（法律规则）→ 小前提（合同约定）→ 结论（法律评价），替代 IRAC
+- **法律效力层级**：宪法 > 法律 > 司法解释 > 行政法规 > 部门规章
+- **风险评级**：🟢 合规 / 🟡 提示 / 🔴 违规（参考 claude-for-legal 三档制）
+- **文书模板**：合同审查报告、法律意见书、风险矩阵，均使用中国法律文书格式
+- **AI 标识**：根据《人工智能生成合成内容标识办法》，所有输出标注 AI 生成身份
+
+### 参考 claude-for-legal 的模式迁移
+
+| 模式 | 迁移比例 | 用途 |
+|---|---|---|
+| 冷启动访谈（SKILL.md） | ~10% | cold_start_plugin.go 的法律画像构建流程 |
+| 风险评级（GREEN/YELLOW/RED） | ~10% | clause_analyzer_plugin.go 的三档评级体系 |
+| 文书模板（法律意见书/审查报告） | ~8% | legal_write_plugin.go 的输出模板 |
+| 免责声明分级（律师/法务/个人） | ~5% | 按用户角色生成不同的免责声明 |
+| MCP 连接器接口（北大法宝预留） | ~3% | legal_search_plugin.go 的 tryPkulawSearch 预留接口 |
+
+### 主程序变更
+
+`main.go` 新增全部法律插件注册：
+- 通用工具插件（search/write/memory/scheduler）
+- 法律审查插件簇（legal_review/cold_start/legal_search/clause_analyzer/legal_write）
 
 ### design principles 新增
 

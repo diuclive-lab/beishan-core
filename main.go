@@ -6,6 +6,7 @@ import (
 
 	"beishan/glue"
 	"beishan/kernel"
+	"beishan/plugins"
 )
 
 func main() {
@@ -15,6 +16,20 @@ func main() {
 	}
 
 	k := kernel.NewKernel(apiKey)
+
+	// ─── 注册 Go 插件（L3/L4） ──────────────────────
+	// 通用工具插件
+	k.Register("search_plugin", &plugins.SearchPlugin{})
+	k.Register("write_plugin", &plugins.WritePlugin{})
+	k.Register("memory_plugin", &plugins.MemoryPlugin{})
+	k.Register("scheduler_plugin", plugins.NewScheduler(k))
+
+	// 法律审查插件簇（L4 编排 + L3 执行）
+	k.Register("legal_review_plugin", &plugins.LegalReviewPlugin{Kernel: k})
+	k.Register("cold_start_plugin", &plugins.ColdStartPlugin{})
+	k.Register("legal_search_plugin", &plugins.LegalSearchPlugin{})
+	k.Register("clause_analyzer_plugin", &plugins.ClauseAnalyzerPlugin{})
+	k.Register("legal_write_plugin", &plugins.LegalWritePlugin{})
 
 	// 启动胶水层，自动扫描 plugins/ 目录并 spawn Python 子进程
 	gl := glue.New(k, "./plugins")
