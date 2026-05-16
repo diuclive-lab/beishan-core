@@ -1,5 +1,30 @@
 # 开发日志
 
+## 2026-05-17 法律编排插件 + L3 标准模板
+
+### 新增
+
+| 文件 | 类型 | 用途 |
+|---|---|---|
+| `plugins/legal_review_plugin.go` | L4 插件 | 法律审查编排：访谈→检索→分析→生成四步流程 |
+| `plugins/l3_echo_go/` | L3 Go 示例 | Go 语言 L3 子进程标准模板（IPC 协议） |
+| `plugins/l3_echo_python/` | L3 Python 示例 | Python 语言 L3 子进程标准模板（IPC 协议） |
+
+### design principles 新增
+
+`DESIGN_PRINCIPLES.md` 新增 **"Type 即意图，Payload 即数据"** 章节，确立三条子原则：
+- 路由只认 Type：Router 做机械映射，不看 Payload
+- Payload 不参与决策：Router 永不解析 Payload 字段
+- 不能把路由判断权交给 LLM
+
+### 架构对齐确认
+
+`legal_review_plugin.go` 作为 L4 编排插件，遵循以下契约：
+- 每个步骤通过 `kernel.Call()` 调用 L3 插件，Type 字段精确指定路由目标
+- Payload 只传数据（`json.RawMessage`），不做 type assertion
+- 导入路径使用 `beishan/kernel`（非 `github.com/...`）
+- 错误处理硬编码：任一步骤失败立即终止，不降级
+
 ## 2026-05-16 L3/L4 边界硬化
 
 ### 背景

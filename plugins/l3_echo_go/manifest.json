@@ -1,0 +1,5 @@
+{
+  "name": "l3_echo_go",
+  "entry": "l3_echo_go",
+  "type": "go"
+}

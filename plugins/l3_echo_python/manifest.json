@@ -1,0 +1,5 @@
+{
+  "name": "l3_echo_python",
+  "entry": "main.py",
+  "type": "python"
+}
