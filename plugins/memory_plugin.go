@@ -13,11 +13,11 @@ func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 
 	switch msg.Type {
 	case "memory_read":
-		result = tools.MemoryRead()
+		result = tools.ValidateAndExecute("memory_read", msg.Payload)
 	case "memory_add":
-		result = tools.MemoryAdd(string(msg.Payload))
+		result = tools.ValidateAndExecute("memory_add", msg.Payload)
 	case "memory_search":
-		result = tools.MemorySearch(string(msg.Payload))
+		result = tools.ValidateAndExecute("memory_search", msg.Payload)
 	default:
 		return kernel.Message{}, fmt.Errorf("memory_plugin: 未知消息类型 %s", msg.Type)
 	}

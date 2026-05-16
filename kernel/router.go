@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"beishan/internal/tools"
 )
 
 /* Decision 是 DeepSeek 路由决策的结构化输出。
@@ -28,9 +30,8 @@ type Decision struct {
    每次调用都是独立的，无状态。
 */
 type Router struct {
-	apiKey  string
-	client  *http.Client
-	plugins []string // 可用插件列表，用于验证 DeepSeek 返回的 Recipient 是否合法
+	apiKey string
+	client *http.Client
 }
 
 func NewRouter(apiKey string) *Router {
@@ -38,10 +39,6 @@ func NewRouter(apiKey string) *Router {
 		apiKey: apiKey,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (r *Router) SetPlugins(names []string) {
-	r.plugins = names
 }
 
 /* Route 强制经过 DeepSeek 做路由决策，不可绕过。
@@ -58,7 +55,7 @@ func (r *Router) Route(msg Message) (*Decision, error) {
 	prompt := fmt.Sprintf(
 		`Output JSON: {"recipient":"","reason":"","confidence":0.0}
 Available: %v
-Input: %s`, r.plugins, msg.Type+": "+string(msg.Payload))
+Input: %s`, tools.GetAvailableTools(), msg.Type+": "+string(msg.Payload))
 
 	resp, err := r.callDeepSeek(prompt)
 	if err != nil {
@@ -109,10 +106,14 @@ func (r *Router) callDeepSeek(prompt string) (string, error) {
    DeepSeek 返回的 JSON 必须经过三层验证：
    1. JSON 格式是否正确
    2. 置信度是否高于阈值（< 0.4 拒绝）
-   3. Recipient 是否在已注册的插件列表中
+   3. Recipient 是否在 Schema 注册中心中存在
 
    任何一层不通过，返回错误，不走降级。
    这是防止"规则悄悄替代 AI"的关键防线。
+
+   注意：Router 只查询工具是否存在（GetToolSchema），
+   绝不接触 Payload 内容，遵守 Payload 对内核不透明铁律。
+   真正的参数校验在 L3 ValidateAndExecute 中进行。
 */
 func (r *Router) parseDecision(raw string) (*Decision, error) {
 	var d Decision
@@ -124,14 +125,8 @@ func (r *Router) parseDecision(raw string) (*Decision, error) {
 		return nil, fmt.Errorf("置信度过低: %.2f，决策: %+v", d.Confidence, d)
 	}
 
-	valid := false
-	for _, p := range r.plugins {
-		if p == d.Recipient {
-			valid = true
-			break
-		}
-	}
-	if !valid {
+	// 验证 Recipient 在 Schema 注册中心存在
+	if _, ok := tools.GetToolSchema(d.Recipient); !ok {
 		return nil, fmt.Errorf("无效收件人: %s", d.Recipient)
 	}
 

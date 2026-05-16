@@ -71,3 +71,44 @@ func MemorySearch(query string) *ToolResult {
 	}
 	return successResult(strings.Join(results, "\n"))
 }
+
+// registerMemoryTools registers memory read/add/search as tools with schemas.
+func registerMemoryTools() {
+	Register("memory_read", "Read all memory entries from persistent storage.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return MemoryRead()
+		},
+	)
+
+	Register("memory_add", "Save a new entry to persistent memory storage.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"content"},
+			"properties": map[string]interface{}{
+				"content": stringParam("Content to save to memory"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			content, _ := args["content"].(string)
+			return MemoryAdd(content)
+		},
+	)
+
+	Register("memory_search", "Search memory entries by keyword.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"query"},
+			"properties": map[string]interface{}{
+				"query": stringParam("Keyword to search for in memory entries"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			query, _ := args["query"].(string)
+			return MemorySearch(query)
+		},
+	)
+}

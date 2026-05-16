@@ -11,7 +11,7 @@ type WritePlugin struct{}
 func (p *WritePlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	switch msg.Type {
 	case "write_file", "read_file", "search_files", "patch":
-		result := tools.Execute(msg.Type, string(msg.Payload))
+		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[文件] %s: %s\n", msg.Type, result.Output)
 		return kernel.Message{}, nil
 

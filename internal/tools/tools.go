@@ -91,9 +91,6 @@ var SubagentFactory func(goal, contextStr string, toolsets []string) (string, er
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
-// ToolSchema is the JSON Schema for a tool's parameters.
-type ToolSchema map[string]interface{}
-
 // ToolDefinition describes a tool for LLM function calling.
 type ToolDefinition struct {
 	Type     string      `json:"type"`
@@ -137,6 +134,7 @@ func Register(name, description string, params interface{}, handler ToolHandler)
 }
 
 // RegisterWithCheck adds a tool with a conditional availability check.
+// Also auto-registers the params as Schema for L3 hardening validation.
 func RegisterWithCheck(name, description string, params interface{}, handler ToolHandler, check CheckFn) {
 	Registry[name] = &RegisteredTool{
 		Definition: ToolDefinition{
@@ -149,6 +147,15 @@ func RegisterWithCheck(name, description string, params interface{}, handler Too
 		},
 		Handler: handler,
 		CheckFn: check,
+	}
+
+	// Auto-register schema for L3 hardening
+	if schemaMap, ok := params.(map[string]interface{}); ok {
+		RegisterToolSchema(name, ToolSchema{
+			Name:        name,
+			Description: description,
+			Schema:      schemaMap,
+		})
 	}
 }
 
@@ -185,6 +192,10 @@ func MaxResultSize(name string) int {
 }
 
 // Execute runs a tool by name with given JSON arguments.
+//
+// Note: L4 plugins should use ValidateAndExecute (with schema validation).
+// Execute assumes args are valid JSON (guaranteed by ValidateAndExecute),
+// and no longer does the lenient "raw string" fallback.
 func Execute(name string, argsJSON string) *ToolResult {
 	tool, ok := Registry[name]
 	if !ok {
@@ -193,8 +204,7 @@ func Execute(name string, argsJSON string) *ToolResult {
 
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		// Try with raw string
-		args = map[string]interface{}{"raw": argsJSON}
+		return errorResult("invalid JSON arguments: " + err.Error())
 	}
 
 	return tool.Handler(args)
@@ -204,6 +214,7 @@ func Execute(name string, argsJSON string) *ToolResult {
 func Init() {
 	registerFileTools()
 	registerWebTools()
+	registerMemoryTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }

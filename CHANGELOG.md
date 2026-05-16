@@ -1,5 +1,45 @@
 # 开发日志
 
+## 2026-05-16 L3/L4 边界硬化
+
+### 背景
+
+文档定义的"三层架构"（第一核心/胶水层/插件）与实际代码的"四层架构"（L1 kernel/L2 glue/L3 internal/tools/L4 plugins）不一致，导致 L3 硬化职责掉落在 L3/L4 之间的缝隙中。
+
+根因：L4 plugins 直接调用 `tools.Execute`（L3 内部调度），跳过了参数校验。且 `tools.Execute` 内部对 JSON 解析失败的 payload 做 lenient fallback（包成 `{"raw": ...}`），等于对 LLM 不可靠输出零防御。
+
+### 本次变更
+
+| 变更 | 影响文件 |
+|---|---|
+| **Schema 注册中心**：新增 `RegisterToolSchema` / `GetToolSchema` / `GetAvailableTools`，Router 查询时不触碰 Payload | `internal/tools/schema_registry.go` |
+| **ValidateAndExecute**：L4 调用 L3 的唯一入口，先 Schema 校验再执行 | `internal/tools/validate.go` |
+| **Router 路由验证**：`parseDecision` 改用 `GetToolSchema` 验证 Recipient，移除 whitelist 字段 | `kernel/router.go` |
+| **L4 插件重构**：search/write/memory 全部改调 `ValidateAndExecute` | `plugins/*.go` |
+| **L2 IPC 强化**：ProtocolMessage 增加 TraceID/Timestamp/RetryCount，dispatch 时自动注入 | `glue/protocol.go`, `glue/glue.go` |
+| **Execute 硬化**：移除 lenient fallback，不合法的 JSON 直接报错 | `internal/tools/tools.go` |
+| **文档对齐**：三层 → 四层架构，"第二核心" → "胶水层" | `CHANGELOG.md`, `DESIGN_PRINCIPLES.md` |
+
+### 架构合约（写入后不再修改）
+
+```
+L1 kernel/        注册 + 路由 + 转发                   Payload 永不透明
+L2 glue/          IPC + 进程管理                       不接触 Payload 内容
+L3 internal/tools/ Schema 注册 + 强校验 + 执行          硬化的唯一关卡
+L4 plugins/       编排 L3 完成多步任务                   只写业务逻辑，零防御代码
+
+调用链：
+  User → L1 Route (强制 DeepSeek, 仅查路由表)
+       → L1 Send → L4 OnMessage
+       → L3 ValidateAndExecute (Schema 校验)
+       → L3 Execute → handler
+       → 响应原路返回
+```
+
+### 设计纪律
+
+见 DESIGN_PRINCIPLES.md
+
 ## 2026-05-11 架构重建
 
 ### 背景
@@ -21,24 +61,25 @@ Recipient != "" → 直接转发（快，L4 已决策）
 
 不给快捷方式。DeepSeek 不可用时系统不降级为规则匹配。
 
-#### 三层架构
+#### 四层架构
 
-| 层 | 职责 | 语言 | 可修改 |
-|---|---|---|---|
-| 第一核心 | 注册 + 路由 + 强制 DeepSeek | Go | 冻结不改 |
-| 第二核心（胶水层） | IPC + 进程管理 | Go | 可迭代 |
-| 插件（Python / Go） | 业务逻辑 | 任意 | 随意改 |
+| 层 | 包 | 职责 | 语言 | 可修改 |
+|---|---|---|---|---|
+| L1 内核 | `kernel/` | 注册 + 路由 + 转发 | Go | 冻结不改 |
+| L2 胶水层 | `glue/` | IPC + 进程管理 | Go | 可迭代 |
+| L3 工具层 | `internal/tools/` | 工具注册 + 执行 + schema 清理 | Go | 可迭代 |
+| L4 编排层 | `plugins/*.go` | 编排 L3 完成多步任务 | Go / Python | 随意改 |
 
 #### 消息格式
 
 Message 只有 4 个字段：Sender、Recipient、Type、Payload。
 Payload 对内核永不透明。
 
-### L3 插件清单
+### L4 插件清单
 
 | 插件 | 职责 | 实现来源 |
 |---|---|---|
-| search_plugin | 网页搜索、内容抓取 | hermes-go tools/web.go |
+| search_plugin | 网页搜索、内容抓取（L4 编排 → tools.ValidateAndExecute） | hermes-go tools/web.go |
 | write_plugin | 文件读写、搜索、修改 | hermes-go tools/file.go |
 | memory_plugin | 记忆存储、检索 | hermes-go tools/services.go（内存部分） |
 | scheduler_plugin | 定时触发任务 | 新写 |

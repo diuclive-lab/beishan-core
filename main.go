@@ -22,9 +22,6 @@ func main() {
 		log.Fatalf("胶水层启动失败: %v", err)
 	}
 
-	// 告诉路由器有哪些插件可用（注册表目前在内核中）
-	k.Router.SetPlugins([]string{"echo_plugin"})
-
 	// 发送测试消息（Recipient 留空，强制 DeepSeek 路由）
 	messages := []kernel.Message{
 		{Sender: "user", Type: "query", Payload: []byte(`"你好"`)},

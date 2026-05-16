@@ -2,6 +2,8 @@ package glue
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -164,13 +166,17 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return kernel.Message{}, fmt.Errorf("[Glue] 未知插件: %s", msg.Recipient)
 	}
 
-	// 构造 dispatch 消息
+	// 构造 dispatch 消息，注入链路元数据
+	traceID := newTraceID()
 	dispatch := ProtocolMessage{
-		Type:    "dispatch",
-		ID:      msg.CorrelationID,
-		Sender:  msg.Sender,
-		MsgType: msg.Type,
-		Payload: msg.Payload,
+		Type:       "dispatch",
+		ID:         msg.CorrelationID,
+		TraceID:    traceID,
+		Timestamp:  time.Now().Unix(),
+		RetryCount: 0,
+		Sender:     msg.Sender,
+		MsgType:    msg.Type,
+		Payload:    msg.Payload,
 	}
 
 	data, err := json.Marshal(dispatch)
@@ -267,4 +273,15 @@ func (g *GlueLayer) Shutdown() {
 			log.Printf("[Glue] 插件 %s 强制终止", name)
 		}
 	}
+}
+
+/* newTraceID 生成 8 字节随机全链路追踪 ID。
+
+   在每次 dispatch 时由胶水层自动注入。
+   L3 校验失败时可通过 TraceID 关联回原始请求和 LLM 输出。
+*/
+func newTraceID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
