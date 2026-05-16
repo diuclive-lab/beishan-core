@@ -47,6 +47,20 @@
 - Payload 不参与决策：Router 永不解析 Payload 字段
 - 不能把路由判断权交给 LLM
 
+### 司法数据源集成
+
+新增 `judicial_search` 工具，接入中国司法大数据服务网 (data.court.gov.cn) 和中国裁判文书网 (wenshu.court.gov.cn) 公开数据：
+
+| 变更 | 文件 | 说明 |
+|---|---|---|
+| 新增工具 | `internal/tools/judicial.go` | judicial_search 工具：HTTP 封装 + HTML 解析 + 结果格式化 |
+| 检索链路更新 | `plugins/legal_search_plugin.go` | searchStatutes/searchCases 优先调用 judicial_search |
+| 注册入口 | `internal/tools/tools.go` | Init() 追加 registerJudicialTools |
+
+**数据源优先级**：司法大数据服务网 → 裁判文书网 → 通用 web_search 回退
+
+**免费接口限制**：非注册用户仅支持部分案由（民间借贷、离婚、买卖合同等）的统计查询，裁判文书网有反爬机制。所有结果标记 `source` 字段，供审查者验证。
+
 ### 架构对齐确认
 
 `legal_review_plugin.go` 作为 L4 编排插件，遵循以下契约：

@@ -118,38 +118,40 @@ func (p *LegalSearchPlugin) handleLegalSearch(msg kernel.Message) (kernel.Messag
 
 /* searchStatutes 检索中国法律法规。
 
-   构建检索关键词，优先覆盖以下数据源：
-   - 北大法宝：laws + regulations
-   - 威科先行：statutes + regulatory
-   - 中国政府网：最新法律法规
+   数据源优先级：
+   1. 中国司法大数据服务网 (data.court.gov.cn)
+   2. 北大法宝 (pkulaw.com)
+   3. 通用 web_search (DuckDuckGo) 回退
 
-   使用 tools.ValidateAndExecute("web_search") 执行实际检索。
    检索结果按法律效力层级排序（宪法 > 法律 > 司法解释 > 行政法规 > 部门规章）。
 */
 func (p *LegalSearchPlugin) searchStatutes(query LegalSearchQuery) ([]LegalReference, error) {
-	// 构建检索词
 	searchTerms := buildSearchTerms(query)
 	if len(searchTerms) == 0 {
 		return nil, fmt.Errorf("检索关键词为空")
 	}
 
-	// 先尝试中文法律数据库专用检索
+	// 1. 司法大数据服务网优先
+	if refs, ok := tryJudicialSearch(searchTerms[0], query); ok {
+		sortByLegalHierarchy(refs)
+		return refs, nil
+	}
+
+	// 2. 北大法宝专用检索
 	if refs, ok := tryPkulawSearch(searchTerms[0]); ok {
 		sortByLegalHierarchy(refs)
 		return refs, nil
 	}
 
-	// 回退到通用 web_search
+	// 3. 回退到通用 web_search
 	payload, _ := json.Marshal(map[string]interface{}{
 		"query": searchTerms[0] + " 中国法律法规",
 	})
 	result := tools.ValidateAndExecute("web_search", payload)
 	if !result.Success {
-		// 静默失败，返回最小化结果集
 		return buildDefaultReferences(query), nil
 	}
 
-	// 解析搜索结果
 	refs := parseWebSearchResult(result.Output, query)
 	sortByLegalHierarchy(refs)
 	return refs, nil
@@ -170,7 +172,12 @@ func (p *LegalSearchPlugin) searchCases(query LegalSearchQuery, statutes []Legal
 		return nil, nil
 	}
 
-	// 构建案例检索关键词
+	// 1. 司法大数据案例检索优先
+	if refs, ok := tryJudicialSearch(searchTerms[0], query); ok {
+		return refs, nil
+	}
+
+	// 2. 回退到通用 web_search
 	payload, _ := json.Marshal(map[string]interface{}{
 		"query": searchTerms[0] + " 案例 裁判",
 	})
@@ -225,6 +232,56 @@ func buildSearchTerms(query LegalSearchQuery) []string {
 	}
 
 	return terms
+}
+
+/* tryJudicialSearch 通过 judicial_search 工具查询司法大数据。
+
+   调用流程：
+   1. 构造 payload → ValidateAndExecute("judicial_search", ...)
+   2. 解析返回的 JSON 数组为 JudicialSearchResult 结构
+   3. 转换为 LegalReference（标准引用格式）
+
+   数据源优先级：司法大数据服务网 → 裁判文书网 → 静默失败
+   失败时由调用方决定是否回退到 web_search。
+*/
+func tryJudicialSearch(term string, query LegalSearchQuery) ([]LegalReference, bool) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"query":     term,
+		"case_type": query.ContractType,
+	})
+	result := tools.ValidateAndExecute("judicial_search", payload)
+	if !result.Success || result.Output == "[]" {
+		return nil, false
+	}
+
+	// 解析 judicial_search 返回的 JSON 数组
+	var rawResults []map[string]interface{}
+	if err := json.Unmarshal([]byte(result.Output), &rawResults); err != nil {
+		return nil, false
+	}
+
+	var refs []LegalReference
+	for _, r := range rawResults {
+		title, _ := r["title"].(string)
+		source, _ := r["source"].(string)
+		url, _ := r["url"].(string)
+		summary, _ := r["summary"].(string)
+
+		level := "裁判文书"
+		if source == "data_court" {
+			level = "司法统计"
+		}
+
+		refs = append(refs, LegalReference{
+			Title:   title,
+			Level:   level,
+			Source:  source,
+			URL:     url,
+			Summary: summary,
+		})
+	}
+
+	return refs, len(refs) > 0
 }
 
 /* tryPkulawSearch 尝试北大法宝专用检索。
