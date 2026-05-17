@@ -76,7 +76,12 @@ func (p *LegalSearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error
 func (p *LegalSearchPlugin) handleLegalSearch(msg kernel.Message) (kernel.Message, error) {
 	var query LegalSearchQuery
 	if err := json.Unmarshal(msg.Payload, &query); err != nil {
-		return kernel.Message{}, fmt.Errorf("legal_search: payload 解析失败: %w", err)
+		// 纯文本回退：把 payload 当作关键词
+		var text string
+		if e2 := json.Unmarshal(msg.Payload, &text); e2 != nil {
+			return kernel.Message{}, fmt.Errorf("legal_search: payload 解析失败: %w", err)
+		}
+		query = LegalSearchQuery{Keywords: []string{text}}
 	}
 
 	// 执行检索：先查法律条文，再查案例

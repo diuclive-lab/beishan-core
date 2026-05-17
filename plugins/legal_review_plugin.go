@@ -69,20 +69,25 @@ func (p *LegalReviewPlugin) OnMessage(msg kernel.Message) (kernel.Message, error
 
 	// ─── 步骤 4：生成审查报告 ─────────────────────
 	// 调 L3 legal_write_plugin，渲染中文法律文书
-	_, err = p.Kernel.Call(kernel.Message{
+	// 将 analysis.Payload 包装为 WriteRequest
+	writePayload, _ := json.Marshal(map[string]interface{}{
+		"analysis_report": analysis.Payload,
+		"document_type":   "contract_review",
+		"include_matrix":  true,
+	})
+	doc, err := p.Kernel.Call(kernel.Message{
 		Recipient: "legal_write_plugin",
-		Sender:    "legal_review_plugin",
 		Type:      "legal_generate_report",
-		Payload:   analysis.Payload,
+		Payload:   writePayload,
 	}, 30*time.Second)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("报告生成失败: %w", err)
 	}
 
 	// ─── 返回最终结果 ────────────────────────────
+	// Sender 不设置，由 kernel.Send 自动填充
 	return kernel.Message{
-		Sender:  "legal_review_plugin",
 		Type:    "legal_review.result",
-		Payload: analysis.Payload,
+		Payload: doc.Payload,
 	}, nil
 }

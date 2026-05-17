@@ -1,5 +1,25 @@
 # 开发日志
 
+## 2026-05-17 全链路冒烟测试通过 6/6
+
+### 修复
+
+- **Router extraNames**：DeepSeek 提示词现在包含 kernel 注册的插件名，确保法律插件可被路由
+- **legal_review_plugin 响应 Sender**：移除了导致 `deliverResponse` 跳过回传的 Sender 字段
+- **纯文本 Payload 兼容**：legal_search_plugin 和 clause_analyzer_plugin 现在也接受纯文本输入
+- **parseProfile 空值降级**：空 profile JSON 不再报错
+- **WriteRequest 包装**：legal_review_plugin Step 4 正确将 AnalysisReport 包装为 WriteRequest
+
+### 新增
+
+- **HTTP API 服务**：main.go 改为持久 HTTP 服务（`:8013`），添加 GET /health 和 POST /api/chat
+- **Router.KnownPlugins**：新增方法返回所有注册插件名
+
+### 测试
+
+- 法律插件冒烟测试 6/6 全量通过
+- 测试链路：冷启动(2) → 法律检索(2) → 条款分析(1) → 全链路审查(1)
+
 ## 2026-05-17 L3 法律分析插件簇 + 中国法律适配
 
 ### 新增
@@ -60,6 +80,24 @@
 **数据源优先级**：司法大数据服务网 → 裁判文书网 → 通用 web_search 回退
 
 **免费接口限制**：非注册用户仅支持部分案由（民间借贷、离婚、买卖合同等）的统计查询，裁判文书网有反爬机制。所有结果标记 `source` 字段，供审查者验证。
+
+### 测试基础设施 + Router 验证修复
+
+从 `66/FangLab` 项目移植评估基础设施：
+
+| 新增 | 文件 | 说明 |
+|---|---|---|
+| 测试场景 | `eval/scenarios/legal_smoke.yaml` | 6 个法律插件测试用例（冷启动/检索/分析/全链路） |
+| 运行脚本 | `eval/scripts/run_legal_smoke.sh` | 启动服务→发送测试→验证响应→汇总结果 |
+| 共享库 | `eval/lib/lib.sh` | 端口检查/进程管理/日志（移植自 runtime_stack_lib.sh） |
+| 文档 | `eval/README.md` | 测试方案说明 |
+| 环境配置 | `.env` | DeepSeek API Key 配置（已 gitignore） |
+
+**Router 验证修复** (`kernel/kernel.go`, `kernel/router.go`)：
+
+Router.parseDecision 原先只查 `tools.GetToolSchema`，但法律插件通过 `kernel.Register` 注册而非工具注册中心。导致 DeepSeek 路由到合法插件时被误判为"无效收件人"。
+
+修复：`NewKernel` 注入 `SetRecipientValidator`，同时检查内核插件表和工具注册中心。kernel.go 新增 .env 自动加载（init 函数）。
 
 ### 架构对齐确认
 

@@ -28,10 +28,26 @@ type Decision struct {
    它的职责只有一个：根据消息内容，返回应该发给哪个插件。
    不缓存决策，不做策略，不写规则。
    每次调用都是独立的，无状态。
+
+   checkRecipient 由 Kernel 在 NewKernel 时注入，
+   同时检查 Schema 注册中心（工具）和 Kernel 插件表（插件）。
+
+   extraNames 由 Kernel.Register 自动追加，
+   确保 DeepSeek 提示词中包含所有已注册的插件名。
 */
 type Router struct {
-	apiKey string
-	client *http.Client
+	apiKey         string
+	client         *http.Client
+	checkRecipient func(name string) bool
+	extraNames     []string
+}
+
+/* AddKnownName 添加一个已知插件名到路由提示词列表。
+
+   由 Kernel.Register 自动调用，外部勿调。
+*/
+func (r *Router) AddKnownName(name string) {
+	r.extraNames = append(r.extraNames, name)
 }
 
 func NewRouter(apiKey string) *Router {
@@ -39,6 +55,15 @@ func NewRouter(apiKey string) *Router {
 		apiKey: apiKey,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+/* SetRecipientValidator 设置收件人验证函数。
+
+   由 Kernel.NewKernel 自动注入，同时检查工具和插件。
+   外部勿调用。
+*/
+func (r *Router) SetRecipientValidator(fn func(name string) bool) {
+	r.checkRecipient = fn
 }
 
 /* Route 强制经过 DeepSeek 做路由决策，不可绕过。
@@ -52,10 +77,13 @@ func NewRouter(apiKey string) *Router {
    所有逻辑判断在硬化层（parseDecision）里做，不在提示词里做。
 */
 func (r *Router) Route(msg Message) (*Decision, error) {
+	available := tools.GetAvailableTools()
+	available = append(available, r.extraNames...)
+
 	prompt := fmt.Sprintf(
 		`Output JSON: {"recipient":"","reason":"","confidence":0.0}
 Available: %v
-Input: %s`, tools.GetAvailableTools(), msg.Type+": "+string(msg.Payload))
+Input: %s`, available, msg.Type+": "+string(msg.Payload))
 
 	resp, err := r.callDeepSeek(prompt)
 	if err != nil {
@@ -125,8 +153,12 @@ func (r *Router) parseDecision(raw string) (*Decision, error) {
 		return nil, fmt.Errorf("置信度过低: %.2f，决策: %+v", d.Confidence, d)
 	}
 
-	// 验证 Recipient 在 Schema 注册中心存在
-	if _, ok := tools.GetToolSchema(d.Recipient); !ok {
+	// 验证 Recipient 合法（工具注册中心 + 内核插件表）
+	if r.checkRecipient != nil {
+		if !r.checkRecipient(d.Recipient) {
+			return nil, fmt.Errorf("无效收件人: %s", d.Recipient)
+		}
+	} else if _, ok := tools.GetToolSchema(d.Recipient); !ok {
 		return nil, fmt.Errorf("无效收件人: %s", d.Recipient)
 	}
 

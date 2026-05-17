@@ -1,13 +1,15 @@
 package kernel
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"sync"
 	"time"
-	"crypto/rand"
-	"encoding/hex"
+
+	"beishan/internal/tools"
 )
 
 /* Plugin 是所有插件必须实现的接口。
@@ -38,18 +40,44 @@ type Kernel struct {
 }
 
 func NewKernel(apiKey string) *Kernel {
-	return &Kernel{
+	k := &Kernel{
 		plugins: make(map[string]Plugin),
 		Router:  NewRouter(apiKey),
 		pending: make(map[string]chan Message),
 	}
+	// 注入收件人验证函数：同时检查工具注册中心和内核插件表
+	k.Router.SetRecipientValidator(func(name string) bool {
+		// 先查内核插件表
+		k.mu.RLock()
+		_, inPlugins := k.plugins[name]
+		k.mu.RUnlock()
+		if inPlugins {
+			return true
+		}
+		// 再查工具注册中心
+		_, inTools := tools.GetToolSchema(name)
+		return inTools
+	})
+	return k
 }
 
 func (k *Kernel) Register(name string, p Plugin) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.plugins[name] = p
+	k.Router.AddKnownName(name)
 	log.Printf("[Kernel] 插件注册: %s", name)
+}
+
+// KnownPlugins 返回所有已注册插件名列表。
+func (k *Kernel) KnownPlugins() []string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	names := make([]string, 0, len(k.plugins))
+	for name := range k.plugins {
+		names = append(names, name)
+	}
+	return names
 }
 
 /* Send 发送消息。

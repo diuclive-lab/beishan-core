@@ -80,7 +80,12 @@ func (p *ClauseAnalyzerPlugin) OnMessage(msg kernel.Message) (kernel.Message, er
 func (p *ClauseAnalyzerPlugin) handleAnalysis(msg kernel.Message) (kernel.Message, error) {
 	var input AnalysisInput
 	if err := json.Unmarshal(msg.Payload, &input); err != nil {
-		return kernel.Message{}, fmt.Errorf("clause_analysis: payload 解析失败: %w", err)
+		// 纯文本回退：把 payload 整体当作合同原文
+		var text string
+		if e2 := json.Unmarshal(msg.Payload, &text); e2 != nil {
+			return kernel.Message{}, fmt.Errorf("clause_analysis: payload 解析失败: %w", err)
+		}
+		input = AnalysisInput{Contract: text}
 	}
 
 	// 解包各数据源
@@ -117,9 +122,12 @@ func (p *ClauseAnalyzerPlugin) handleAnalysis(msg kernel.Message) (kernel.Messag
    从 cold_start_plugin 输出的 JSON 字符串中提取合同类型和法律领域。
 */
 func (p *ClauseAnalyzerPlugin) parseProfile(profileJSON string) (ColdStartProfile, error) {
+	if profileJSON == "" {
+		return ColdStartProfile{}, nil
+	}
 	var profile ColdStartProfile
 	if err := json.Unmarshal([]byte(profileJSON), &profile); err != nil {
-		return ColdStartProfile{}, err
+		return ColdStartProfile{}, nil // 静默降级
 	}
 	return profile, nil
 }

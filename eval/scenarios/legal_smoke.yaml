@@ -1,0 +1,76 @@
+# Legal Review Smoke — 6 cases for legal plugin chain verification
+# Created: 2026-05-17
+# Purpose: Verify L4 legal_review_plugin + L3 legal plugin chain end-to-end
+# Coverage: cold_start, legal_search, clause_analysis, legal_generate_report
+#
+# Usage:
+#   bash eval/scripts/run_legal_smoke.sh [--api URL] [--strict]
+#
+# Reference: ported from FangLab agent-eval YAML scenario format (66/FangLab/eval/scenarios/smoke_business.yaml)
+
+- id: legal_cold_start_01
+  category: legal_smoke
+  prompt: "审查这份劳动合同：乙方月工资8000元，试用期6个月，试用期工资4000元。"
+  expected_plugin: cold_start_plugin
+  expected_type: cold_start
+  max_latency_ms: 15000
+  notes: "冷启动：识别劳动合同类型、试用期条款"
+  expected_evidence:
+    min_count: 1
+    kind_any_of: ["profile"]
+    required_fields: ["contract_type", "legal_area"]
+  expected_min_confidence: 0.6
+
+- id: legal_cold_start_02
+  category: legal_smoke
+  prompt: "审查这份买卖合同：甲方供货1000台手机，单价3000元，交货日期2026年6月1日。"
+  expected_plugin: cold_start_plugin
+  expected_type: cold_start
+  max_latency_ms: 15000
+  notes: "冷启动：识别买卖合同类型"
+  expected_evidence:
+    min_count: 1
+    kind_any_of: ["profile"]
+    required_fields: ["contract_type"]
+
+- id: legal_search_01
+  category: legal_smoke
+  prompt: "劳动合同法第19条关于试用期的规定"
+  expected_plugin: legal_search_plugin
+  expected_type: legal_search
+  max_latency_ms: 20000
+  notes: "法律检索：查询劳动合同试用期条款"
+  expected_evidence:
+    min_count: 1
+    kind_any_of: ["statutes"]
+
+- id: legal_search_02
+  category: legal_smoke
+  prompt: "民法典第584条关于违约金的规定"
+  expected_plugin: legal_search_plugin
+  expected_type: legal_search
+  max_latency_ms: 20000
+  notes: "法律检索：查询民法典违约金条款"
+
+- id: legal_clause_analysis_01
+  category: legal_smoke
+  prompt: '{"contract":"乙方月工资8000元，试用期6个月","profile":"劳动合���","laws":"劳动合同法第19条：试用期不得超过6个月"}'
+  expected_plugin: clause_analyzer_plugin
+  expected_type: clause_analysis
+  max_latency_ms: 20000
+  notes: "条款分析：三段论推理试用期合法性"
+  expected_evidence:
+    min_count: 1
+    kind_any_of: ["analysis"]
+    required_fields: ["major_premise", "minor_premise", "conclusion", "risk_level"]
+
+- id: legal_full_chain_01
+  category: legal_smoke
+  prompt: "审查这份合同：乙方月工资8000元，试用期6个月，试用期工资4000元。"
+  expected_plugin: legal_review_plugin
+  expected_type: legal_review
+  max_latency_ms: 60000
+  notes: "全链路：冷启动→检索→分析→生成"
+  expected_evidence:
+    min_count: 4
+    kind_any_of: ["result"]
