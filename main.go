@@ -81,10 +81,6 @@ func main() {
 		Description: "本地终端命令执行，执行 shell 命令和管理后台进程",
 		Tags:        []string{"terminal", "shell"},
 	})
-	k.Register("code_exec_plugin", &plugins.CodeExecPlugin{}, kernel.Meta{
-		Description: "Python 代码执行，运行 Python 脚本并返回输出结果",
-		Tags:        []string{"code", "python"},
-	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},
