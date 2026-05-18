@@ -12,6 +12,17 @@ import (
 	"beishan/internal/tools"
 )
 
+/* Meta 描述插件的语义信息，供 DeepSeek 路由决策使用。
+
+   最少字段原则：只放对路由有帮助的信息。
+   - Description：一句话描述，直接注入路由 prompt
+   - Tags：分类标签，备用（当前路由 prompt 不使用，保留扩展）
+*/
+type Meta struct {
+	Description string
+	Tags        []string
+}
+
 /* Plugin 是所有插件必须实现的接口。
 
    OnMessage 处理消息。
@@ -31,6 +42,7 @@ type Plugin interface {
 */
 type Kernel struct {
 	plugins map[string]Plugin
+	metas   map[string]Meta // 插件语义描述，与 plugins 同步
 	mu      sync.RWMutex
 	Router  *Router
 
@@ -42,30 +54,43 @@ type Kernel struct {
 func NewKernel(apiKey string) *Kernel {
 	k := &Kernel{
 		plugins: make(map[string]Plugin),
+		metas:   make(map[string]Meta),
 		Router:  NewRouter(apiKey),
 		pending: make(map[string]chan Message),
 	}
 	// 注入收件人验证函数：同时检查工具注册中心和内核插件表
 	k.Router.SetRecipientValidator(func(name string) bool {
-		// 先查内核插件表
 		k.mu.RLock()
 		_, inPlugins := k.plugins[name]
 		k.mu.RUnlock()
 		if inPlugins {
 			return true
 		}
-		// 再查工具注册中心
 		_, inTools := tools.GetToolSchema(name)
 		return inTools
 	})
 	return k
 }
 
-func (k *Kernel) Register(name string, p Plugin) {
+/* Register 注册插件。Meta 可选，不传则描述为空。
+
+   注册后自动同步到 Router，无需手动调用 SetPlugins。
+*/
+func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+
 	k.plugins[name] = p
-	k.Router.AddKnownName(name)
+
+	m := Meta{}
+	if len(meta) > 0 {
+		m = meta[0]
+	}
+	k.metas[name] = m
+
+	// 同步到 Router：名字 + 描述一起传，Router 负责拼 prompt
+	k.Router.AddKnownPlugin(name, m.Description)
+
 	log.Printf("[Kernel] 插件注册: %s", name)
 }
 
@@ -104,10 +129,8 @@ func (k *Kernel) Send(msg Message) error {
 
 	log.Printf("[Kernel] 转发消息: %s -> %s", msg.Type, msg.Recipient)
 
-	// 调用插件
 	response, err := plugin.OnMessage(msg)
 
-	// 如果有响应且有关联 ID，送回给调用方
 	if err == nil && msg.CorrelationID != "" && response.Sender == "" {
 		response.Sender = msg.Recipient
 		response.Recipient = msg.Sender
@@ -149,7 +172,6 @@ func (k *Kernel) Call(msg Message, timeout time.Duration) (Message, error) {
 	}
 }
 
-/* 把响应送回给等待中的 Call 调用方。 */
 func (k *Kernel) deliverResponse(msg Message) {
 	k.pendingMu.Lock()
 	ch, ok := k.pending[msg.CorrelationID]

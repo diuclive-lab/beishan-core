@@ -1,5 +1,27 @@
 # 开发日志
 
+## 2026-05-18 Meta 注册 + 路由描述增强
+
+### 新增
+
+- **Meta 结构体**：`kernel.Register` 新增可选的 `Meta` 参数，支持 `Description` 和 `Tags`，向后兼容
+- **路由 prompt 增强**：DeepSeek 现在能看到每个插件的语义描述，路由决策质量提升
+- **`AddKnownPlugin` 替代 `SetPlugins`**：注册时自动维护路由列表，不再需要手动同步
+- **`KnownPlugins()`**：新增方法返回所有已注册插件
+- **Markdown 容错**：`parseDecision` 自动剥离 DeepSeek 返回的 `` ```json ``、`` ``` `` 等标记
+- **HTTP API 兼容**：`/api/chat` 支持 `{"message":"..."}` 简单格式和 `{"type":"...","payload":...}` 完整格式
+
+### 修复
+
+- **Router 不暴露工具名**：路由 prompt 不再包含 `internal/tools` 的工具名，只显示 kernel 注册的插件名
+- **`checkRecipient` 改为查 `knownPlugins`**：移除对 `tools.GetToolSchema` 的最后引用，Router 不再依赖 tools 包
+- **tools.Init() 调用**：main.go 缺失的初始化已补齐
+
+### 实测
+
+- `web_search` → `search_plugin` ✅ 搜索结果正确返回
+- `write_file` → `write_plugin` ✅ 文件写入成功
+
 ## 2026-05-17 全链路冒烟测试通过 6/6
 
 ### 修复
