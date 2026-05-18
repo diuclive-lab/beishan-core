@@ -221,6 +221,7 @@ func Init() {
 	registerBrowserTools()
 	registerSessionSearchTools()
 	registerTodoTools()
+	registerClarifyTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }

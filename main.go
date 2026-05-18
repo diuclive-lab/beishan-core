@@ -93,6 +93,10 @@ func main() {
 		Description: "待办事项管理，添加、列出、标记完成、清除任务",
 		Tags:        []string{"todo", "task"},
 	})
+	k.Register("clarify_plugin", &plugins.ClarifyPlugin{}, kernel.Meta{
+		Description: "用户意图澄清和学习，模糊输入时提问确认，并自动学习用户习惯",
+		Tags:        []string{"clarify", "learning"},
+	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},
