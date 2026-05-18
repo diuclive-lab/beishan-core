@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -18,10 +19,12 @@ import (
    最少字段原则：只放对路由有帮助的信息。
    - Description：一句话描述，直接注入路由 prompt
    - Tags：分类标签，备用
+   - Types：该插件支持的消息类型列表，供 skill_factory 生成和校验用
 */
 type Meta struct {
 	Description string
 	Tags        []string
+	Types       []string
 }
 
 /* Plugin 是所有插件必须实现的接口。 */
@@ -88,6 +91,19 @@ func (k *Kernel) KnownPlugins() []string {
 	return names
 }
 
+
+/* KnownPluginsMeta 返回所有已注册插件的名 → Meta 映射，含 Description 和 Tags。
+   供 skill_factory_plugin 构建含描述的插件列表，提升 DeepSeek 生成质量。 */
+func (k *Kernel) KnownPluginsMeta() map[string]Meta {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	result := make(map[string]Meta, len(k.metas))
+	for name, m := range k.metas {
+		result[name] = m
+	}
+	return result
+}
+
 /* Send 发送消息。
 
    如果 Recipient 为空 → 强制 DeepSeek 路由。
@@ -97,11 +113,14 @@ func (k *Kernel) Send(msg Message) error {
 	if msg.Recipient == "" {
 		decision, err := k.Router.Route(msg)
 		if err != nil {
-			return err
+		return err
 		}
 		msg.Recipient = decision.Recipient
 		if decision.MsgType != "" {
-			msg.Type = decision.MsgType
+		msg.Type = decision.MsgType
+		}
+		if decision.Payload != "" {
+			msg.Payload = json.RawMessage(decision.Payload)
 		}
 	}
 
@@ -177,20 +196,20 @@ func (k *Kernel) deliverReply(msg Message) {
 	case strings.HasPrefix(msg.ReplyTo, "plugin:"):
 		target := strings.TrimPrefix(msg.ReplyTo, "plugin:")
 		if err := k.Send(Message{
-			Sender:    msg.Recipient,
-			Recipient: target,
-			Type:      msg.Type + ".result",
-			Payload:   msg.Payload,
+		Sender:    msg.Recipient,
+		Recipient: target,
+		Type:      msg.Type + ".result",
+		Payload:   msg.Payload,
 		}); err != nil {
-			log.Printf("[Kernel] deliverReply 失败: %v", err)
+		log.Printf("[Kernel] deliverReply 失败: %v", err)
 		}
 
 	case strings.HasPrefix(msg.ReplyTo, "session:"):
 		sessionID := strings.TrimPrefix(msg.ReplyTo, "session:")
 		if k.SessionHandler != nil {
-			k.SessionHandler(sessionID, msg)
+		k.SessionHandler(sessionID, msg)
 		} else {
-			log.Printf("[Kernel] SessionHandler 未设置，丢弃 session 回程: %s", sessionID)
+		log.Printf("[Kernel] SessionHandler 未设置，丢弃 session 回程: %s", sessionID)
 		}
 
 	case strings.HasPrefix(msg.ReplyTo, "callback:"):

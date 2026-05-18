@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>beishan-core</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --border: #2a2a4a;
+  --text: #e0e0e0;
+  --text-dim: #888;
+  --accent: #4fc3f7;
+  --success: #66bb6a;
+  --warn: #ffa726;
+  --radius: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text); height: 100vh;
+  display: flex;
+}
+/* ─── 侧栏 ─── */
+.sidebar {
+  width: 260px; background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 16px; gap: 8px;
+}
+.sidebar h2 { font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+.sidebar .status { font-size: 12px; color: var(--text-dim); }
+.sidebar .status.ok { color: var(--success); }
+.sidebar .workflows { flex: 1; overflow-y: auto; }
+.workflow-item {
+  padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
+  font-size: 13px; transition: background .15s; list-style: none;
+}
+.workflow-item:hover { background: rgba(255,255,255,.05); }
+.workflow-item .name { color: var(--accent); }
+.workflow-item .desc { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+/* ─── 主面板 ─── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.msg {
+  max-width: 80%; padding: 10px 14px; border-radius: var(--radius);
+  font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+.msg.user { background: #2a3f5f; align-self: flex-end; }
+.msg.system { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; }
+.msg.system .header { font-size: 11px; color: var(--accent); margin-bottom: 4px; }
+.msg.system .raw { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.msg .json { font-family: "SF Mono", Monaco, monospace; font-size: 12px; white-space: pre; }
+/* ─── 输入栏 ─── */
+.input-bar {
+  border-top: 1px solid var(--border); padding: 12px 16px;
+  display: flex; gap: 8px; background: var(--surface);
+}
+.input-bar input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 14px; color: var(--text); font-size: 14px; outline: none;
+}
+.input-bar input:focus { border-color: var(--accent); }
+.input-bar button {
+  background: var(--accent); color: #000; border: none; border-radius: var(--radius);
+  padding: 10px 20px; font-size: 14px; cursor: pointer; font-weight: 600;
+}
+.input-bar button:disabled { opacity: .4; cursor: not-allowed; }
+/* ─── 滚动 ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>beishan-core</h2>
+  <span class="status" id="status">● 检查连接中...</span>
+  <div style="margin-top:8px"><h2>工作流</h2></div>
+  <ul class="workflows" id="workflow-list">
+    <li style="color:var(--text-dim);font-size:13px;padding:8px">加载中...</li>
+  </ul>
+</div>
+
+<div class="main">
+  <div class="chat" id="chat"></div>
+  <div class="input-bar">
+    <input type="text" id="input" placeholder="输入消息..." autofocus
+           onkeydown="if(event.key==='Enter') send()">
+    <button id="send-btn" onclick="send()">发送</button>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+// ─── 状态检测 ───
+async function checkHealth() {
+  const el = document.getElementById('status');
+  try {
+    const r = await fetch(API + '/health');
+    const d = await r.json();
+    el.textContent = '● 已连接  :8013';
+    el.className = 'status ok';
+  } catch {
+    el.textContent = '● 未连接';
+    el.className = 'status';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 10000);
+
+// ─── 加载工作流 ───
+async function loadWorkflows() {
+  const el = document.getElementById('workflow-list');
+  try {
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({recipient:'skill_factory_plugin',type:'skill_list'})
+    });
+    const d = await r.json();
+    const skills = d.payload || [];
+    el.innerHTML = skills.map(s => `
+      <li class="workflow-item" onclick="sendWorkflow('${s.name}')">
+        <div class="name">${s.name}</div>
+        <div class="desc">${s.path}</div>
+      </li>
+    `).join('');
+    if (!skills.length) el.innerHTML = '<li style="color:var(--text-dim);font-size:13px;padding:8px">暂无工作流</li>';
+  } catch {
+    el.innerHTML = '<li style="color:var(--text-dim);font-size:13px;padding:8px">加载失败</li>';
+  }
+}
+loadWorkflows();
+
+function sendWorkflow(name) {
+  document.getElementById('input').value = '帮我跑一下 ' + name;
+  send();
+}
+
+// ─── 聊天 ───
+function addMsg(role, content, raw) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  if (role === 'user') {
+    div.textContent = content;
+  } else {
+    let html = '';
+    if (content) html += '<div>' + escapeHtml(content) + '</div>';
+    if (raw) html += '<div class="raw">' + escapeHtml(JSON.stringify(raw, null, 2)) + '</div>';
+    div.innerHTML = html;
+  }
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function send() {
+  const input = document.getElementById('input');
+  const btn = document.getElementById('send-btn');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  btn.disabled = true;
+  addMsg('user', text);
+
+  try {
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: text, async: false})
+    });
+    const d = await r.json();
+
+    // 提取可读内容
+    let reply = '';
+    if (d.type === 'workflow.result') {
+      const wf = d.payload;
+      reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '✓ 成功' : '✗ 失败'}\n`;
+      reply += `共 ${wf.Steps.length} 步`;
+    } else if (d.type === 'chat.response') {
+      reply = d.payload || '(空响应)';
+    } else if (d.type === 'skill.result' && d.payload) {
+      reply = d.payload.note || '操作完成';
+      loadWorkflows(); // 刷新工作流列表
+    } else if (d.type && d.payload) {
+      reply = typeof d.payload === 'string' ? d.payload : JSON.stringify(d.payload);
+    } else {
+      reply = d.note || JSON.stringify(d);
+    }
+
+    addMsg('system', reply, d);
+  } catch (err) {
+    addMsg('system', '请求失败: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    document.getElementById('input').focus();
+  }
+}
+</script>
+</body>
+</html>

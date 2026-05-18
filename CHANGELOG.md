@@ -1,5 +1,163 @@
 # 开发日志
 
+## 2026-05-18 Web 界面 — 内嵌单页应用
+
+### 新增
+
+- **`web/index.html`**：单文件 Web 界面，深色主题
+  - 左侧栏：连接状态指示 + 工作流列表（调用 `skill_list` 自动加载，点击直接触发）
+  - 主面板：聊天式交互，支持自然语言输入和结构化响应展示
+  - 零外部依赖：纯 vanilla HTML/CSS/JS，无框架、无 CDN
+- **`main.go` `//go:embed`**：将 `web/index.html` 编译进二进制，保持单文件部署
+  - 访问 `http://localhost:8013/` 打开 Web 界面
+
+### 效果
+
+```bash
+# 启动后浏览器打开
+open http://localhost:8013
+# 在输入框里直接打字：
+#   "帮我跑一下开源雷达" → 触发 workflow
+#   "搜索今天的AI新闻"  → Router 路由 search_plugin
+#   左侧工作流列表     → 点击直接发送
+```
+
+### 架构
+
+```
+浏览器 ← HTTP → beishan-core (:8013)
+                 ├─ GET  /         → web/index.html (嵌入二进制)
+                 ├─ POST /api/chat → 完整消息链路
+                 └─ GET  /health   → 连接状态
+```
+
+## 2026-05-18 Router 工作流发现：用户自然语言触发 workflow
+
+### 新增
+
+- **`kernel.Decision.Payload` 字段**：DeepSeek 路由决策时可输出 payload，`kernel.Send()` 自动应用
+- **`kernel.Router.SetWorkflowSummary()`**：注入可用 workflow 列表到路由 prompt
+- **`main.go` 启动时扫描 `workflows/`**：`buildWorkflowSummary()` 读取每个 YAML 的 id 和头部注释，注入 Router
+- **`workflow_plugin` 纯文本降级**：payload 为裸字符串时直接作为 workflow 名处理
+
+### 效果
+
+```
+用户说"帮我跑一下开源雷达"
+  → Router 识别为 workflow_plugin (置信度 1.00)
+  → 自动设置 payload: {"workflow":"github_radar"}
+  → workflow_plugin 执行 7 步全链 ✅
+```
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `kernel/router.go` | Decision 加 Payload、Router 加 workflowSummary、Route prompt 加 payload 指令 |
+| `kernel/kernel.go` | Send() 应用 Decision.Payload |
+| `plugins/workflow_plugin.go` | 纯文本 payload 降级为 workflow 名 |
+| `main.go` | buildWorkflowSummary() 扫描 workflows/ 注入 Router |
+
+## 2026-05-18 skill_factory 增强：Types 注册 + 硬化层第四关
+
+### 变更
+
+- **`kernel.Meta` 新增 `Types []string` 字段**：记录每个插件支持的 `msg.Type` 列表
+- **`kernel.KnownPluginsMeta()` 新增方法**：返回 `map[string]Meta`，含 Description、Tags、Types
+- **`skill_factory_plugin` 增强**：
+  - `buildPluginList()` 输出带 types：`search_plugin: 通用网络搜索 (types: web_search, web_fetch)`
+  - `validateAndSave()` 增加第四关校验：验证 `step.Type` 在插件注册的 `Types` 列表内
+- **`main.go`**：15 个插件注册全部补上 `Types` 字段
+
+### 效果
+
+| 指标 | 之前 | 之后 |
+|---|---|---|
+| DeepSeek 生成 type 正确率 | ~0%（全靠猜） | 实测 4/4 全对 ✅ |
+| 硬化层校验 | 不校验 type | 第四关拦截非法 type |
+| prompt 中插件信息 | 只有名字+描述 | 名字+描述+可用 types |
+
+### 硬化层四关
+
+1. YAML 语法解析
+2. 语义检查（id、steps、plugin、type）
+3. 插件注册表校验（plugin 必须在 kernel 已注册）
+4. **type 合法性校验**（step.Type 必须在插件注册的 Types 列表内）
+
+## 2026-05-18 skill_factory_plugin — 用自然语言生成 YAML 工作流
+
+### 新增
+
+- **`plugins/skill_factory_plugin.go`**：技能工场插件，接收自然语言描述，用 DeepSeek 自动生成标准 YAML 工作流并保存到 `workflows/`
+- **`main.go`**：注册 `skill_factory_plugin`，传入 `workflows/` 目录路径
+
+### 消息类型
+
+| 类型 | 用途 |
+|---|---|
+| `skill_create` | 根据自然语言描述生成 YAML 工作流并保存 |
+| `skill_list` | 列出所有已有 skill/workflow |
+| `skill_view` | 查看某个 skill 的 YAML 内容 |
+| `skill_delete` | 删除一个 skill |
+
+### 硬化层验证
+
+生成的 YAML 经过三层校验才写入：
+1. YAML 语法解析（`gopkg.in/yaml.v3`）
+2. 语义检查（id 必有、steps 非空、每步有 plugin/type）
+3. 插件注册表校验（引用的 plugin 必须已注册到 kernel）
+
+文件名冲突保护：同名 workflow 已存在时拒绝覆盖。
+
+### 用法
+
+```bash
+# 一句话生成工作流
+curl -X POST http://localhost:8013/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"skill_factory_plugin","type":"skill_create","payload":{"description":"每天早上搜索HackerNews热门技术话题，总结趋势后存入记忆","name":"hn_daily"}}'
+
+# 列出所有 skill
+curl -X POST http://localhost:8013/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"skill_factory_plugin","type":"skill_list"}'
+
+# 查看某个 skill
+curl -X POST http://localhost:8013/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"skill_factory_plugin","type":"skill_view","payload":"hn_daily"}'
+
+# 删除 skill
+curl -X POST http://localhost:8013/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"skill_factory_plugin","type":"skill_delete","payload":"hn_daily"}'
+```
+
+## 2026-05-18 scheduler 支持 cron 定点触发
+
+### 新增
+
+- **scheduler `cron` 字段**：`schedule_add` 支持标准 5 字段 cron 表达式，与 `interval` 互斥
+- **`cronNext()` 最小 cron 解析器**：内建于 `plugins/scheduler_plugin.go`，支持 `*`、`*/N`、`N-M`、`N,M` 语法
+- **cron 模式 timer 调度**：`time.NewTimer` 计算到下次触发的时间，触发后重算下一轮，支持 `schedule_list` 显示下次执行时间
+
+### 用法
+
+```bash
+# 每天上午 10 点执行
+curl -X POST http://localhost:8013/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"scheduler_plugin","type":"schedule_add","payload":{"name":"daily_radar","cron":"0 10 * * *","workflow":"github_radar"}}'
+```
+
+### 测试
+
+|cron 表达式|期望行为|验证|
+|---|---|---|
+|`0 10 * * *`|每天 10:00|6 场景全部 PASS ✅|
+|`*/15 * * * *`|每 15 分钟|6 场景全部 PASS ✅|
+|`0 9 * * 1-5`|工作日 9:00|6 场景全部 PASS ✅|
+
 ## 2026-05-18 callback webhook + workflow 超时/重试
 
 ### 新增

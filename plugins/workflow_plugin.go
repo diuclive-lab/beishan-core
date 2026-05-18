@@ -3,6 +3,7 @@ package plugins
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"beishan/internal/workflow"
 	"beishan/kernel"
@@ -26,8 +27,14 @@ func (p *WorkflowPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		Workflow string          `json:"workflow"`
 		Input    json.RawMessage `json:"input"`
 	}
+
+	// 先试结构化 JSON，如果失败则尝试把 payload 当作纯文本 workflow 名
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		return kernel.Message{}, fmt.Errorf("workflow_plugin: 参数解析失败: %w", err)
+		workflowName := strings.Trim(string(msg.Payload), `"`)
+		if workflowName == "" {
+			return kernel.Message{}, fmt.Errorf("workflow_plugin: 参数解析失败: %w", err)
+		}
+		req.Workflow = workflowName
 	}
 	if req.Workflow == "" {
 		return kernel.Message{}, fmt.Errorf("workflow_plugin: workflow 参数不能为空")

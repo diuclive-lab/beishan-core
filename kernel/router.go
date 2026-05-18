@@ -18,6 +18,7 @@ import (
 type Decision struct {
 	Recipient  string  `json:"recipient"`
 	MsgType    string  `json:"msg_type,omitempty"`
+	Payload    string  `json:"payload,omitempty"`
 	Reason     string  `json:"reason"`
 	Confidence float64 `json:"confidence"`
 }
@@ -38,9 +39,10 @@ type pluginEntry struct {
    无需手动调用 SetPlugins。
 */
 type Router struct {
-	apiKey       string
-	client       *http.Client
-	knownPlugins []pluginEntry
+	apiKey          string
+	client          *http.Client
+	knownPlugins    []pluginEntry
+	workflowSummary string
 }
 
 /* AddKnownPlugin 添加插件名和描述到路由列表。
@@ -50,6 +52,12 @@ type Router struct {
 */
 func (r *Router) AddKnownPlugin(name, description string) {
 	r.knownPlugins = append(r.knownPlugins, pluginEntry{name, description})
+}
+
+/* SetWorkflowSummary 注入可用 workflow 列表，Router 会追加到插件列表之后。
+   由 main.go 在启动时扫描 workflows/ 目录后调用。 */
+func (r *Router) SetWorkflowSummary(summary string) {
+	r.workflowSummary = summary
 }
 
 func NewRouter(apiKey string) *Router {
@@ -76,6 +84,10 @@ func (r *Router) buildPluginList() string {
 			sb.WriteString(fmt.Sprintf("- %s\n", e.name))
 		}
 	}
+	if r.workflowSummary != "" {
+		sb.WriteString("\nAvailable workflows (via workflow_plugin):\n")
+		sb.WriteString(r.workflowSummary)
+	}
 	return sb.String()
 }
 
@@ -92,14 +104,15 @@ func (r *Router) buildPluginList() string {
 func (r *Router) Route(msg Message) (*Decision, error) {
 	pluginList := r.buildPluginList()
 
-	prompt := fmt.Sprintf(
-		`Output JSON: {"recipient":"","msg_type":"","reason":"","confidence":0.0}
-Recipient is the plugin to handle this request. msg_type is the message type the plugin expects (e.g. web_search, write_file, terminal_exec, code_exec, session_search, todo_add, clarify, text_to_speech, image_generate, workflow_run, memory_add, session_add, browser_navigate). Use the most specific msg_type for the request.
-Available plugins:
-%sInput: %s`,
-		pluginList,
-		msg.Type+": "+string(msg.Payload),
-	)
+		prompt := fmt.Sprintf(
+			`Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
+		Recipient is the plugin to handle this request. msg_type is the message type the plugin expects (e.g. web_search, write_file, terminal_exec, code_exec, session_search, todo_add, clarify, text_to_speech, image_generate, workflow_run, memory_add, session_add, browser_navigate). Use the most specific msg_type for the request.
+		When routing to workflow_plugin, set msg_type to "workflow_run" and payload to the JSON string: {"workflow":"<workflow_name>"}
+		Available plugins:
+		%sInput: %s`,
+			pluginList,
+			msg.Type+": "+string(msg.Payload),
+		)
 
 	resp, err := r.callDeepSeek(prompt)
 	if err != nil {
