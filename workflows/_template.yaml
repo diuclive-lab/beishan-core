@@ -1,0 +1,82 @@
+# ═══════════════════════════════════════════════════════════
+# 工作流模板 — 复制此文件创建新的 YAML 工作流
+# ═══════════════════════════════════════════════════════════
+#
+# 使用方法：
+#   1. 复制此文件为 workflows/<你的工作流名>.yaml
+#   2. 修改 id 字段为你的工作流名
+#   3. 按需求增删 steps
+#   4. 调用: POST /api/chat
+#      {"recipient":"workflow_plugin","type":"workflow_run",
+#       "payload":{"workflow":"<你的工作流名>","input":"用户输入"}}
+#
+# 字段说明:
+#   id:       步骤标识，唯一即可
+#   plugin:   目标插件名（必须已注册到 kernel）
+#   type:     消息类型（由目标插件的 OnMessage 处理）
+#   inputs:   构建 payload 的参数映射
+#             "${input}"             → 用户的原始输入
+#             "${steps.<id>.output}" → 前面某步骤的输出结果
+#   next:     下一步路由（最后一步省略则自动结束）
+#             字符串: next: next_step_id
+#             条件分支:
+#               next:
+#                 - if: "steps.<id>.output.<字段> == '值'"
+#                   goto: 分支步骤名
+#                 - default: 兜底步骤名
+
+# ─── 模板示例：三步骤工作流 ─────────────────────
+# 可删除此示例，替换为你的实际步骤
+
+id: my_workflow          # 工作流名，也是 API 调用时的 workflow 参数
+
+steps:
+  - id: step_1
+    plugin: "search_plugin"       # 第一步调用的插件
+    type: "web_search"            # 消息类型
+    inputs:                       # 构建 payload
+      query: "${input}"           # 用户的原始输入作为 query 参数
+    next: step_2                  # 下一步
+
+  - id: step_2
+    plugin: "write_plugin"
+    type: "write_file"
+    inputs:
+      content: "${steps.step_1.output}"  # 把 step_1 的结果写入文件
+      path: "result.txt"
+    next: step_3
+
+  - id: step_3
+    plugin: "todo_plugin"
+    type: "todo_add"
+    inputs:
+      todos: '["任务完成: ${steps.step_1.output}"]'  # 在列表中使用插值
+    # 省略 next → 自动结束
+
+# ─── 条件分支示例 ──────────────────────────────
+# 先执行 legal_search，根据结果决定走分析还是直接写报告
+#
+# steps:
+#   - id: legal_search
+#     plugin: legal_search_plugin
+#     type: legal_search
+#     inputs:
+#       query: "${input}"
+#     next:
+#       - if: "steps.legal_search.output.status == 'found'"
+#         goto: clause_analysis
+#       - default: write_report
+#
+#   - id: clause_analysis
+#     plugin: clause_analyzer_plugin
+#     type: clause_analysis
+#     inputs:
+#       laws: "${steps.legal_search.output}"
+#     next: write_report
+#
+#   - id: write_report
+#     plugin: legal_write_plugin
+#     type: legal_write
+#     inputs:
+#       analysis: "${steps.clause_analysis.output}"
+#     # next 省略 → 自动结束
