@@ -107,11 +107,7 @@ func main() {
 		Tags:        []string{"orchestration", "planning"},
 	})
 
-	// 法律审查插件簇（L4 编排 + L3 执行）
-	k.Register("legal_review_plugin", &plugins.LegalReviewPlugin{Kernel: k}, kernel.Meta{
-		Description: "法律合同全链路审查，编排冷启动、检索、分析、生成报告",
-		Tags:        []string{"legal", "orchestration"},
-	})
+	// 法律审查插件簇（L3 执行插件，编排由 workflow_plugin 处理）
 	k.Register("cold_start_plugin", &plugins.ColdStartPlugin{}, kernel.Meta{
 		Description: "合同冷启动识别，提取合同类型和法律领域",
 		Tags:        []string{"legal", "classification"},
@@ -132,8 +128,8 @@ func main() {
 	// 工作流引擎（有向图编排，替代硬编码 L4 插件）
 	wfEngine := workflow.New(k, "./workflows")
 	k.Register("workflow_plugin", &plugins.WorkflowPlugin{Engine: wfEngine}, kernel.Meta{
-		Description: "工作流引擎，执行 workflows/*.yaml 定义的多步骤编排任务",
-		Tags:        []string{"workflow", "orchestration"},
+		Description: "工作流引擎，执行 workflows/*.yaml 定义的多步骤编排任务，包括法律审查（contract_review）、尽职调查等场景",
+		Tags:        []string{"workflow", "orchestration", "legal"},
 	})
 
 	// 启动胶水层
