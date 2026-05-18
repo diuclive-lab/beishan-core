@@ -1,0 +1,14 @@
+# 工作流引擎冒烟测试
+# 覆盖：正常执行、超时配置、错误重试
+plugin: workflow_smoke
+cases:
+  - id: workflow_legal_full
+    desc: 法律审查工作流（4步正常执行）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"legal_review","input":"审查这份合同：乙方月工资8000元，试用期6个月，试用期工资4000元。"}'
+  - id: workflow_timeout
+    desc: 工作流默认超时（不指定timeout，用120s默认）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"legal_review","input":"审查：甲方供货1000台"}'

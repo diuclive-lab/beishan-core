@@ -14,6 +14,8 @@
 #   id:       步骤标识，唯一即可
 #   plugin:   目标插件名（必须已注册到 kernel）
 #   type:     消息类型（由目标插件的 OnMessage 处理）
+#   timeout:  步超时秒数（默认 120）
+#   retry:    失败重试次数（默认 0）
 #   inputs:   构建 payload 的参数映射
 #             "${input}"             → 用户的原始输入
 #             "${steps.<id>.output}" → 前面某步骤的输出结果

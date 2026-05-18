@@ -8,6 +8,7 @@ steps:
   - id: cold_start
     plugin: cold_start_plugin
     type: cold_start
+    timeout: 30                # 30 秒超时
     inputs:
       contract_text: "${input}"
     next: legal_search
@@ -15,6 +16,8 @@ steps:
   - id: legal_search
     plugin: legal_search_plugin
     type: legal_search
+    timeout: 30
+    retry: 1                   # 失败重试 1 次
     inputs:
       query: "${steps.cold_start.output}"
     next: clause_analysis
@@ -22,6 +25,7 @@ steps:
   - id: clause_analysis
     plugin: clause_analyzer_plugin
     type: clause_analysis
+    timeout: 30
     inputs:
       contract: "${input}"
       profile: "${steps.cold_start.output}"
@@ -31,6 +35,7 @@ steps:
   - id: write_report
     plugin: legal_write_plugin
     type: legal_write
+    timeout: 30
     inputs:
       contract: "${input}"
       profile: "${steps.cold_start.output}"

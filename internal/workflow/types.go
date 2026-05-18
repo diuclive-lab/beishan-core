@@ -25,11 +25,13 @@ type WorkflowDef struct {
                - default: write_report
 */
 type StepDef struct {
-	ID     string            `yaml:"id"`
-	Plugin string            `yaml:"plugin"`
-	Type   string            `yaml:"type"`
-	Inputs map[string]string `yaml:"inputs,omitempty"`
-	Next   NextList          `yaml:"next,omitempty"`
+	ID      string            `yaml:"id"`
+	Plugin  string            `yaml:"plugin"`
+	Type    string            `yaml:"type"`
+	Inputs  map[string]string `yaml:"inputs,omitempty"`
+	Timeout int               `yaml:"timeout,omitempty"` // 秒，默认 120
+	Retry   int               `yaml:"retry,omitempty"`   // 失败重试次数，默认 0
+	Next    NextList          `yaml:"next,omitempty"`
 }
 
 /* NextList 支持 next 字段的字符串和列表两种格式。 */
