@@ -1,5 +1,41 @@
 # 开发日志
 
+## 2026-05-18 工作流引擎 + legal_review 替换为 YAML
+
+### 新增
+
+- **`internal/workflow/` 工作流引擎**：
+  - `engine.go`：核心执行器，读 YAML → 顺序调用 `kernel.Call` → 条件分支路由
+  - `types.go`：支持 `next: string` 和 `next: [{if:..., goto:...}, {default:...}]` 双格式
+  - `buildPayload`：`${input}` 和 `${steps.<id>.output}` 插值解析
+  - `evaluateCondition`：`steps.<id>.output.<field> == 'value'` 条件评估
+
+- **`workflows/` 目录**：
+  - `legal_review.yaml`：首个 YAML 工作流（4 步：cold_start → legal_search → clause_analysis → write_report）
+  - `_template.yaml`：标准示例模板，含字段说明和条件分支示例
+
+- **`plugins/workflow_plugin.go`**：薄插件包装，接收 `workflow_run` 消息，委托 engine 执行
+
+### 删除
+
+- **`plugins/legal_review_plugin.go`**（-150 行 Go 代码）：被 `workflows/legal_review.yaml` 替代
+- `main.go` 中 `legal_review_plugin` 注册移除，描述合并到 `workflow_plugin`
+
+### 替换后影响
+
+| 项目 | 替换前 | 替换后 |
+|---|---|---|
+| 加新场景 | 写 Go 代码 + 编译 | YAML 文件，无需编译 |
+| 法律审查调用 | `legal_review_plugin` | `workflow_plugin`（workflow: legal_review） |
+| 插件数 | 18 | 17 |
+| 测试 | legal_smoke 6/6 通过 | legal_smoke 6/6 通过 ✅ |
+
+### 工作流引擎实测
+
+```
+cold_start → legal_search → clause_analysis → write_report  4步全通 ✅
+```
+
 ## 2026-05-18 全功能冒烟测试 + 工具移植完结
 
 ### Eval 补全
