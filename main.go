@@ -102,6 +102,10 @@ func main() {
 		Description: "AI 图片生成，根据文字描述生成图片。预留接口，需配置外部 API",
 		Tags:        []string{"image", "generate"},
 	})
+	k.Register("think_plugin", &plugins.ThinkPlugin{}, kernel.Meta{
+		Description: "通用对话与问答，处理用户的聊天、闲聊、创意写作等非特定任务请求",
+		Tags:        []string{"chat", "dialogue", "general"},
+	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},

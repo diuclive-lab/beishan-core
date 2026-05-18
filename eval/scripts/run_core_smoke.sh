@@ -143,6 +143,10 @@ info ""
 info "── 媒体插件（预留接口）──"
 run_test "tts"               "tts_plugin" "text_to_speech"  '{"text":"hello"}'
 
+info ""
+info "── 对话插件 ──"
+run_test "think"             "think_plugin" "chat"   '"你好"'
+
 # ── 结果汇总 ───────────────────────────────
 info ""
 info "================================================"
