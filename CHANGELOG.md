@@ -1,8 +1,35 @@
 # 开发日志
 
-## 2026-05-18 开发日志归档
+## 2026-05-18 全功能冒烟测试 + 工具移植完结
 
-当日完成的所有变更已按轮次归档在下方。如需回溯具体某轮改动，搜索对应的标题即可。
+### Eval 补全
+
+- **新增 `eval/scenarios/core_smoke.yaml`**：12 个测试用例覆盖全部 L3/L4 插件
+- **新增 `eval/scripts/run_core_smoke.sh`**：自动编译 + 启动 + 测试 + 清理
+- **实测 12/12 全部通过** ✅
+
+### hermes-go 工具移植完结
+
+本轮完成最后 4 个工具移植：
+
+| 工具 | 文件 | 定位 |
+|---|---|---|
+| vision_analyze（视觉分析） | `internal/tools/media.go` | 预留接口，需 Vision API |
+| image_generate（图片生成） | `internal/tools/media.go` | 预留接口，需 DALL-E / SD |
+| text_to_speech（文本转语音） | `internal/tools/media.go` | 本地 `say` 命令可用 |
+| clarify（意图澄清+学习） | `internal/tools/clarify.go` | 3 次学习后自动推断 |
+
+### 最终统计
+
+| 指标 | 数值 |
+|---|---|
+| 工具注册数 | 34 |
+| 插件注册数 | 17（含 3 glue 子进程） |
+| Eval 场景 | legal_smoke（6 用例） + core_smoke（12 用例） |
+| 内核文件 | 冻结不改 |
+| 全部 hermes-go 工具 | 移植完毕 ✅ |
+
+## 2026-05-18 开发日志归档
 
 ## 2026-05-18 memory continuity（路线 A：session 内含 evidence）
 

@@ -1,0 +1,66 @@
+# beishan-core 全功能冒烟测试场景
+# 覆盖所有非法律 L3/L4 插件的基础功能
+# 每个测试断言：响应存在 && 状态非 error
+---
+plugin: core_smoke
+cases:
+  - id: terminal_01
+    desc: 终端命令执行
+    recipient: terminal_plugin
+    type: terminal_exec
+    payload: '{"command":"echo hello"}'
+  - id: terminal_02
+    desc: 终端后台进程列表
+    recipient: terminal_plugin
+    type: terminal_list
+    payload: '{}'
+  - id: browser_01
+    desc: 浏览器导航
+    recipient: browser_plugin
+    type: browser_navigate
+    payload: '{"url":"https://example.com"}'
+  - id: browser_02
+    desc: 浏览器快照
+    recipient: browser_plugin
+    type: browser_snapshot
+    payload: '{}'
+  - id: todo_01
+    desc: 添加待办
+    recipient: todo_plugin
+    type: todo_add
+    payload: '{"todos":["测试任务1","测试任务2"]}'
+  - id: todo_02
+    desc: 列出待办
+    recipient: todo_plugin
+    type: todo_list
+    payload: '{}'
+  - id: todo_03
+    desc: 标记完成
+    recipient: todo_plugin
+    type: todo_done
+    payload: '{"id":1}'
+  - id: session_search_01
+    desc: 历史会话列表
+    recipient: session_search_plugin
+    type: session_list
+    payload: '{}'
+  - id: clarify_01
+    desc: 澄清提问
+    recipient: clarify_plugin
+    type: clarify
+    payload: '{"question":"确定？","choices":["是","否"]}'
+  - id: media_01
+    desc: TTS 语音
+    recipient: media_plugin
+    type: text_to_speech
+    payload: '{"text":"hello"}'
+  - id: memory_01
+    desc: 记忆存储
+    recipient: memory_plugin
+    type: session_add
+    payload: '{"session_id":"eval_test","role":"user","type":"test","payload":"smoke"}'
+  - id: memory_02
+    desc: 记忆查询
+    recipient: memory_plugin
+    type: session_get
+    payload: '{"session_id":"eval_test"}'
