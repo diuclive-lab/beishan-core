@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"beishan/internal/notify"
 )
 
 /* Meta 描述插件的语义信息，供 DeepSeek 路由决策使用。
@@ -192,7 +194,7 @@ func (k *Kernel) deliverReply(msg Message) {
 		}
 
 	case strings.HasPrefix(msg.ReplyTo, "callback:"):
-		log.Printf("[Kernel] callback 回程路由未实现: %s", msg.ReplyTo)
+		go notify.Callback(msg.ReplyTo, msg.Payload)
 
 	default:
 		log.Printf("[Kernel] 未知 ReplyTo 格式: %s", msg.ReplyTo)
