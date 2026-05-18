@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -47,6 +48,11 @@ func newSessionID() string {
 	return hex.EncodeToString(b)
 }
 
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b[1 : len(b)-1])
+}
+
 func main() {
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
 	if apiKey == "" {
@@ -68,7 +74,7 @@ func main() {
 		Tags:        []string{"write", "generate"},
 	})
 	k.Register("memory_plugin", &plugins.MemoryPlugin{}, kernel.Meta{
-		Description: "会话记忆管理，适用于存储和召回上下文信息",
+		Description: "会话记忆管理，存储和召回跨轮上下文信息，按 session 组织",
 		Tags:        []string{"memory", "session"},
 	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
@@ -123,6 +129,20 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	saveToSession := func(sessionID, role, msgType string, payload []byte) {
+		s := string(payload)
+		s = strings.Trim(s, `"`)
+		escaped := jsonEscape(s)
+		body := fmt.Sprintf(
+			`{"session_id":"%s","role":"%s","type":"%s","payload":"%s"}`,
+			sessionID, role, msgType, escaped)
+		k.Send(kernel.Message{
+			Recipient: "memory_plugin",
+			Type:      "session_add",
+			Payload:   json.RawMessage(body),
+		})
+	}
+
 	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -135,6 +155,7 @@ func main() {
 			return
 		}
 
+		sessionID := newSessionID()
 		msg := kernel.Message{Sender: "user"}
 		async := false
 
@@ -163,18 +184,19 @@ func main() {
 			}
 		}
 
+		// 记录用户输入到 session
+		saveToSession(sessionID, "user", msg.Type, msg.Payload)
+
 		w.Header().Set("Content-Type", "application/json")
 
 		if async {
-			// 异步模式：立即返回 session_id，后台 goroutine 处理
-			sessionID := newSessionID()
 			msg.ReplyTo = "session:" + sessionID
 
-			go func() {
+			go func(sID string) {
 				if err := k.Send(msg); err != nil {
 					log.Printf("[main] 异步请求失败: %v", err)
 				}
-			}()
+			}(sessionID)
 
 			json.NewEncoder(w).Encode(map[string]string{
 				"status":     "pending",
@@ -183,7 +205,7 @@ func main() {
 			return
 		}
 
-		// 同步模式（原有行为）
+		// 同步模式
 		resp, err := k.Call(msg, 120*time.Second)
 
 		if err != nil {
@@ -193,6 +215,10 @@ func main() {
 			})
 			return
 		}
+
+		// 记录插件响应到 session
+		saveToSession(sessionID, msg.Recipient, resp.Type, resp.Payload)
+
 		json.NewEncoder(w).Encode(resp)
 	})
 

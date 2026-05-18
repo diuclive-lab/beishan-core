@@ -1,5 +1,38 @@
 # 开发日志
 
+## 2026-05-18 memory continuity（路线 A：session 内含 evidence）
+
+### 新增
+
+- **`internal/tools/memory.go` 重写为 session 感知存储**：
+  - 存储结构：`~/.hermes/memory/sessions/<session_id>.json`
+  - 每条 session 内包含 `messages[]` + `evidence[]`
+  - 7 个新工具：session_add、session_get、session_search、session_list、session_delete、evidence_add、evidence_search
+  - 并发安全：`sync.RWMutex` 保护读写
+  - 威胁扫描：注入检测保留
+
+- **`plugins/memory_plugin.go` 更新**：支持全部 7 种 session 消息类型
+
+- **`main.go` HTTP handler 自动记录 session**：
+  - 每次 `/api/chat` 请求生成 `session_id`
+  - 同步模式下自动记录 `user → plugin → response` 到 session
+  - 异步模式通过 goroutine 处理，`ReplyTo` 回程后存入
+
+### 注册工具统计
+
+`tools registered:` **15** 个工具（原 11 + 新增 7 个 session/evidence 工具，剔除 3 个旧 memory 工具）
+
+### 路线选择
+
+**路线 A**：evidence 作为 session 的子结构存储，不独立管理。
+当前无跨 session 引用证据的真实需求，路线 B 留接口。
+
+### 实测
+
+- 发送消息 → session 自动创建 ✅
+- 消息持久化到磁盘 ✅
+- session_list 查询 ✅
+
 ## 2026-05-18 第三轮：glue 依赖管理（路线 A）
 
 - **`glue/spawn()` 新增 `requirements.txt` 自动检测**：spawn 前 `os.Stat` 检测，存在则 `pip3 install -r`
