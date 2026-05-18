@@ -11,11 +11,20 @@ import "encoding/json"
    CorrelationID 用于 Call() 请求-响应配对。
    L4 编排 L3 时，Call 设置此 ID，L3 返回的消息带相同 ID，
    内核通过此 ID 把响应送回等待的 Call 调用方。
+
+   ReplyTo 用于异步回程路由。Send() 完成后内核检查此字段，
+   由 deliverReply() 根据前缀分派：
+
+     "plugin:xxx"       → 内核直接路由到插件
+     "session:xxx"      → 存入 session 结果队列（HTTP 轮询）
+     "callback:http://…" → HTTP POST 回调（webhook）
+     ""                 → fire-and-forget，不回程
 */
 type Message struct {
 	Sender        string          `json:"sender"`
 	Recipient     string          `json:"recipient"`
 	Type          string          `json:"type"`
 	Payload       json.RawMessage `json:"payload"`
-	CorrelationID string          `json:"correlation_id,omitempty"` // 请求-响应配对
+	CorrelationID string          `json:"correlation_id,omitempty"`
+	ReplyTo       string          `json:"reply_to,omitempty"`
 }

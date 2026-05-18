@@ -1,5 +1,34 @@
 # 开发日志
 
+## 2026-05-18 第二轮：ReplyTo 回程路由 + HTTP 异步 session
+
+### 新增
+
+- **`Message.ReplyTo` 字段**：支持 `plugin:`、`session:`、`callback:`、空 四种前缀
+- **`deliverReply()` 内核方法**：`Send()` 完成后检查 `ReplyTo`，按前缀分派
+- **`SessionHandler` 回调**：内核不持有 session 状态，由 HTTP 层注入存储函数
+- **`/api/chat` 异步模式**：`{"message":"...","async":true}` 立即返回 `session_id`，后台 goroutine 处理
+- **`/api/result/:session_id` 轮询端点**：有结果返回结果，无结果返回 `{"status":"pending"}`
+
+### 清理
+
+- `Router.checkRecipient` 和 `SetRecipientValidator` 删除，`parseDecision` 只用 `knownPlugins` 验证
+- `NewKernel` 不再依赖 `tools.GetToolSchema`，内核层与工具层注册表完全解耦
+
+### 架构边界（正式确立）
+
+```
+内核路由层  → 只认识插件名（knownPlugins）
+插件执行层  → 只认识工具名（tools.Registry）
+两层之间    → 不互相知道对方的注册表
+```
+
+### 实测
+
+- 异步请求 → 立即返回 session_id ✅
+- goroutine 后台处理 → DeepSeek 路由 → 插件执行 → deliverReply 存储结果 ✅
+- 轮询 /api/result/:session_id → 返回结果 ✅
+
 ## 2026-05-18 Meta 注册 + 路由描述增强
 
 ### 新增

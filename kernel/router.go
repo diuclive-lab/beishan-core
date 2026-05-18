@@ -33,10 +33,9 @@ type pluginEntry struct {
    无需手动调用 SetPlugins。
 */
 type Router struct {
-	apiKey         string
-	client         *http.Client
-	checkRecipient func(name string) bool
-	knownPlugins   []pluginEntry // 替代原 extraNames，带描述
+	apiKey       string
+	client       *http.Client
+	knownPlugins []pluginEntry
 }
 
 /* AddKnownPlugin 添加插件名和描述到路由列表。
@@ -53,10 +52,6 @@ func NewRouter(apiKey string) *Router {
 		apiKey: apiKey,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (r *Router) SetRecipientValidator(fn func(name string) bool) {
-	r.checkRecipient = fn
 }
 
 /* buildPluginList 构建给 DeepSeek 的插件列表字符串。

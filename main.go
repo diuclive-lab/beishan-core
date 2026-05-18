@@ -3,12 +3,15 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +39,12 @@ func init() {
 			}
 		}
 	}
+}
+
+func newSessionID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func main() {
@@ -89,10 +98,19 @@ func main() {
 		Tags:        []string{"legal", "write"},
 	})
 
-	// 启动胶水层，自动扫描 plugins/ 目录并 spawn 子进程
+	// 启动胶水层
 	gl := glue.New(k, "./plugins")
 	if err := gl.Start(); err != nil {
 		log.Fatalf("胶水层启动失败: %v", err)
+	}
+
+	// ─── Session 结果队列 ──────────────────────────
+
+	var sessionResults sync.Map
+
+	k.SessionHandler = func(sessionID string, msg kernel.Message) {
+		sessionResults.Store(sessionID, msg)
+		log.Printf("[main] session 结果已存储: %s", sessionID)
 	}
 
 	// ─── HTTP API ──────────────────────────────────
@@ -118,13 +136,15 @@ func main() {
 		}
 
 		msg := kernel.Message{Sender: "user"}
+		async := false
 
 		if txt, ok := raw["message"].(string); ok {
-			// 简单格式: {"message":"写一份合同审查"}
 			msg.Type = "chat"
 			msg.Payload = json.RawMessage(`"` + txt + `"`)
+			if a, ok := raw["async"].(bool); ok {
+				async = a
+			}
 		} else {
-			// 完整格式: {"type":"...","payload":"...","recipient":"..."}
 			if t, ok := raw["type"].(string); ok {
 				msg.Type = t
 			}
@@ -138,11 +158,34 @@ func main() {
 				pb, _ := json.Marshal(p)
 				msg.Payload = pb
 			}
+			if a, ok := raw["async"].(bool); ok {
+				async = a
+			}
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+
+		if async {
+			// 异步模式：立即返回 session_id，后台 goroutine 处理
+			sessionID := newSessionID()
+			msg.ReplyTo = "session:" + sessionID
+
+			go func() {
+				if err := k.Send(msg); err != nil {
+					log.Printf("[main] 异步请求失败: %v", err)
+				}
+			}()
+
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":     "pending",
+				"session_id": sessionID,
+			})
+			return
+		}
+
+		// 同步模式（原有行为）
 		resp, err := k.Call(msg, 120*time.Second)
 
-		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{
 				"status": "sent",
@@ -151,6 +194,27 @@ func main() {
 			return
 		}
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("/api/result/", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := strings.TrimPrefix(r.URL.Path, "/api/result/")
+		if sessionID == "" {
+			http.Error(w, `{"error":"missing session_id"}`, http.StatusBadRequest)
+			return
+		}
+
+		val, ok := sessionResults.Load(sessionID)
+		w.Header().Set("Content-Type", "application/json")
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]string{
+				"session_id": sessionID,
+				"status":     "pending",
+			})
+			return
+		}
+
+		sessionResults.Delete(sessionID)
+		json.NewEncoder(w).Encode(val)
 	})
 
 	addr := ":8013"

@@ -6,34 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
-
-	"beishan/internal/tools"
 )
 
 /* Meta 描述插件的语义信息，供 DeepSeek 路由决策使用。
 
    最少字段原则：只放对路由有帮助的信息。
    - Description：一句话描述，直接注入路由 prompt
-   - Tags：分类标签，备用（当前路由 prompt 不使用，保留扩展）
+   - Tags：分类标签，备用
 */
 type Meta struct {
 	Description string
 	Tags        []string
 }
 
-/* Plugin 是所有插件必须实现的接口。
-
-   OnMessage 处理消息。
-   如果返回的 Message 不为空，内核会将其送回给原始发送方（用于请求-响应模式）。
-   L4 编排 L3 时使用此模式：L4 Call → L3 处理 → 响应回 L4。
-*/
+/* Plugin 是所有插件必须实现的接口。 */
 type Plugin interface {
 	OnMessage(msg Message) (Message, error)
 }
 
-/* Kernel 微内核：注册 + 路由 + 请求-响应。
+/* Kernel 微内核：注册 + 路由 + 请求-响应 + 回程路由。
 
    冻结规则：
    - 不再新增职责
@@ -42,13 +36,16 @@ type Plugin interface {
 */
 type Kernel struct {
 	plugins map[string]Plugin
-	metas   map[string]Meta // 插件语义描述，与 plugins 同步
+	metas   map[string]Meta
 	mu      sync.RWMutex
 	Router  *Router
 
-	// 请求-响应：CorrelationID → 等待中的响应通道
 	pending   map[string]chan Message
 	pendingMu sync.Mutex
+
+	// SessionHandler 由外部注入（如 HTTP 层），
+	// 收到 session: 前缀的 ReplyTo 时回调，内核不持有 session 状态。
+	SessionHandler func(sessionID string, msg Message)
 }
 
 func NewKernel(apiKey string) *Kernel {
@@ -58,24 +55,10 @@ func NewKernel(apiKey string) *Kernel {
 		Router:  NewRouter(apiKey),
 		pending: make(map[string]chan Message),
 	}
-	// 注入收件人验证函数：同时检查工具注册中心和内核插件表
-	k.Router.SetRecipientValidator(func(name string) bool {
-		k.mu.RLock()
-		_, inPlugins := k.plugins[name]
-		k.mu.RUnlock()
-		if inPlugins {
-			return true
-		}
-		_, inTools := tools.GetToolSchema(name)
-		return inTools
-	})
 	return k
 }
 
-/* Register 注册插件。Meta 可选，不传则描述为空。
-
-   注册后自动同步到 Router，无需手动调用 SetPlugins。
-*/
+/* Register 注册插件。Meta 可选，不传则描述为空。 */
 func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -88,13 +71,11 @@ func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	}
 	k.metas[name] = m
 
-	// 同步到 Router：名字 + 描述一起传，Router 负责拼 prompt
 	k.Router.AddKnownPlugin(name, m.Description)
 
 	log.Printf("[Kernel] 插件注册: %s", name)
 }
 
-// KnownPlugins 返回所有已注册插件名列表。
 func (k *Kernel) KnownPlugins() []string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -108,7 +89,7 @@ func (k *Kernel) KnownPlugins() []string {
 /* Send 发送消息。
 
    如果 Recipient 为空 → 强制 DeepSeek 路由。
-   插件返回的响应消息会发回给 Sender。
+   完成后检查 ReplyTo，调 deliverReply 处理回程路由。
 */
 func (k *Kernel) Send(msg Message) error {
 	if msg.Recipient == "" {
@@ -138,14 +119,14 @@ func (k *Kernel) Send(msg Message) error {
 		k.deliverResponse(response)
 	}
 
+	if err == nil && msg.ReplyTo != "" {
+		k.deliverReply(msg)
+	}
+
 	return err
 }
 
-/* Call 同步请求-响应调用。
-
-   L4 编排 L3 时使用：
-   resp, err := kernel.Call(Message{Recipient:"search_plugin", Type:"web_search", Payload:...})
-*/
+/* Call 同步请求-响应。 */
 func (k *Kernel) Call(msg Message, timeout time.Duration) (Message, error) {
 	msg.CorrelationID = newCorrelationID()
 
@@ -182,6 +163,36 @@ func (k *Kernel) deliverResponse(msg Message) {
 		case ch <- msg:
 		default:
 		}
+	}
+}
+
+/* deliverReply 根据 ReplyTo 前缀分派回程路由。 */
+func (k *Kernel) deliverReply(msg Message) {
+	switch {
+	case strings.HasPrefix(msg.ReplyTo, "plugin:"):
+		target := strings.TrimPrefix(msg.ReplyTo, "plugin:")
+		if err := k.Send(Message{
+			Sender:    msg.Recipient,
+			Recipient: target,
+			Type:      msg.Type + ".result",
+			Payload:   msg.Payload,
+		}); err != nil {
+			log.Printf("[Kernel] deliverReply 失败: %v", err)
+		}
+
+	case strings.HasPrefix(msg.ReplyTo, "session:"):
+		sessionID := strings.TrimPrefix(msg.ReplyTo, "session:")
+		if k.SessionHandler != nil {
+			k.SessionHandler(sessionID, msg)
+		} else {
+			log.Printf("[Kernel] SessionHandler 未设置，丢弃 session 回程: %s", sessionID)
+		}
+
+	case strings.HasPrefix(msg.ReplyTo, "callback:"):
+		log.Printf("[Kernel] callback 回程路由未实现: %s", msg.ReplyTo)
+
+	default:
+		log.Printf("[Kernel] 未知 ReplyTo 格式: %s", msg.ReplyTo)
 	}
 }
 
