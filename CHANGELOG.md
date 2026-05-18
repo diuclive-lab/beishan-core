@@ -1,5 +1,31 @@
 # 开发日志
 
+## 2026-05-18 think_plugin + Router MsgType + 启动清理 + REPL
+
+### 新增
+
+- **`plugins/think_plugin.go`**：通用对话插件。`chat` 类型消息调 DeepSeek 生成回答，系统提示词同步 beishan-core 能力列表，不自称"不能XX"
+- **`cmd/repl/main.go`**：REPL 交互界面。`go run cmd/repl/main.go` 启动，直接打字聊天，支持 `/todo_plugin:todo_add 买牛奶` 格式指定插件
+- **`eval/scripts/run_core_smoke.sh`** 新增 think_plugin 测试用例
+
+### 修复
+
+- **`kernel/router.go`**: `Decision` 新增 `MsgType` 字段。用户说"搜索新闻"→ 路由到 `search_plugin` + `Type: web_search`，不再把 `chat` 类型送到所有插件
+- **`kernel/kernel.go`**: `Send()` 应用决策中的 `MsgType`
+- **启动清理**：编译 `go_example` / `l3_echo_go` 二进制，删除 `l4_research` / `l4_template_python` 残档，manifest 目录名校验全通过
+- **think_plugin 系统提示词**：列出所有插件能力，避免 DeepSeek 说"我不能生成图片"
+
+### 实测
+
+| 操作 | 结果 |
+|---|---|
+| `{"message":"你好"}` | → think_plugin 回答 ✅ |
+| `{"message":"搜索新闻"}` | → search_plugin/web_search ✅ |
+| `{"message":"帮我写文件"}` | → write_plugin/write_file ✅ |
+| `{"message":"生成图片"}` | → image_gen_plugin/image_generate ✅ |
+| REPL 交互 | → 打字聊天可用 ✅ |
+| 启动零警告 | → 20 插件全部就绪 ✅ |
+
 ## 2026-05-18 工作流引擎 + legal_review 替换为 YAML
 
 ### 新增
