@@ -81,6 +81,18 @@ func main() {
 		Description: "本地终端命令执行，执行 shell 命令和管理后台进程",
 		Tags:        []string{"terminal", "shell"},
 	})
+	k.Register("browser_plugin", &plugins.BrowserPlugin{}, kernel.Meta{
+		Description: "浏览器自动化，导航、点击、滚动、提取网页内容",
+		Tags:        []string{"browser", "web"},
+	})
+	k.Register("session_search_plugin", &plugins.SessionSearchPlugin{}, kernel.Meta{
+		Description: "历史会话搜索，按关键词搜索所有存储的对话记录",
+		Tags:        []string{"session", "search"},
+	})
+	k.Register("todo_plugin", &plugins.TodoPlugin{}, kernel.Meta{
+		Description: "待办事项管理，添加、列出、标记完成、清除任务",
+		Tags:        []string{"todo", "task"},
+	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},

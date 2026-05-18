@@ -218,6 +218,9 @@ func Init() {
 	registerJudicialTools()
 	registerTerminalTools()
 	registerCodeExecTool()
+	registerBrowserTools()
+	registerSessionSearchTools()
+	registerTodoTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }
