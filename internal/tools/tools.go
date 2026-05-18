@@ -222,6 +222,9 @@ func Init() {
 	registerSessionSearchTools()
 	registerTodoTools()
 	registerClarifyTools()
+	registerVisionTool()
+	registerImageGenTool()
+	registerTTSTool()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }

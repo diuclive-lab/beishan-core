@@ -93,6 +93,10 @@ func main() {
 		Description: "待办事项管理，添加、列出、标记完成、清除任务",
 		Tags:        []string{"todo", "task"},
 	})
+	k.Register("media_plugin", &plugins.MediaPlugin{}, kernel.Meta{
+		Description: "媒体处理：视觉分析、图片生成、文本转语音。预留接口，需配置外部 API 后使用",
+		Tags:        []string{"media", "vision", "image", "tts"},
+	})
 	k.Register("clarify_plugin", &plugins.ClarifyPlugin{}, kernel.Meta{
 		Description: "用户意图澄清和学习，模糊输入时提问确认，并自动学习用户习惯",
 		Tags:        []string{"clarify", "learning"},
