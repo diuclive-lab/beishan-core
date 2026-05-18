@@ -1,0 +1,38 @@
+# 法律审查工作流
+# 等价于 plugins/legal_review_plugin.go 的硬编码四步链
+#
+# 触发: 发消息到 workflow_plugin
+#   {"type":"workflow_run","payload":{"workflow":"legal_review","input":"审查这份合同：..."}}
+id: legal_review
+steps:
+  - id: cold_start
+    plugin: cold_start_plugin
+    type: cold_start
+    inputs:
+      contract_text: "${input}"
+    next: legal_search
+
+  - id: legal_search
+    plugin: legal_search_plugin
+    type: legal_search
+    inputs:
+      query: "${steps.cold_start.output}"
+    next: clause_analysis
+
+  - id: clause_analysis
+    plugin: clause_analyzer_plugin
+    type: clause_analysis
+    inputs:
+      contract: "${input}"
+      profile: "${steps.cold_start.output}"
+      laws: "${steps.legal_search.output}"
+    next: write_report
+
+  - id: write_report
+    plugin: legal_write_plugin
+    type: legal_write
+    inputs:
+      contract: "${input}"
+      profile: "${steps.cold_start.output}"
+      analysis: "${steps.clause_analysis.output}"
+    next: done

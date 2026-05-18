@@ -18,6 +18,7 @@ import (
 
 	"beishan/glue"
 	"beishan/internal/tools"
+	"beishan/internal/workflow"
 	"beishan/kernel"
 	"beishan/plugins"
 )
@@ -126,6 +127,13 @@ func main() {
 	k.Register("legal_write_plugin", &plugins.LegalWritePlugin{}, kernel.Meta{
 		Description: "法律审查报告生成，输出结构化审查结论",
 		Tags:        []string{"legal", "write"},
+	})
+
+	// 工作流引擎（有向图编排，替代硬编码 L4 插件）
+	wfEngine := workflow.New(k, "./workflows")
+	k.Register("workflow_plugin", &plugins.WorkflowPlugin{Engine: wfEngine}, kernel.Meta{
+		Description: "工作流引擎，执行 workflows/*.yaml 定义的多步骤编排任务",
+		Tags:        []string{"workflow", "orchestration"},
 	})
 
 	// 启动胶水层
