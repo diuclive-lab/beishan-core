@@ -1,14 +1,14 @@
 # GitHub 开源雷达 — 每日监控对 beishan-core 有价值的开源项目
 #
-# 触发方式（scheduler 定时发）:
+# 触发方式:
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"github_radar"}}
 #
-# 各步骤说明:
-#   1-4: 四个搜索方向，并行查询
-#   5:   用 think_plugin 汇总并筛选出高价值项目
-#   6:   结果存入 memory 存档
-#   7:   推送通知（需配置 callback: 后启用）
+# 各步骤:
+#   1-4: 四个搜索方向
+#   5:   think_plugin 汇总筛选
+#   6:   存 memory
+#   7:   推送通知（callback 配置后启用）
 id: github_radar
 
 steps:
@@ -18,6 +18,7 @@ steps:
     timeout: 30
     inputs:
       query: "GitHub trending Go microkernel plugin framework 2026"
+    next: search_llm_routing
 
   - id: search_llm_routing
     plugin: search_plugin
@@ -25,6 +26,7 @@ steps:
     timeout: 30
     inputs:
       query: "GitHub trending LLM routing agent orchestration framework 2026"
+    next: search_python_tools
 
   - id: search_python_tools
     plugin: search_plugin
@@ -32,6 +34,7 @@ steps:
     timeout: 30
     inputs:
       query: "GitHub trending Python tool library subprocess plugin agent 2026"
+    next: search_workflow
 
   - id: search_workflow
     plugin: search_plugin
@@ -39,6 +42,7 @@ steps:
     timeout: 30
     inputs:
       query: "GitHub trending workflow engine YAML DAG orchestration 2026"
+    next: summarize
 
   - id: summarize
     plugin: think_plugin
@@ -64,13 +68,18 @@ steps:
 
         【工作流引擎】
         ${steps.search_workflow.output}
+    next: save
 
   - id: save
     plugin: memory_plugin
-    type: memory_add
+    type: session_add
     timeout: 10
     inputs:
-      content: "GitHub 雷达报告: ${steps.summarize.output}"
+      session_id: "github_radar"
+      role: "system"
+      type: "report"
+      payload: "GitHub 雷达报告: ${steps.summarize.output}"
+    next: report
 
   - id: report
     plugin: think_plugin
