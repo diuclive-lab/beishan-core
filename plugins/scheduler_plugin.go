@@ -1,28 +1,32 @@
 package plugins
 
 import (
-	"beishan/kernel"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+
+	"beishan/kernel"
 )
 
-/* SchedulerPlugin 定时任务插件。
+type scheduledTask struct {
+	Name     string
+	Interval time.Duration
+	Workflow string
+	Ticker   *time.Ticker
+}
 
-   到点触发 schedule_tick，由内核决定谁处理。
-   不编排任何人，只发提醒。
-*/
 type SchedulerPlugin struct {
-	kernel *kernel.Kernel
-	timers map[string]*time.Ticker
-	mu     sync.Mutex
+	kernel  *kernel.Kernel
+	mu      sync.Mutex
+	timers  map[string]*scheduledTask
 }
 
 func NewScheduler(k *kernel.Kernel) *SchedulerPlugin {
 	return &SchedulerPlugin{
 		kernel: k,
-		timers: make(map[string]*time.Ticker),
+		timers: make(map[string]*scheduledTask),
 	}
 }
 
@@ -41,25 +45,55 @@ func (p *SchedulerPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) 
 }
 
 func (p *SchedulerPlugin) handleAdd(msg kernel.Message) error {
+	var cfg struct {
+		Interval string `json:"interval"`
+		Workflow string `json:"workflow"`
+		Name     string `json:"name,omitempty"`
+	}
+	if err := json.Unmarshal(msg.Payload, &cfg); err != nil {
+		return fmt.Errorf("scheduler: 参数解析失败: %w", err)
+	}
+	if cfg.Interval == "" || cfg.Workflow == "" {
+		return fmt.Errorf("scheduler: 需要 interval 和 workflow 参数")
+	}
+
+	dur, err := time.ParseDuration(cfg.Interval)
+	if err != nil {
+		return fmt.Errorf("scheduler: interval 格式错误 (如 24h, 30m): %w", err)
+	}
+
+	name := cfg.Name
+	if name == "" {
+		name = cfg.Workflow
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	name := fmt.Sprintf("task_%d", len(p.timers)+1)
-	ticker := time.NewTicker(10 * time.Second)
-	p.timers[name] = ticker
+	task := &scheduledTask{
+		Name:     name,
+		Interval: dur,
+		Workflow: cfg.Workflow,
+		Ticker:   time.NewTicker(dur),
+	}
+	p.timers[name] = task
 
-	go func() {
-		for range ticker.C {
-			p.kernel.Send(kernel.Message{
-				Sender:  "scheduler_plugin",
-				Type:    "schedule_tick",
-				Payload: []byte(fmt.Sprintf(`{"task":"%s"}`, name)),
+	go func(t *scheduledTask) {
+		for range t.Ticker.C {
+			payload, _ := json.Marshal(map[string]string{
+				"workflow": t.Workflow,
 			})
-			log.Printf("[调度] 触发: %s", name)
+			p.kernel.Send(kernel.Message{
+				Sender:    "scheduler_plugin",
+				Recipient: "workflow_plugin",
+				Type:      "workflow_run",
+				Payload:   payload,
+			})
+			log.Printf("[调度] 触发工作流: %s (每 %s)", t.Workflow, t.Interval)
 		}
-	}()
+	}(task)
 
-	log.Printf("[调度] 添加任务: %s", name)
+	log.Printf("[调度] 添加定时任务: %s → 每 %s 执行 %s", name, dur, cfg.Workflow)
 	return nil
 }
 
@@ -68,11 +102,11 @@ func (p *SchedulerPlugin) handleRemove(msg kernel.Message) error {
 	defer p.mu.Unlock()
 
 	name := string(msg.Payload)
-	ticker, ok := p.timers[name]
+	task, ok := p.timers[name]
 	if !ok {
 		return fmt.Errorf("scheduler: 找不到任务 %s", name)
 	}
-	ticker.Stop()
+	task.Ticker.Stop()
 	delete(p.timers, name)
 	log.Printf("[调度] 移除任务: %s", name)
 	return nil
@@ -87,7 +121,7 @@ func (p *SchedulerPlugin) handleList() {
 		return
 	}
 	fmt.Printf("[调度] 当前 %d 个任务:\n", len(p.timers))
-	for name := range p.timers {
-		fmt.Printf("  - %s\n", name)
+	for _, t := range p.timers {
+		fmt.Printf("  - %s → 每 %s 执行 %s\n", t.Name, t.Interval, t.Workflow)
 	}
 }
