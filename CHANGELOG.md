@@ -1,5 +1,31 @@
 # 开发日志
 
+## 2026-05-18 callback webhook + workflow 超时/重试
+
+### 新增
+
+- **`internal/notify/` 回调推送层**：
+  - `slack.go`: Slack Incoming Webhook 推送
+  - `email.go`: SMTP 邮件发送
+  - `wechat.go`: 企业微信机器人
+  - `notify.go`: `callback:platform:地址` 格式分发
+- **`kernel/deliverReply` `callback:` 分支**：调 `notify.Callback()`，goroutine 异步推送
+
+### 增强
+
+- **workflow 超时可配**：YAML 每个步骤支持 `timeout` 字段（秒，默认 120）
+- **workflow 错误重试**：YAML 每个步骤支持 `retry` 字段（次数，默认 0）
+- **legal_review.yaml**：各步骤标注 `timeout:30` / `retry:1`
+- **eval/scenarios/workflow_smoke.yaml**：工作流引擎冒烟测试场景
+
+### 用法
+
+| 方式 | ReplyTo 格式 |
+|---|---|
+| Slack | `callback:slack:https://hooks.slack.com/services/xxx` |
+| 邮件 | `callback:email:smtp://user:pass@smtp.qq.com:587/to@addr` |
+| 企业微信 | `callback:wechat:https://qyapi.weixin.qq.com/...` |
+
 ## 2026-05-18 think_plugin + Router MsgType + 启动清理 + REPL
 
 ### 新增
