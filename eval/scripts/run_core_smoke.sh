@@ -140,12 +140,8 @@ info "── 会话搜索插件 ──"
 run_test "session_list"      "session_search_plugin" "session_list" '{}'
 
 info ""
-info "── 澄清插件 ──"
-run_test "clarify"           "clarify_plugin" "clarify" '{"question":"确认？","choices":["是","否"]}'
-
-info ""
 info "── 媒体插件（预留接口）──"
-run_test "tts"               "media_plugin" "text_to_speech"  '{"text":"hello"}'
+run_test "tts"               "tts_plugin" "text_to_speech"  '{"text":"hello"}'
 
 # ── 结果汇总 ───────────────────────────────
 info ""

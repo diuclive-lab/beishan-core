@@ -64,7 +64,7 @@ func main() {
 
 	tools.Init()
 
-	// ─── 注册 Go 插件（L3/L4） ──────────────────────
+	// ─── 注册 Go 插件 ─────────────────────────────
 
 	k.Register("search_plugin", &plugins.SearchPlugin{}, kernel.Meta{
 		Description: "通用网络搜索，适用于查找资料、新闻、技术文档",
@@ -75,7 +75,7 @@ func main() {
 		Tags:        []string{"write", "generate"},
 	})
 	k.Register("memory_plugin", &plugins.MemoryPlugin{}, kernel.Meta{
-		Description: "会话记忆管理，存储和召回跨轮上下文信息，按 session 组织",
+		Description: "会话记忆管理，存储和召回跨轮上下文信息",
 		Tags:        []string{"memory", "session"},
 	})
 	k.Register("terminal_plugin", &plugins.TerminalPlugin{}, kernel.Meta{
@@ -94,13 +94,13 @@ func main() {
 		Description: "待办事项管理，添加、列出、标记完成、清除任务",
 		Tags:        []string{"todo", "task"},
 	})
-	k.Register("media_plugin", &plugins.MediaPlugin{}, kernel.Meta{
-		Description: "媒体处理：视觉分析、图片生成、文本转语音。预留接口，需配置外部 API 后使用",
-		Tags:        []string{"media", "vision", "image", "tts"},
+	k.Register("tts_plugin", &plugins.TTSPlugin{}, kernel.Meta{
+		Description: "文本转语音（TTS），使用系统引擎把文字转为音频文件",
+		Tags:        []string{"tts", "audio"},
 	})
-	k.Register("clarify_plugin", &plugins.ClarifyPlugin{}, kernel.Meta{
-		Description: "用户意图澄清和学习，模糊输入时提问确认，并自动学习用户习惯",
-		Tags:        []string{"clarify", "learning"},
+	k.Register("image_gen_plugin", &plugins.ImageGenPlugin{}, kernel.Meta{
+		Description: "AI 图片生成，根据文字描述生成图片。预留接口，需配置外部 API",
+		Tags:        []string{"image", "generate"},
 	})
 	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
@@ -125,10 +125,10 @@ func main() {
 		Tags:        []string{"legal", "write"},
 	})
 
-	// 工作流引擎（有向图编排，替代硬编码 L4 插件）
+	// 工作流引擎
 	wfEngine := workflow.New(k, "./workflows")
 	k.Register("workflow_plugin", &plugins.WorkflowPlugin{Engine: wfEngine}, kernel.Meta{
-		Description: "工作流引擎，执行 workflows/*.yaml 定义的多步骤编排任务，包括法律审查（contract_review）、尽职调查等场景",
+		Description: "工作流引擎，执行 workflows/*.yaml 定义的多步骤编排任务，包括法律审查、尽职调查等场景",
 		Tags:        []string{"workflow", "orchestration", "legal"},
 	})
 
@@ -212,7 +212,6 @@ func main() {
 			}
 		}
 
-		// 记录用户输入到 session
 		saveToSession(sessionID, "user", msg.Type, msg.Payload)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -233,7 +232,6 @@ func main() {
 			return
 		}
 
-		// 同步模式
 		resp, err := k.Call(msg, 120*time.Second)
 
 		if err != nil {
@@ -244,9 +242,7 @@ func main() {
 			return
 		}
 
-		// 记录插件响应到 session
 		saveToSession(sessionID, msg.Recipient, resp.Type, resp.Payload)
-
 		json.NewEncoder(w).Encode(resp)
 	})
 
