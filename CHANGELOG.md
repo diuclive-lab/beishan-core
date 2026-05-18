@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-05-18 第三轮：glue 依赖管理（路线 A）
+
+- **`glue/spawn()` 新增 `requirements.txt` 自动检测**：spawn 前 `os.Stat` 检测，存在则 `pip3 install -r`
+- **向后兼容**：没有 `requirements.txt` 的插件行为不变
+- **路线 B 预留**：未来如需独立 venv，在 `spawn()` 中 `switch m.Type` 处分支即可
+
 ## 2026-05-18 第二轮：ReplyTo 回程路由 + HTTP 异步 session
 
 ### 新增

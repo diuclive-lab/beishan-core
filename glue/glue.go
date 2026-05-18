@@ -72,6 +72,18 @@ func (g *GlueLayer) Start() error {
 }
 
 func (g *GlueLayer) spawn(m Manifest) error {
+	// 路线 A：检测 requirements.txt，自动 pip install
+	reqFile := filepath.Join(g.dir, m.Name, "requirements.txt")
+	if _, err := os.Stat(reqFile); err == nil {
+		install := exec.Command("pip3", "install", "-r", reqFile)
+		install.Stderr = os.Stderr
+		install.Stdout = os.Stderr
+		if err := install.Run(); err != nil {
+			return fmt.Errorf("pip install 失败: %w", err)
+		}
+		log.Printf("[Glue] 插件 %s 依赖安装完成", m.Name)
+	}
+
 	entryPath := filepath.Join(g.dir, m.Name, m.Entry)
 
 	var cmd *exec.Cmd
