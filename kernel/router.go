@@ -10,9 +10,14 @@ import (
 	"time"
 )
 
-/* Decision 是 DeepSeek 路由决策的结构化输出。 */
+/* Decision 是 DeepSeek 路由决策的结构化输出。
+
+   MsgType 让 DeepSeek 同时决定消息类型，避免"chat"类型送到所有插件。
+   例如用户说"搜索新闻"→ Route 返回 {Recipient:"search_plugin", MsgType:"web_search"}。
+*/
 type Decision struct {
 	Recipient  string  `json:"recipient"`
+	MsgType    string  `json:"msg_type,omitempty"`
 	Reason     string  `json:"reason"`
 	Confidence float64 `json:"confidence"`
 }
@@ -88,7 +93,8 @@ func (r *Router) Route(msg Message) (*Decision, error) {
 	pluginList := r.buildPluginList()
 
 	prompt := fmt.Sprintf(
-		`Output JSON: {"recipient":"","reason":"","confidence":0.0}
+		`Output JSON: {"recipient":"","msg_type":"","reason":"","confidence":0.0}
+Recipient is the plugin to handle this request. msg_type is the message type the plugin expects (e.g. web_search, write_file, terminal_exec, code_exec, session_search, todo_add, clarify, text_to_speech, image_generate, workflow_run, memory_add, session_add, browser_navigate). Use the most specific msg_type for the request.
 Available plugins:
 %sInput: %s`,
 		pluginList,

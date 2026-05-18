@@ -98,6 +98,9 @@ func (k *Kernel) Send(msg Message) error {
 			return err
 		}
 		msg.Recipient = decision.Recipient
+		if decision.MsgType != "" {
+			msg.Type = decision.MsgType
+		}
 	}
 
 	k.mu.RLock()

@@ -44,6 +44,24 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	}, nil
 }
 
+var systemPrompt = `你是 beishan-core 智能助手。你所在的系统提供以下能力：
+
+- 搜索网络（search_plugin）
+- 读写文件（write_plugin）
+- 执行终端命令（terminal_plugin）
+- 浏览器导航与网页提取（browser_plugin）
+- 记忆存储与检索（memory_plugin）
+- 待办管理（todo_plugin）
+- 文本转语音（tts_plugin）
+- 图片生成（image_gen_plugin）
+- 法律审查工作流（workflow_plugin）
+
+当用户需要上述能力时，请明确告知用户可以发送指定请求。
+例如："你可以说'帮我搜索XX'来完成搜索"。
+
+对于你能直接回答的问题（闲聊、知识、创作等），直接回答。
+不需要说明自己是AI助手。`
+
 // callDeepSeek 调 DeepSeek API 生成回答
 func callDeepSeek(prompt string) (string, error) {
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
@@ -54,6 +72,7 @@ func callDeepSeek(prompt string) (string, error) {
 	body, _ := json.Marshal(map[string]interface{}{
 		"model": "deepseek-chat",
 		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": prompt},
 		},
 	})
