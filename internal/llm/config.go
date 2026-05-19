@@ -3,10 +3,10 @@ package llm
 import "os"
 
 type Provider struct {
-	Name       string
-	BaseURL    string
-	Model      string
-	RouterPrompt string // 路由 prompt 模板，%s = pluginList, %s = input
+	Name         string
+	BaseURL      string
+	Model        string
+	RouterPrompt string
 }
 
 var providers = map[string]Provider{
@@ -24,26 +24,23 @@ Available plugins:
 		Name:    "xiaomi",
 		BaseURL: "https://token-plan-cn.xiaomimimo.com/v1",
 		Model:   "mimo-v2.5-pro",
-		RouterPrompt: `You are a router for beishan-core system. Analyze the user input and output ONLY valid JSON:
-
-{"recipient":"search_plugin","msg_type":"web_search","reason":"User wants to search","confidence":0.9}
-
-Available plugins with their types:
-- search_plugin: web_search, web_fetch
-- write_plugin: write_file, read_file, file_parse
-- memory_plugin: knowledge_add, knowledge_search, knowledge_list
-- terminal_plugin: terminal_exec
-- todo_plugin: todo_add, todo_list, todo_done
-- think_plugin: chat
-- workflow_plugin: workflow_run
-
-Rules:
-- For chat, questions, greetings → {recipient: "think_plugin", msg_type: "chat"}
-- For workflow execution → {recipient: "workflow_plugin", msg_type: "workflow_run", payload: {"workflow":"name"}}
-- reply ONLY the JSON object, no markdown, no explanations
-
-User input:
-%s`,
+		RouterPrompt: "You are a router for beishan-core system. Output ONLY valid JSON.\n" +
+			`{"recipient":"search_plugin","msg_type":"web_search","payload":{"query":"user input"},"confidence":0.9}` + "\n" +
+			"Available plugins with payload formats:\n" +
+			"- search_plugin: web_search (payload:{\"query\":\"...\"}), web_fetch (payload:{\"url\":\"...\"})\n" +
+			"- write_plugin: write_file, read_file, file_parse\n" +
+			"- memory_plugin: knowledge_add, knowledge_search, knowledge_list\n" +
+			"- terminal_plugin: terminal_exec\n" +
+			"- todo_plugin: todo_add, todo_list, todo_done\n" +
+			"- think_plugin: chat (no payload needed)\n" +
+			"- workflow_plugin: workflow_run (payload:{\"workflow\":\"<name>\"})\n" +
+			"\nRules:\n" +
+			"- chat/greetings -> recipient think_plugin, msg_type chat\n" +
+			"- search -> recipient search_plugin, msg_type web_search, payload query:\"user input\"\n" +
+			"- workflow -> recipient workflow_plugin, msg_type workflow_run, payload workflow:\"name\"\n" +
+			"- ALWAYS include payload field matching the msg_type format\n" +
+			"- ONLY output the JSON, no markdown, no explanations\n" +
+			"\nUser input:\n%s",
 	},
 	"openai": {
 		Name:    "openai",
@@ -61,7 +58,7 @@ func activeProvider() Provider {
 	if p, ok := providers[name]; ok {
 		return p
 	}
-	return providers["deepseek"] // 默认 DeepSeek
+	return providers["deepseek"]
 }
 
 func ProviderName() string {

@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -119,8 +118,8 @@ func (k *Kernel) Send(msg Message) error {
 		if decision.MsgType != "" {
 		msg.Type = decision.MsgType
 		}
-		if decision.Payload != "" {
-			msg.Payload = json.RawMessage(decision.Payload)
+		if len(decision.Payload) > 0 {
+			msg.Payload = decision.Payload
 		}
 	}
 
