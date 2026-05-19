@@ -1,0 +1,63 @@
+# 旧项目审计 — 扫描旧项目结构，识别有价值的模块，过滤低质量代码
+#
+# 流程：
+#   1. read_structure:  终端命令扫描项目文件结构
+#   2. audit:           DeepSeek 识别核心模块和架构
+#   3. save:            审计报告入库
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"legacy_code_audit","input":"/path/to/old/project"}}
+
+id: legacy_code_audit
+
+steps:
+  - id: read_structure
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 30
+    inputs:
+      command: "find ${input} -name '*.py' -o -name '*.go' | grep -v __pycache__ | grep -v .pyc | grep -v _backup | grep -v .bak | head -100"
+    next: audit
+
+  - id: audit
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    retry_delay: 2
+    inputs:
+      message: >-
+        你是一个代码审计专家。分析以下旧项目文件列表，输出严格的 JSON（不加任何其他文字）：
+
+        {
+          "modules": [
+            {
+              "name": "模块名",
+              "path": "路径",
+              "description": "一句话描述",
+              "worth_reading": true,
+              "skip_reason": "如果不值得读，原因（backup/patch/test/data/unknown）"
+            }
+          ],
+          "architecture": "整体架构一句话总结",
+          "best_candidates": ["最值得移植的3个模块路径"]
+        }
+
+        file_list:
+        ${steps.read_structure.output}
+    next: save
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "code"
+      title: "旧项目审计报告"
+      summary: "${steps.audit.output.architecture}"
+      tags: '["legacy", "audit", "architecture"]'
+      topics: '["code-review", "migration"]'
+      tasks: "${steps.audit.output.best_candidates}"
+      content: "${steps.audit.output}"

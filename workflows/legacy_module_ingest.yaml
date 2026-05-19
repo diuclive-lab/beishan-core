@@ -1,0 +1,69 @@
+# 逐模块入库 — 读取单个模块代码，评分过滤后提取有价值的设计
+#
+# 流程：
+#   1. read_code:   读取代码文件内容
+#   2. analyze:     DeepSeek 深度分析（质量评分 + 移植评估）
+#   3. filter:      过滤逻辑：quality_score < 3 且无关时跳过
+#   4. save/skip:   有价值则入库，低价值则跳过
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"legacy_module_ingest","input":"/path/to/file.go"}}
+
+id: legacy_module_ingest
+
+steps:
+  - id: read_code
+    plugin: write_plugin
+    type: file_parse
+    timeout: 15
+    retry: 1
+    inputs:
+      path: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    retry_delay: 2
+    inputs:
+      message: >-
+        你是一个代码质量评估专家。分析这段代码，输出严格的 JSON（不加任何其他文字）。
+
+        分析维度：
+        - title: 模块名
+        - summary: 实际做什么
+        - quality_score: 0-10（代码质量）
+        - quality_issues: 问题列表
+        - valuable_patterns: 有价值的设计模式
+        - beishan_relevance: high/medium/low/none（与 beishan-core 的相关性）
+        - migration_cost: high/medium/low（移植成本）
+        - recommendation: adopt/reference/skip（建议）
+        - tasks: 行动项
+        - tags: 技术标签
+        - topics: 领域标签
+        - save: true/false（quality_score < 3 且 relevance=none 时 false）
+
+        code:
+        ${steps.read_code.output.content}
+
+        注意：如果 quality_score < 3 且 relevance="none"，请将 title 设为 "SKIPPED: 原模块名"，
+        并在 content 中说明跳过原因。这样入库的是"跳过记录"而非"有价值条目"。
+    next: save
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "code"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
+      tasks: "${steps.analyze.output.tasks}"
+      raw_ref: "${input}"
+      content: "${steps.analyze.output.valuable_patterns}"
