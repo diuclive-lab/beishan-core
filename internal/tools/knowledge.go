@@ -908,7 +908,16 @@ func registerKnowledgeTools() {
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"raw_ref": stringParam("原始来源引用，如 URL 或文件路径"),
-				"content": stringParam("完整内容（可选，搜索时也会匹配）"),
+				"content": map[string]interface{}{
+					"oneOf": []interface{}{
+						map[string]interface{}{"type": "string"},
+						map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{"type": "string"},
+						},
+					},
+					"description": "完整内容（字符串或字符串数组）",
+				},
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -921,7 +930,7 @@ func registerKnowledgeTools() {
 				strSliceArg(args, "tasks"),
 				strSliceArg(args, "links"),
 				strArg(args, "raw_ref"),
-				strArg(args, "content"),
+				contentOrJoin(args, "content"),
 			)
 		},
 	)
@@ -1122,6 +1131,26 @@ func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 		fields[key] = strSliceArg(args, key)
 	}
 	return fields
+}
+
+func contentOrJoin(args map[string]interface{}, key string) string {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	if s, ok := raw.(string); ok {
+		return s
+	}
+	if arr, ok := raw.([]interface{}); ok {
+		var parts []string
+		for _, v := range arr {
+			if s, ok := v.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return fmt.Sprintf("%v", raw)
 }
 
 func strSliceArg(args map[string]interface{}, key string) []string {

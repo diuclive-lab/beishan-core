@@ -58,8 +58,10 @@ func parseFile(path, ext string) (string, error) {
 		return parseTextFile(path)
 	case ".pdf":
 		return parsePDF(path)
+	case ".py", ".go", ".js", ".ts", ".java", ".rs", ".c", ".h", ".cpp", ".rb", ".sh", ".yaml", ".yml", ".json", ".xml", ".sql", ".css", ".html":
+		return parseTextFile(path)
 	default:
-		return "", fmt.Errorf("不支持的文件类型: %s（支持: .txt, .md, .pdf）", ext)
+		return "", fmt.Errorf("不支持的文件类型: %s（支持: .txt, .md, .pdf 及常见代码文件 .py/.go/.js 等）", ext)
 	}
 }
 

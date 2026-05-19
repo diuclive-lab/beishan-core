@@ -382,6 +382,19 @@ func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{},
 
 // resolveJSONValue 递归解析 JSON，自动解包嵌套编码的字符串
 func resolveJSONValue(raw []byte) interface{} {
+	// 先尝试去除 markdown 代码块包裹
+	s := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(s, "```") {
+		// 去掉开头的 ```json 或 ```
+		if idx := strings.Index(s, "\n"); idx > 0 {
+			s = s[idx+1:]
+		}
+		// 去掉结尾的 ```
+		if idx := strings.LastIndex(s, "```"); idx >= 0 {
+			s = strings.TrimSpace(s[:idx])
+		}
+		return resolveJSONValue([]byte(s))
+	}
 	// 先试对象
 	var obj map[string]interface{}
 	if err := json.Unmarshal(raw, &obj); err == nil {
