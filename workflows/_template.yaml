@@ -114,3 +114,35 @@ steps:
 #       message: >-
 #         Go 搜索结果: ${steps.parallel_search.output.search_go}
 #         Python 搜索结果: ${steps.parallel_search.output.search_python}
+
+# ─── 循环步骤示例（条件分支回跳）─────────────────
+# 利用条件分支 `if/goto` 实现迭代。引擎内置循环保护
+# （max_iterations，默认 200 次），防止死循环。
+#
+# steps:
+#   - id: draft
+#     plugin: think_plugin
+#     type: chat
+#     inputs:
+#       message: "写一段关于${input}的文字"
+#     next: review
+#
+#   - id: review
+#     plugin: think_plugin
+#     type: chat
+#     inputs:
+#       message: >-
+#         评审以下文字的质量。输出 JSON：
+#         {"score": 0-10, "feedback": "..."}
+#
+#         文字：${steps.draft.output}
+#     next:
+#       - if: "steps.review.output.score < 7"
+#         goto: draft           # 低于阈值，回 draft 重写
+#       - default: output       # 达标，输出最终版
+#
+#   - id: output
+#     plugin: think_plugin
+#     type: chat
+#     inputs:
+#       message: "输出最终版本：\n${steps.draft.output}"

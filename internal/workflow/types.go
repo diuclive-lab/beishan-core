@@ -12,8 +12,9 @@ WorkflowDef 工作流定义，从 YAML 加载。
 	  next: legal_search
 */
 type WorkflowDef struct {
-	ID    string    `yaml:"id"`
-	Steps []StepDef `yaml:"steps"`
+	ID            string    `yaml:"id"`
+	Steps         []StepDef `yaml:"steps"`
+	MaxIterations int       `yaml:"max_iterations,omitempty"` // 全局循环上限，默认 200
 }
 
 /*

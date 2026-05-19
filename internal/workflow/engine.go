@@ -38,6 +38,11 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 	ctx := map[string]interface{}{"input": inputStr}
 	var results []StepResult
 	currentStep := def.Steps[0].ID
+	stepVisits := make(map[string]int) // 循环保护：记录每步访问次数
+	maxIter := def.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 200
+	}
 
 	for currentStep != "done" && currentStep != "" {
 		step := findStep(def, currentStep)
@@ -107,6 +112,10 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		ctx["steps."+step.ID+".output"] = result.Output
 
 		currentStep = resolveNext(step, ctx)
+		stepVisits[step.ID]++
+		if stepVisits[step.ID] > maxIter {
+			return buildResult(workflowID, results, step.ID, false, fmt.Sprintf("步骤 %s 已达循环上限 %d 次，疑似死循环", step.ID, maxIter)), nil
+		}
 	}
 
 	return buildResult(workflowID, results, currentStep, true, ""), nil
