@@ -1,0 +1,56 @@
+# ─── 领域模板：研究调研 ─────────────────────────
+# 从 workflows/opensource_project_ingest 抽象
+#
+# 步骤模式: fetch → parallel research → analyze → save
+# 适用于任何需要多角度调研的主题
+
+id: TODO_research_workflow
+
+steps:
+  - id: init_research
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        分析调研主题，输出 JSON：
+        {
+          "search_queries": ["搜索词1", "搜索词2", "搜索词3"],
+          "angles": ["角度1", "角度2"]
+        }
+        主题：${input}
+    next: parallel_research
+
+  - id: parallel_research
+    type: parallel
+    timeout: 90
+    steps:
+      - id: search_angle_1
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "${steps.init_research.output.search_queries[0]}"
+      - id: search_angle_2
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "${steps.init_research.output.search_queries[1]}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    inputs:
+      message: >-
+        综合调研结果，输出 JSON：
+        {
+          "title": "调研标题",
+          "summary": "核心发现",
+          "tags": ["标签"],
+          "tasks": ["行动项"]
+        }
+        来源1：${steps.parallel_research.output.search_angle_1}
+        来源2：${steps.parallel_research.output.search_angle_2}
+
+  # 后续可接 knowledge_add + todo_add（参考 opensource_project_ingest）

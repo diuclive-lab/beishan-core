@@ -77,7 +77,7 @@ func main() {
 		Types:       []string{"web_search", "web_fetch"},
 	})
 	k.Register("write_plugin", &plugins.WritePlugin{}, kernel.Meta{
-		Description: "文件系统操作：读文件、写文件、搜索文件、打补丁、解析文档内容",
+		Description: "长文本生成、格式化写作、文件处理，适合：写文章、写报告、写代码、解析文件。不适合：输出JSON、做逻辑判断",
 		Tags:        []string{"file", "filesystem"},
 		Types:       []string{"write_file", "read_file", "search_files", "patch", "file_parse"},
 	})
@@ -117,7 +117,7 @@ func main() {
 		Types:       []string{"image_generate"},
 	})
 	k.Register("think_plugin", &plugins.ThinkPlugin{}, kernel.Meta{
-		Description: "调用 DeepSeek 进行对话、分析、写作、总结等文本生成任务，不操作文件系统",
+		Description: "推理、分析、判断、结构化输出JSON，适合：分析代码、提取字段、做决策、生成大纲。不适合：直接生成长文本",
 		Tags:        []string{"chat", "dialogue", "general"},
 		Types:       []string{"chat"},
 	})

@@ -1,0 +1,58 @@
+# ─── 领域模板：定时监控 ─────────────────────────
+# 从 workflows/github_radar 抽象
+#
+# 步骤模式: multi_search → analyze → save → notify
+# 适用于配合 scheduler 定时执行的监控工作流
+
+id: TODO_monitoring_workflow
+
+steps:
+  - id: parallel_search
+    type: parallel
+    timeout: 60
+    steps:
+      - id: search_source_1
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "TODO_query_1"
+      - id: search_source_2
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "TODO_query_2"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        综合监控数据生成报告：
+        来源1：${steps.parallel_search.output.search_source_1}
+        来源2：${steps.parallel_search.output.search_source_2}
+        输出格式：条目清单 + 关键发现 + 建议行动
+    next: save
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "note"
+      title: "监控报告"
+      summary: "${steps.analyze.output}"
+      tags: '["monitoring"]'
+      content: "${steps.analyze.output}"
+    next: notify
+
+  - id: notify
+    plugin: notify_plugin
+    type: notify_send
+    timeout: 15
+    on_error: done
+    inputs:
+      channel: email
+      subject: "监控报告"
+      message: "${steps.analyze.output}"

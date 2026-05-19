@@ -1,0 +1,54 @@
+# ─── 领域模板：法律审查 ─────────────────────────
+# 从 workflows/legal_review.yaml 抽象
+#
+# 步骤模式: cold_start → search → analyze → write
+# 使用 review_loop 模式，适用于需要多轮检索+分析的场景
+
+id: TODO_legal_workflow
+
+steps:
+  - id: classify
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        请对以下输入进行分类和结构化，输出 JSON：
+        { "type": "...", "key_facts": [...], "search_queries": [...] }
+        输入：${input}
+    next: research_parallel
+
+  - id: research_parallel
+    type: parallel
+    timeout: 90
+    steps:
+      - id: search_statutes
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "${steps.classify.output.search_queries[0]} 法律法规"
+      - id: search_cases
+        plugin: search_plugin
+        type: web_search
+        inputs:
+          query: "${steps.classify.output.search_queries[1]} 判例"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        基于检索结果进行分析，输出 JSON：
+        { "analysis": "...", "conclusion": "...", "risk_level": "high|mid|low" }
+        法律条文：${steps.research_parallel.output.search_statutes}
+        判例：${steps.research_parallel.output.search_cases}
+    next: write
+
+  - id: write
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: "基于分析生成正式报告：\n${steps.analyze.output}"
