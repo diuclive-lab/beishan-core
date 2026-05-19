@@ -18,7 +18,7 @@ steps:
     type: terminal_exec
     timeout: 30
     inputs:
-      command: "find ${input} -name '*.py' -o -name '*.go' | grep -v __pycache__ | grep -v .pyc | grep -v _backup | grep -v .bak | head -100"
+      command: "find ${input} \\( -name '*.py' -o -name '*.go' \\) | grep -v __pycache__ | grep -v .pyc | grep -v _backup | grep -v .bak | head -100"
     next: audit
 
   - id: audit

@@ -39,6 +39,7 @@ type StepDef struct {
 	Retry         int                    `yaml:"retry,omitempty"`          // 失败重试次数，默认 0
 	RetryDelay    int                    `yaml:"retry_delay,omitempty"`    // 重试间隔秒数，默认 1
 	OnError       string                 `yaml:"on_error,omitempty"`       // 失败后继续到指定步骤
+	SkipIf        string                 `yaml:"skip_if,omitempty"`        // 条件表达式，成立时跳过本步骤
 	ParallelSteps []StepDef              `yaml:"steps,omitempty"`          // 并行子步骤
 	Next          NextList               `yaml:"next,omitempty"`
 }
@@ -80,9 +81,10 @@ type StepResult struct {
 
 /* WorkflowResult 整个工作流的执行结果。 */
 type WorkflowResult struct {
-	WorkflowID string
-	Steps      []StepResult
-	FinalStep  string
-	Success    bool
-	Error      string
+	WorkflowID  string       `json:"WorkflowID"`
+	Steps       []StepResult `json:"Steps"`
+	FinalStep   string       `json:"FinalStep"`
+	Success     bool         `json:"Success"`
+	Error       string       `json:"Error"`
+	FinalOutput string       `json:"FinalOutput,omitempty"` // 最后一步的输出，用于嵌套工作流
 }

@@ -50,6 +50,17 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			return buildResult(workflowID, results, currentStep, false, fmt.Sprintf("步骤 %s 未定义", currentStep)), nil
 		}
 
+		// skip_if 条件跳过
+		if step.SkipIf != "" {
+			shouldSkip := evaluateCondition(step.SkipIf, ctx)
+			if shouldSkip {
+				result := StepResult{ID: step.ID, Output: "skipped: " + step.SkipIf}
+				results = append(results, result)
+				currentStep = resolveNext(step, ctx)
+				continue
+			}
+		}
+
 		payload := buildPayload(step.Inputs, ctx)
 
 		// 并行步骤：goroutine + WaitGroup 并发执行子步骤
@@ -118,15 +129,26 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		}
 	}
 
-	return buildResult(workflowID, results, currentStep, true, ""), nil
+	finalOutput := ""
+	if len(results) > 0 {
+		last := results[len(results)-1]
+		if last.Error == "" {
+			finalOutput = last.Output
+		}
+	}
+	return buildResult(workflowID, results, currentStep, true, "", finalOutput), nil
 }
 
-func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string) *WorkflowResult {
-	return &WorkflowResult{
+func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string, finalOutput ...string) *WorkflowResult {
+	r := &WorkflowResult{
 		WorkflowID: workflowID, Steps: steps,
 		FinalStep: finalStep, Success: success,
 		Error: err,
 	}
+	if len(finalOutput) > 0 {
+		r.FinalOutput = finalOutput[0]
+	}
+	return r
 }
 
 // runParallel 并行执行步骤的多个子步骤（goroutine + channel）
