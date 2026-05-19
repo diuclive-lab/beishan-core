@@ -13,7 +13,7 @@ type SearchPlugin struct{}
 func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	switch msg.Type {
 	case "web_search":
-		result := tools.Execute("web_search", string(msg.Payload))
+		result := tools.ValidateAndExecute("web_search", msg.Payload)
 		fmt.Printf("[搜索] %s\n", result.Output)
 		return kernel.Message{
 			Type:    msg.Type + ".result",
@@ -21,7 +21,7 @@ func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		}, nil
 
 	case "web_fetch":
-		result := tools.Execute("web_fetch", string(msg.Payload))
+		result := tools.ValidateAndExecute("web_fetch", msg.Payload)
 		fmt.Printf("[抓取] %s\n", result.Output)
 		return kernel.Message{
 			Type:    msg.Type + ".result",

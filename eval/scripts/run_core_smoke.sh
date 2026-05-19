@@ -53,6 +53,12 @@ if ! wait_for_service "$API_URL" 10; then
   fi
 
   cd "$PROJECT_ROOT"
+
+# 先跑硬化层检查
+if ! bash "$PROJECT_ROOT/eval/scripts/check_hardening.sh" 2>&1 | tee -a "$OUT_DIR/build.log"; then
+    die "硬化层检查未通过"
+fi
+
   go build -o "$OUT_DIR/beishan-core" . 2>&1 | tee "$OUT_DIR/build.log"
   if [ ! -f "$OUT_DIR/beishan-core" ]; then
     die "编译失败，见 $OUT_DIR/build.log"
