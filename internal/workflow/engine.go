@@ -358,14 +358,24 @@ func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{},
 
 	current := parsed
 	for _, part := range strings.Split(fieldPath, ".") {
-		m, ok := current.(map[string]interface{})
-		if !ok {
+		// 数组索引: field[0] → field, 0
+		fieldName := part
+		arrIdx := -1
+		if braceStart := strings.Index(part, "["); braceStart > 0 && strings.HasSuffix(part, "]") {
+			fieldName = part[:braceStart]
+			fmt.Sscanf(part[braceStart+1:len(part)-1], "%d", &arrIdx)
+		}
+		if m, ok := current.(map[string]interface{}); ok {
+			current = m[fieldName]
+		} else if arr, ok := current.([]interface{}); ok && arrIdx >= 0 && arrIdx < len(arr) {
+			current = arr[arrIdx]
+		} else {
 			return nil, false
 		}
-		current = m[part]
 		if current == nil {
 			return nil, true
 		}
+		// 如果取到的是数组元素且后续还有路径，继续在元素内部查找
 	}
 	return current, true
 }

@@ -1,0 +1,153 @@
+# 开源项目入库 — 分层采样、提取可借鉴的设计模式
+#
+# ── 串行阶段 ──
+#   1. fetch_readme:     获取项目 README
+#   2. fetch_tree:       搜索目录结构
+#   3. identify_keywords: DeepSeek 定位核心文件和技术关键词
+#
+# ── 并行阶段 ──
+#   4. research_parallel: 三步并发，速度 3x
+#       ├─ fetch_core_files:  读取核心源码
+#       ├─ fetch_design_docs: 搜索架构文档
+#       └─ fetch_issues:      搜索设计决策讨论
+#
+# ── 串行阶段 ──
+#   5. analyze:          DeepSeek 综合分析 → 结构化输出
+#   6. save_knowledge:   知识条目入库
+#   7. save_todos:       提取的行动项落地
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"opensource_project_ingest","input":"https://github.com/user/repo"}}
+
+id: opensource_project_ingest
+
+steps:
+  # ── 串行：获取项目基本信息 ──
+  - id: fetch_readme
+    plugin: search_plugin
+    type: web_fetch
+    timeout: 30
+    inputs:
+      url: "${input}"
+    next: fetch_tree
+
+  - id: fetch_tree
+    plugin: search_plugin
+    type: web_search
+    timeout: 30
+    inputs:
+      query: "${input} site:github.com directory structure"
+    next: identify_keywords
+
+  - id: identify_keywords
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        基于以下项目的 README 和目录结构，输出严格的 JSON（不加任何其他文字）：
+
+        {
+          "core_files": ["最值得阅读的3个文件路径"],
+          "search_keywords": ["用于定向挖掘的5个技术关键词"],
+          "design_questions": ["3个最值得搜索的设计决策问题"]
+        }
+
+        README 内容：
+        ${steps.fetch_readme.output}
+
+        目录结构：
+        ${steps.fetch_tree.output}
+    next: research_parallel
+
+  # ── 并行：三步并发 ──
+  - id: research_parallel
+    type: parallel
+    timeout: 90
+    steps:
+      - id: fetch_core_files
+        plugin: search_plugin
+        type: web_fetch
+        timeout: 60
+        retry: 2
+        retry_delay: 2
+        inputs:
+          url: "${input}/blob/main/${steps.identify_keywords.output.core_files[0]}"
+
+      - id: fetch_design_docs
+        plugin: search_plugin
+        type: web_search
+        timeout: 30
+        inputs:
+          query: "${steps.identify_keywords.output.search_keywords[0]} ${input} architecture design"
+
+      - id: fetch_issues
+        plugin: search_plugin
+        type: web_search
+        timeout: 30
+        inputs:
+          query: "site:github.com ${input} issues design why chose"
+    next: analyze
+
+  # ── 串行：综合分析 ──
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    retry_delay: 2
+    inputs:
+      message: >-
+        你是一个架构分析师。综合以下所有信息，输出严格的 JSON（不加任何其他文字）：
+
+        {
+          "title": "项目一句话定位",
+          "summary": "核心架构思想（100字内）",
+          "tags": ["技术标签"],
+          "topics": ["领域标签"],
+          "patterns": "可借鉴的设计模式说明",
+          "gaps": "与 beishan-core 的差距",
+          "tasks": ["具体可执行的行动项"]
+        }
+
+        README：
+        ${steps.fetch_readme.output}
+
+        目录结构：
+        ${steps.fetch_tree.output}
+
+        核心源码：
+        ${steps.research_parallel.output.fetch_core_files}
+
+        架构文档：
+        ${steps.research_parallel.output.fetch_design_docs}
+
+        Issue 讨论：
+        ${steps.research_parallel.output.fetch_issues}
+    next: save_knowledge
+
+  # ── 串行：落地 ──
+  - id: save_knowledge
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "opensource"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
+      tasks: "${steps.analyze.output.tasks}"
+      raw_ref: "${input}"
+      content: "${steps.analyze.output.patterns}"
+    next: save_todos
+
+  - id: save_todos
+    plugin: todo_plugin
+    type: todo_add
+    timeout: 10
+    inputs:
+      todos: "${steps.analyze.output.tasks}"
+      source: "${steps.save_knowledge.output.id}"

@@ -1,18 +1,17 @@
-# 周报复盘 — 聚合本周知识条目和待办，生成复盘报告和下阶段建议
+# 周报复盘 — 每周复盘，聚类主题，生成下步建议
 #
 # 流程：
-#   1. list_knowledge:  获取所有知识条目（按时间倒序）
-#   2. list_todos:      获取当前待办列表
+#   1. list_knowledge:  获取最近知识条目
+#   2. list_todos:      获取当前待办
 #   3. analyze:         DeepSeek 聚类分析 → 输出周报
-#   4. send_report:     邮件推送周报（可选，需配置 NOTIFY_TARGET 环境变量）
+#   4. save_review:     周报本身作为知识条目入库
+#   5. notify:          邮件推送（可选）
 #
 # 触发方式:
 #   POST /api/chat
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"weekly_review","input":"7"}}
-#    input 留空则列出全部，设为数字则限定最近 N 天
-#
-# 通知配置: 设环境变量 NOTIFY_TARGET=smtp://user:pass@smtp.example.com:587/to@addr
+#    input 设为天数（留空=全部，7=本周，30=本月）
 
 id: weekly_review
 
@@ -34,24 +33,23 @@ steps:
   - id: analyze
     plugin: think_plugin
     type: chat
-    timeout: 180
+    timeout: 300
     retry: 1
     retry_delay: 2
     inputs:
       message: >-
-        你是一个个人知识助理，请基于以下数据生成一份周报复盘。
+        你是一个个人知识助理，请基于本周知识库和待办数据生成一份复盘报告。
 
         格式要求：
-        ## 本周知识概况
+        ## 本周概况
         - 新增条目数、主要类型、集中主题
-        - 本周高频标签
+
+        ## 主题聚类
+        - 按 tag/topic 分类，每个主题列出代表条目
 
         ## 待办状态
         - 当前待办总数、已完成、未完成
         - 关键未完成事项
-
-        ## 主题聚类
-        - 按 tag/topic 分类，每个主题列出代表条目
 
         ## 差距与机会
         - 哪些方向记录不足
@@ -65,9 +63,22 @@ steps:
 
         ===== 待办事项 =====
         ${steps.list_todos.output}
-    next: send_report
+    next: save_review
 
-  - id: send_report
+  - id: save_review
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "note"
+      title: "周复盘"
+      summary: "${steps.analyze.output}"
+      tags: '["weekly-review"]'
+      topics: '["review"]'
+      content: "${steps.analyze.output}"
+    next: notify
+
+  - id: notify
     plugin: notify_plugin
     type: notify_send
     timeout: 15

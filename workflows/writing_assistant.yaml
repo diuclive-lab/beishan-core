@@ -1,9 +1,12 @@
-# 写作助手 — 基于知识库内容辅助写作
+# 写作助手 — 搜索相关记忆，辅助写作全流程
 #
 # 流程：
-#   1. research:   搜索知识库获取相关材料
-#   2. draft:      生成大纲 + 初稿
-#   3. refine:     自我批评 + 修订
+#   1. search_memory:   搜索知识库获取相关材料
+#   2. build_outline:   生成大纲（标注可引用的知识条目 ID）
+#   3. draft:           根据大纲和材料写初稿
+#   4. critique:        自我批评（输出 score/issues/suggestions）
+#   5. revise:          根据批评意见修订
+#   6. save:            成品入库（source_type=note）
 #
 # 触发方式:
 #   POST /api/chat
@@ -13,12 +16,31 @@
 id: writing_assistant
 
 steps:
-  - id: research
+  - id: search_memory
     plugin: memory_plugin
     type: knowledge_search
     timeout: 15
     inputs:
       keyword: "${input}"
+    next: build_outline
+
+  - id: build_outline
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        基于以下相关知识，为"${input}"生成写作大纲。
+
+        要求：
+        - 结构清晰，3-5 个主要章节
+        - 每个章节标注可引用的知识条目 ID
+
+        相关知识：
+        ${steps.search_memory.output}
+
+        关联推荐：
+        ${steps.suggest_links.output}
     next: draft
 
   - id: draft
@@ -28,54 +50,62 @@ steps:
     retry: 1
     inputs:
       message: >-
-        你是一个写作助手。请基于以下主题和参考资料，完成写作任务。
+        你是一个写作助手。根据以下大纲和参考资料，用流畅的中文写出完整的文章初稿。
 
-        主题/要求：
-        ${input}
+        主题：${input}
 
-        知识库检索结果（相关条目）：
-        ${steps.research.output}
+        大纲：
+        ${steps.build_outline.output}
 
-        请按以下步骤执行，输出完整结果：
+        参考资料：
+        ${steps.search_memory.output}
 
-        ## 第一步：生成大纲
-        根据主题和参考资料，先列出文章大纲。大纲应包括：
-        - 标题（吸引人且准确）
-        - 引言要点
-        - 正文各部分要点（每部分说明要写什么）
-        - 结论要点
+        输出要求：
+        - 约 800-1500 字
+        - 参考资料中的有用信息融入文章，不要生硬引用
+        - 风格统一、逻辑通顺
+    next: critique
 
-        ## 第二步：写出初稿
-        基于大纲，用流畅的中文写出完整的文章初稿。
-        参考资料中的有用信息应当融入文章，但不要生硬引用"根据搜索结果"。
-        保持文章风格统一，约 800-1500 字。
+  - id: critique
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        你是一个资深编辑。审查以下文章草稿，输出严格的 JSON（不加任何其他文字）：
 
-        输出格式：
-        先放大纲，然后空一行，再放正文。
-    next: refine
+        {
+          "score": 0-10,
+          "issues": ["问题1", "问题2"],
+          "suggestions": ["修改建议1", "修改建议2"]
+        }
 
-  - id: refine
+        草稿：
+        ${steps.draft.output}
+    next: revise
+
+  - id: revise
     plugin: think_plugin
     type: chat
     timeout: 180
     inputs:
       message: >-
-        你是一个资深编辑。请对以下文章初稿进行审阅和修订。
+        你是一个写作助手。根据审查意见修订以下文章。
 
-        初稿：
+        原稿：
         ${steps.draft.output}
 
-        请按以下步骤执行：
+        审查意见：
+        ${steps.critique.output}
+    next: save
 
-        ## 第一步：审阅分析
-        - 逻辑是否通顺？有无断裂感？
-        - 论据是否充分？是否引用了相关材料？
-        - 结构是否合理？各段落之间过渡自然吗？
-        - 语言是否准确？有无语病或不当表达？
-
-        ## 第二步：修订
-        基于审阅分析，输出修订后的完整文章。
-        注意保留原文的核心观点和信息，只改进表达方式和结构。
-
-        输出格式：
-        先用一段话总结修订要点，然后空一行，再放修订版全文。
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "note"
+      title: "${input}"
+      summary: "写作助手生成"
+      tags: '["writing"]'
+      content: "${steps.revise.output}"
