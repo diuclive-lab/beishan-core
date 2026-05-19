@@ -1,5 +1,72 @@
 # 开发日志
 
+## 2026-05-19 多模型 API 适配 + 条件跳过 + 停车管理 + 旧项目审计
+
+### 多模型 API 适配（LLM_PROVIDER）
+
+`internal/llm/config.go` 新增 Provider 系统：
+- 预置 `deepseek` / `xiaomi` / `openai` 三个 provider
+- 每个 provider 有独立 BaseURL、Model、RouterPrompt
+- `LLM_PROVIDER=xiaomi` 一键切换小米 MiMo v2.5-pro
+- Router 超时 10s→120s（适配小米慢响应）
+- 错误消息从 "DeepSeek" 改为 "LLM"（厂商无关）
+
+### 引擎：条件跳过（skip_if）
+
+StepDef 新增 `SkipIf` 字段，引擎执行前调用 `evaluateCondition` 检查。
+条件成立时产出 `"skipped: ..."` 记录，直接走 `next`。
+
+### 引擎：嵌套工作流返回值（FinalOutput）
+
+`WorkflowResult` 新增 `FinalOutput` 字段，存最后一步输出。
+下游用 `${steps.sub_workflow.output.FinalOutput}` 获取最终结果。
+
+### 引擎：数组索引支持
+
+`extractJSONFieldValue` 支持 `field[0]` 语法，workflow 模板可引用数组元素。
+
+### 引擎：buildPayload 支持 map[string]interface{} Inputs
+
+适配 YAML 中 `max_results: 5` 等非字符串字段，`singleTemplateRef` 保持类型完整性。
+
+### 引擎：markdown JSON 剥离
+
+`resolveJSONValue` 自动剥离 ```json 包裹，think_plugin 偶尔返回 markdown 代码块不再影响字段提取。
+
+### 新工作流（15 个）
+
+| 工作流 | 文件 | 说明 |
+|---|---|---|
+| opensource_project_ingest | 新建 | 开源项目分层采样入库（parallel 并发 3 步） |
+| code_knowledge_ingest | 新建 | 本地代码文件入库 |
+| legacy_code_audit | 新建 | 旧项目结构审计 |
+| legacy_module_ingest | 新建 | 逐模块质量评分 + 过滤入库 |
+| legacy_doc_generate | 新建 | 反向生成文档 |
+| vehicle_entry / exit | parking/ | 车辆入库/出库（备注字段） |
+| parking_stats / report | parking/ | 停车统计 + CSV 报告 + 邮件 |
+| writing_assistant | 更新 | 6 步完整版：检索→大纲→初稿→批评→修订→入库 |
+| weekly_review | 更新 | 5 步完整版：列表→分析→入库→通知 |
+
+### 实测修复（Apex-OS 项目真实跑通）
+
+- file_parse 扩展 17 种代码文件类型（.py/.go/.js 等）
+- knowledge_add content 字段兼容 string 和 array（oneOf schema）
+- find 命令括号修复（`\( -name ... -o ... \)`）
+- 4 个模块入库，2 个 SKIPPED（quality_score < 3）
+- 知识库 20 条
+
+### 模板库重构
+
+`workflows/templates/` 拆为 `patterns/`（4 个设计模式）和 `domains/`（3 个领域模板）。
+`buildWorkflowSummary` 改为 `filepath.Walk` 递归扫描子目录。
+
+### 插件描述优化
+
+| 插件 | 之前 | 之后 |
+|---|---|---|
+| write_plugin | 文本生成与写作 | 长文本生成/格式化写作/文件处理，不适合输出JSON |
+| think_plugin | 通用对话问答 | 推理/分析/判断/结构化JSON，不适合直接生成长文本 |
+
 ## 2026-05-19 workflow parallel 并行步骤（goroutine + channel 并发）
 
 ### 新增：并行步骤
