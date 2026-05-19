@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"beishan/internal/llm"
 	"beishan/internal/tools"
 	"beishan/kernel"
 	"gopkg.in/yaml.v3"
@@ -194,13 +195,13 @@ Available plugins:
 
 User request: %s`, nameHint, pluginList, description)
 
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+	apiKey := llm.APIKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("DEEPSEEK_API_KEY 未设置")
+		return "", fmt.Errorf("LLM_API_KEY 未设置")
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"model": "deepseek-chat",
+		"model": llm.Model(),
 		"messages": []map[string]string{
 			{
 				"role": "system",
@@ -210,7 +211,7 @@ User request: %s`, nameHint, pluginList, description)
 		},
 	})
 
-	req, _ := http.NewRequest("POST", "https://api.deepseek.com/v1/chat/completions",
+	req, _ := http.NewRequest("POST", llm.ChatEndpoint(),
 		bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")

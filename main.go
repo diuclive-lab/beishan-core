@@ -60,9 +60,12 @@ func jsonEscape(s string) string {
 }
 
 func main() {
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+	apiKey := os.Getenv("LLM_API_KEY")
 	if apiKey == "" {
-		log.Fatal("请设置环境变量 DEEPSEEK_API_KEY")
+		apiKey = os.Getenv("DEEPSEEK_API_KEY")
+	}
+	if apiKey == "" {
+		log.Fatal("请设置环境变量 LLM_API_KEY 或 DEEPSEEK_API_KEY")
 	}
 
 	k := kernel.NewKernel(apiKey)

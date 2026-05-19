@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"beishan/internal/llm"
 )
 
 /* Decision 是 DeepSeek 路由决策的结构化输出。
@@ -123,16 +125,24 @@ func (r *Router) Route(msg Message) (*Decision, error) {
 }
 
 func (r *Router) callDeepSeek(prompt string) (string, error) {
+	apiKey := llm.APIKey()
+	if apiKey == "" {
+		apiKey = r.apiKey
+	}
+	if apiKey == "" {
+		return "", fmt.Errorf("LLM_API_KEY 未设置")
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
-		"model": "deepseek-chat",
+		"model": llm.Model(),
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
 	})
 
-	req, _ := http.NewRequest("POST", "https://api.deepseek.com/v1/chat/completions",
+	req, _ := http.NewRequest("POST", llm.ChatEndpoint(),
 		bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+r.apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := r.client.Do(req)
