@@ -1,0 +1,70 @@
+# 停车报告 — 生成在库车辆 CSV，发送通知
+#
+# 流程：
+#   1. list_in:      列出在库车辆
+#   2. generate_csv: DeepSeek 生成 CSV
+#   3. save_file:    写入 reports/ 目录
+#   4. notify:       邮件通知（可选）
+#
+# 调度方式（配合 scheduler_plugin）:
+#   每周五:  cron: "0 9 * * 5"        input: "weekly"
+#   每月初:  cron: "0 9 1 * *"        input: "monthly"
+#   每季度:  cron: "0 9 1 1,4,7,10 *" input: "quarterly"
+#   年中:    cron: "0 9 1 7 *"        input: "midyear"
+#   年终:    cron: "0 9 31 12 *"      input: "yearend"
+#
+# 手动触发:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"parking_report","input":"weekly"}}
+
+id: parking_report
+
+steps:
+  - id: list_parking
+    plugin: memory_plugin
+    type: knowledge_list
+    timeout: 15
+    inputs:
+      source_type: "parking"
+    next: generate_csv
+
+  - id: generate_csv
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        你是一个数据整理助手。将以下停车记录整理为 CSV 格式。
+
+        CSV 列名（中文）：
+        车牌号,品牌,停车人,入库时间,状态,备注
+
+        要求：
+        - 只输出 CSV 内容，不加任何其他文字
+        - 每行一条记录，逗号分隔
+        - 只包含"状态: 在库"的车辆
+        - 第一行是列名
+
+        原始数据：
+        ${steps.list_parking.output}
+    next: save_file
+
+  - id: save_file
+    plugin: write_plugin
+    type: write_file
+    timeout: 15
+    inputs:
+      path: "reports/parking_inventory_${input}.csv"
+      content: "${steps.generate_csv.output}"
+    next: notify
+
+  - id: notify
+    plugin: notify_plugin
+    type: notify_send
+    timeout: 15
+    on_error: done
+    inputs:
+      channel: email
+      subject: "停车报告 - ${input}"
+      message: "在库车辆报告已生成。文件: reports/parking_inventory_${input}.csv"

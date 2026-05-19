@@ -4,10 +4,14 @@
 #   1. parse:      DeepSeek 从自然语言提取车辆信息
 #   2. save:       入库（source_type=parking）
 #
+# 输入格式: 品牌 车牌号 停车人 [备注]
+# 示例: 丰田 豫A00100 张三 临时访客
+#       大众 豫B00200 李四
+#
 # 触发方式:
 #   POST /api/chat
 #   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"vehicle_entry","input":"丰田 豫A00100 张三"}}
+#    "payload":{"workflow":"vehicle_entry","input":"丰田 豫A00100 张三 临时访客"}}
 
 id: vehicle_entry
 
@@ -18,13 +22,14 @@ steps:
     timeout: 60
     inputs:
       message: >-
-        从以下内容提取车辆入库信息，输出严格的 JSON：
+        从以下内容提取车辆入库信息，输出严格的 JSON（不加任何其他文字）：
 
         {
           "brand": "品牌",
           "plate": "车牌号",
           "owner": "停车人",
-          "entry_time": "入库时间（当前时间）"
+          "entry_time": "入库时间（当前时间）",
+          "notes": "备注（如有,否则空字符串）"
         }
 
         输入内容：
@@ -46,3 +51,4 @@ steps:
         停车人: ${steps.parse.output.owner}
         入库时间: ${steps.parse.output.entry_time}
         状态: 在库
+        备注: ${steps.parse.output.notes}
