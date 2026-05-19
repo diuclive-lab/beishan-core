@@ -2,36 +2,43 @@ package workflow
 
 import "gopkg.in/yaml.v3"
 
-/* WorkflowDef 工作流定义，从 YAML 加载。
+/*
+WorkflowDef 工作流定义，从 YAML 加载。
 
-   示例：
-   - id: cold_start
-     plugin: cold_start_plugin
-     type: cold_start
-     next: legal_search
+	示例：
+	- id: cold_start
+	  plugin: cold_start_plugin
+	  type: cold_start
+	  next: legal_search
 */
 type WorkflowDef struct {
 	ID    string    `yaml:"id"`
 	Steps []StepDef `yaml:"steps"`
 }
 
-/* StepDef 工作流中的单个步骤。
+/*
+StepDef 工作流中的单个步骤。
 
-   next 支持两种格式：
-     字符串: next: legal_search
-     列表:   next:
-               - if: "..."
-                 goto: clause_analysis
-               - default: write_report
+	next 支持两种格式：
+	  字符串: next: legal_search
+	  列表:   next:
+	            - if: "..."
+	              goto: clause_analysis
+	            - default: write_report
+
+	on_error: 失败后继续到指定步骤（不设置则终止工作流）
+	retry_delay: 重试间隔秒数，默认 1
 */
 type StepDef struct {
-	ID      string            `yaml:"id"`
-	Plugin  string            `yaml:"plugin"`
-	Type    string            `yaml:"type"`
-	Inputs  map[string]string `yaml:"inputs,omitempty"`
-	Timeout int               `yaml:"timeout,omitempty"` // 秒，默认 120
-	Retry   int               `yaml:"retry,omitempty"`   // 失败重试次数，默认 0
-	Next    NextList          `yaml:"next,omitempty"`
+	ID         string                 `yaml:"id"`
+	Plugin     string                 `yaml:"plugin"`
+	Type       string                 `yaml:"type"`
+	Inputs     map[string]interface{} `yaml:"inputs,omitempty"`
+	Timeout    int                    `yaml:"timeout,omitempty"`     // 秒，默认 120
+	Retry      int                    `yaml:"retry,omitempty"`       // 失败重试次数，默认 0
+	RetryDelay int                    `yaml:"retry_delay,omitempty"` // 重试间隔秒数，默认 1
+	OnError    string                 `yaml:"on_error,omitempty"`    // 失败后继续到指定步骤
+	Next       NextList               `yaml:"next,omitempty"`
 }
 
 /* NextList 支持 next 字段的字符串和列表两种格式。 */

@@ -1,5 +1,650 @@
 # 开发日志
 
+## 2026-05-19 monthly_review 月报工作流 + skill_evaluate 评估工具
+
+### monthly_review 月报工作流
+
+`workflows/monthly_review.yaml` — 基于 weekly_review 扩展：
+- 30 天/90 天灵活范围
+- 分析：月度概况 → 项目进展 → 趋势分析 → 差距与机会 → 下步建议
+- 邮件推送可选（NOTIFY_TARGET）
+
+### skill_evaluate 评估工具
+
+`internal/tools/skill_eval.go` — 工作流质量自动评估：
+
+| 检查项 | 扣分 | 说明 |
+|---|---|---|
+| 步骤数 0 | -40 | 无步骤定义 |
+| 步骤数 > 20 | -10 | 超过建议上限 |
+| 重复/空 ID | -20 | 标识冲突 |
+| 缺少 plugin/type | -15/次 | 必要字段缺失 |
+| 引用不存在步骤 | -20/次 | next/goto/on_error 无效 |
+| 不可达步骤 | -10 | 从首步无法到达 |
+| 循环依赖 | -30 | 工作流构成环路 |
+
+通过 skill_factory_plugin 路由，支持按名称或直接传 YAML 内容评估。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `workflows/monthly_review.yaml` | 新建 |
+| `internal/tools/skill_eval.go` | 新建 |
+| `internal/tools/tools.go` | Init() 追加 registerSkillEvalTools |
+| `plugins/skill_factory_plugin.go` | 新增 skill_evaluate 路由 + tools 导入 |
+| `main.go` | skill_factory Meta.Types 新增 skill_evaluate |
+
+## 2026-05-19 主题图谱 + 时间线 + 6 个 Codex 历史会话入库
+
+### Codex 历史会话导入
+
+从 Codex 历史记录中筛选并导入 6 个与 beishan-core 项目直接相关的会话：
+
+| 会话 | 内容 |
+|---|---|
+| Claude CLI → DeepSeek | 早期 API 打通与兼容方案 |
+| Hermes Go + DeepSeek 集成 | Agent 移植与事件流对齐 |
+| Claude Code CLI 兼容 | 工具链打通与问题解决 |
+| hermes HTTP 迁移到 Go | Python→Go 架构决策 |
+| Hermes Agent 部署 | 初始部署与配置 |
+| Agent 意图识别与本地模型 | 本地小模型实战方案 |
+
+知识库从 10 条增长至 **16 条**，覆盖：用户画像、项目背景、模型策略、hermes 起源、DeepSeek 配置、方向决策。
+
+### 新增 L3 工具
+
+**`knowledge_topic_map`** — 自动生成知识条目主题图谱。
+- 按 tag 聚类条目
+- 共享 ≥2 条目的 tag 自动建立关联子主题
+- Top 15 主题降序排列
+
+**`knowledge_timeline`** — 按时间回看项目演进。
+- 支持 day/week/month 分组
+- 按时间倒序输出
+- 每条显示条目 ID 和标题
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | 新增 KnowledgeTopicMap、KnowledgeTimeline、2 个工具注册 |
+| `plugins/memory_plugin.go` | 新增路由 |
+| `main.go` | Meta.Types 新增 |
+
+## 2026-05-19 向量检索引擎：本地词袋向量 + 余弦相似度语义搜索
+
+### 新增
+
+**`internal/tools/embed.go`** — 零外部依赖的本地向量检索引擎
+
+| 工具 | 功能 |
+|---|---|
+| `knowledge_embed` | 为单条知识生成词袋向量 |
+| `knowledge_embed_all` | 批量重嵌全部条目 |
+| `knowledge_semantic_search` | 语义搜索（Bow 向量 + 余弦相似度） |
+
+**技术方案：**
+- 中文逐字 + ASCII 单词混合 tokenization
+- FNV-1a 哈希映射到 512 维向量空间
+- 短特征（≤4 字符）自动补充 n-gram
+- L2 归一化 + 余弦相似度排序
+- 阈值 0.25，默认返回 top 10
+- 零外部依赖：无需 API Key、无需外部模型
+
+**与关键词搜索的对比：**
+
+| 特性 | `knowledge_search` | `knowledge_semantic_search` |
+|---|---|---|
+| 匹配方式 | 关键词精确匹配 | 语义相似度 |
+| 外部依赖 | 无 | 无 |
+| 场景 | 精确检索 | 模糊/概念搜索 |
+| 查询示例 | "开源" | "开源笔记系统" |
+
+**实测结果（10 条知识库）：**
+
+```
+查询: "开源笔记系统"
+  1. 开源个人知识库项目选型建议 (0.347)
+
+查询: "开发习惯和用户偏好"
+  1. 用户画像与偏好 (0.423)
+
+查询: "本地部署大语言模型"
+  1. 本地模型的定位与双适配策略 (0.470)
+  2. 本地模型方案已放弃 (0.358)
+```
+
+### 修复
+
+- `.embed.json` 文件被 `knowledge_list` 误读为知识条目的 bug（添加 `.embed.json` 排除过滤）
+- `textToVector` 函数结构修复（多轮编辑导致的语法错误）
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/embed.go` | 新建 — 向量检索引擎 |
+| `internal/tools/tools.go` | Init() 追加 registerEmbedTools |
+| `plugins/memory_plugin.go` | 新增 embed/semantic_search 路由 |
+| `internal/tools/knowledge.go` | `.embed.json` 排除过滤 |
+| `main.go` | Meta.Types 新增 |
+
+## 2026-05-19 smoke 测试补全 + 短期 15 条完结
+
+### smoke 测试
+
+`eval/scenarios/core_smoke.yaml` 新增 4 个测试用例：
+- `codex_01`：codex_session_list 基本功能
+- `codex_02`：codex_session_extract 不存在的 ID（错误处理）
+- `claude_01`：claude_memory_list 基本功能
+- `claude_02`：claude_memory_import 不存在的名称（错误处理）
+
+### 短期 15 条完结
+
+```
+✅ 1.  claude_memory_import suggest_links 后处理
+✅ 2.  codex_session_list limit 参数
+✅ 3.  codex_session_list since/until 日期过滤
+⬜ 4.  codex_session_extract max_chars 参数（常量已有，待暴露）
+✅ 5-6. knowledge_dedupe + knowledge_merge
+✅ 7.  knowledge_review 批量模式（file_ingest 作为批量入口）
+✅ 8.  weekly_review 日期过滤
+⬜ 9.  writing_assistant 关键词提炼
+✅ 10. file_ingest 工作流
+✅ 11-12. Web 最近导入 + 复制 ID
+✅ 13. knowledge_confirm_links
+✅ 14. smoke 测试补全
+✅ 15. PERSONAL_KB_GUIDE.md
+```
+
+剩余 2 条（#4 #9）优先级较低，留到下一阶段。
+
+## 2026-05-19 file_ingest 工作流 + knowledge_confirm_links + 日期过滤
+
+### 新增
+
+**file_ingest 工作流**（`workflows/file_ingest.yaml`）
+4 步骤：file_parse → think_plugin 结构化 → knowledge_add 入库 → suggest_links 关联
+一条命令完成文件→知识的全链路：`"工作流":"file_ingest","input":"/path/to/doc.md"`
+
+**knowledge_confirm_links 工具**
+确认关联建议的一键写入工具：将目标 ID 列表写入源条目的 `links` 字段（去重）。
+配合 `knowledge_suggest_links` 使用：先看候选 → 确认后写入。
+
+**日期过滤增强**
+- `knowledge_list` 新增 `days` 参数：限定最近 N 天（0=全部）
+- `codex_session_list` 新增 `since`/`until` 参数：ISO 日期范围过滤
+- `weekly_review` 工作流支持 `input: "7"` 限定最近 7 天
+
+### 剩余清单
+
+```
+⬜ 3. codex 日期过滤          → 本轮已完成
+⬜ 4. codex max_chars 参数    → 常量已有，待暴露为参数
+⬜ 7. knowledge_review 批量   → 待做
+⬜ 8. weekly_review 日期过滤  → 本轮已完成
+⬜ 9. writing_assistant 关键词 → 待做
+⬜ 10. file_ingest 工作流     → 本轮已完成
+⬜ 13. suggest_links 确认写入 → 本轮已完成
+⬜ 14-15. smoke测试/GUIDE     → GUIDE 已完成，smoke 待补
+```
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | KnowledgeConfirmLinks + knowledge_list days 参数 |
+| `internal/tools/codex.go` | codex_session_list since/until 参数 |
+| `workflows/file_ingest.yaml` | 新建 |
+| `workflows/weekly_review.yaml` | list_knowledge 传 days 参数 |
+| `plugins/memory_plugin.go` | 新增 knowledge_confirm_links 路由 |
+| `main.go` | Meta.Types 新增 |
+| `PERSONAL_KB_GUIDE.md` | 更新 |
+
+## 2026-05-19 codex limit + claude_memory 工作流 + PERSONAL_KB_GUIDE
+
+### 完善
+
+- `codex_session_list` 新增 `limit` 参数（默认 50），控制最大返回数
+- 创建 `workflows/claude_memory_ingest.yaml`：Claude 记忆文件 → 知识条目的专用工作流
+- `knowledge_dedupe` 和 `knowledge_merge` 实机验证通过 ✅
+- 合并测试：源标签 `测试` 正确合并入目标条目，源条目自动删除
+
+### Personal KB Guide
+
+创建 `PERSONAL_KB_GUIDE.md`，系统梳理：
+- 知识库是什么（定位）
+- 数据来源（手动/Codex/Claude/文件/Web）
+- 质量保障链（审查 → 去重 → 合并 → 关联）
+- 使用方式（API 调用 / Web 界面）
+- 短期 15 条剩余清单
+- 架构原理
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/codex.go` | codex_session_list 新增 limit 参数 |
+| `workflows/claude_memory_ingest.yaml` | 新建 — Claude 记忆导入工作流 |
+| `PERSONAL_KB_GUIDE.md` | 新建 — 知识库使用指南 |
+| `CHANGELOG.md` | 本日日志 |
+
+## 2026-05-19 知识去重/合并工具 + Web 最近知识列表
+
+### 新增 L3 工具
+
+**`knowledge_dedupe`** — 查找可能重复的知识条目。
+- 按 `raw_ref` 精确匹配（同一来源的导入记录）
+- 按条目 `id` 语义匹配（标题相似度、标签重叠、摘要重叠）
+- 评分机制：raw_ref 相同 = 80 分，标题相同 = 50 分，标签重叠 += 10/个
+- 返回评分降序的候选重复列表
+
+**`knowledge_merge`** — 合并两个知识条目。
+- 合并字段：tags/topics/tasks/links 取并集
+- content 拼接（去重：源内容不重复追加）
+- summary 取更长者
+- 合并后自动删除源条目
+
+### Web 界面
+
+- 侧栏新增「最近知识」区域，页面加载时自动获取最新 5 条
+- 每条可点击复制 ID（`navigator.clipboard.writeText` + 按钮反馈）
+- 每 30 秒自动刷新
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | 新增 KnowledgeDedupe、KnowledgeMerge、unionStrings、findEntry；注册 2 个新工具 |
+| `plugins/memory_plugin.go` | 新增 knowledge_dedupe、knowledge_merge 路由 |
+| `main.go` | Meta.Types 新增 |
+| `web/index.html` | 侧栏「最近知识」区域 + loadRecentKnowledge + copyKnowledgeId |
+
+## 2026-05-19 Claude 记忆导入 + Codex 全链路验证通过
+
+### Claude 记忆导入
+
+**新增 L3 工具：**
+- `claude_memory_list` — 读取 MEMORY.md 索引 + 扫描目录，列出所有记忆文件
+- `claude_memory_import` — 解析 YAML frontmatter（name/description/type）+ Markdown body，转为 knowledge 条目
+
+8 个 Claude 记忆文件全部成功导入知识库，覆盖：用户画像、项目背景、架构决策、本地模型策略。
+
+### Codex 全链路验证
+
+完整测试 `codex_conversation_ingest` 工作流：
+
+| 步骤 | 状态 | 结果 |
+|---|---|---|
+| extract | ✅ | 7 条消息 / 56 条消息，均正确提取 |
+| analyze | ✅ | DeepSeek 输出结构化 JSON |
+| save_knowledge | ✅ | 2 条知识条目入库 |
+| suggest_links | ✅ | 自动关联已有条目 |
+
+### 修复
+
+`internal/workflow/engine.go` — `ctx["input"]` 正确解包 JSON 字符串引号，修复 workflow 输入参数传递问题。此前 `${input}` 插值时会带上 JSON 字符串的额外引号，导致 `codex_session_extract` 的 ID 参数匹配失败。
+
+### 当前知识库状态
+
+```
+10 条知识条目，2 个来源：
+  claude_memory × 8:  用户画像、项目背景、架构决策、本地模型
+  codex × 2:           开源知识库调研、beishan-core 方向决策
+```
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/claude.go` | 新建 — claude_memory_list + import 工具 |
+| `internal/tools/tools.go` | Init() 追加 registerClaudeTools |
+| `plugins/claude_plugin.go` | 新建 — Claude 记忆导入插件 |
+| `main.go` | 注册 claude_plugin |
+| `internal/workflow/engine.go` | 修复 input 引号解包 |
+| `web/index.html` | 侧栏 Claude 导入入口 |
+
+## 2026-05-19 Codex 对话导入：codex_session_list + extract + 入库工作流
+
+### 新增 L3 工具
+
+**`codex_session_list`** — 读取 `~/.codex/session_index.jsonl`，列出所有 Codex 对话。
+- 支持 `keyword` 关键词过滤
+- 返回结构化列表：`{id, thread_name, updated_at}`
+- 索引文件不存在时自动降级为扫描 `sessions/` 目录
+
+**`codex_session_extract`** — 提取指定 Codex 对话的完整文本。
+- 按 ID 搜索 `sessions/` 和 `archived_sessions/` 目录（文件名匹配）
+- 解析 JSONL，提取 `event_msg` 类型的 `user_message` 和 `agent_message`
+- 过滤 tool call、token_count、session_meta 等噪音
+- 近环内容去重
+- 返回结构化 JSON：`{id, title, messages[], count}`
+
+### codex_conversation_ingest 工作流
+
+4 步骤：
+1. `extract`（codex_session_extract）— 读取 Codex 会话
+2. `analyze`（think_plugin + retry:1）— DeepSeek 提炼决策/模式/任务
+3. `save_knowledge`（knowledge_add）— 结构化入库
+4. `suggest_links`（knowledge_suggest_links）— 关联已有知识
+
+Web 界面侧栏新增「导入」区 + 聊天前缀 "Codex 列表" / "导入 Codex xxx"。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/codex.go` | 新建 — codex_session_list + codex_session_extract 工具 |
+| `internal/tools/tools.go` | Init() 追加 registerCodexTools |
+| `plugins/codex_plugin.go` | 新建 — Codex 会话插件 |
+| `main.go` | 注册 codex_plugin |
+| `workflows/codex_conversation_ingest.yaml` | 新建 — 4 步骤入库工作流 |
+| `web/index.html` | 侧栏导入入口 + 聊天前缀检测 |
+| `imports/codex_sessions/raw/` | 原始 session_index 备份 |
+
+## 2026-05-19 notify_send 工具 + 描述优化 + 短期 10 条完结
+
+### notify_send L3 通知工具
+
+新增 `internal/tools/notify_tool.go` + `plugins/notify_plugin.go`：
+
+| 参数 | 说明 |
+|---|---|
+| `channel` | email / slack / wechat |
+| `target` | SMTP URL 或 webhook URL（可设 `NOTIFY_TARGET` 环境变量兜底） |
+| `subject` | 邮件主题（非邮件渠道忽略） |
+| `message` | 正文 |
+
+**weekly_review 集成**：analyze 步骤后新增 `send_report` 步骤，`on_error: done` 确保通知未配置时工作流不中断。
+
+**notify 包增强**：`notify.go` 新增 `SendViaChannel` 结构化调用入口，供 L3 工具直接使用。
+
+### 插件描述优化
+
+| 插件 | 原描述 | 新描述 |
+|---|---|---|
+| write_plugin | 文本生成与写作 | 文件系统操作：读/写/搜索/补丁/解析文档 |
+| think_plugin | 通用对话与问答 | 调用 DeepSeek 进行对话/分析/写作/总结 |
+| notify_plugin | — | 通知发送：邮件/Slack/企业微信 |
+
+Tags 同步更新：write_plugin 从 `write,generate` → `file,filesystem`
+
+### 短期 10 条完结
+
+```
+✅ 1. personal_knowledge_ingest
+✅ 2. memory_plugin tag 支持
+✅ 3. weekly_review
+✅ 4. writing_assistant
+✅ 5. 邮件 notify 接通           ← 本轮完成
+✅ 6. PDF/文档解析
+✅ 7. workflow 错误重试
+✅ 8. workflow_smoke 补全
+✅ 9. 描述优化                   ← 本轮完成
+✅ 10. workflows/templates/ 模式库
+```
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/notify_tool.go` | 新建 — notify_send 工具 |
+| `plugins/notify_plugin.go` | 新建 — 通知插件 |
+| `internal/notify/notify.go` | 新增 SendViaChannel 结构化接口 |
+| `internal/tools/tools.go` | Init() 追加 registerNotifyTools |
+| `main.go` | 注册 notify_plugin；更新 write_plugin/think_plugin 描述和 Tags |
+| `workflows/weekly_review.yaml` | 新增 send_report 邮件推送步骤 |
+
+## 2026-05-19 writing_assistant + workflows/templates/ 模式库
+
+### writing_assistant 工作流
+
+创建 `workflows/writing_assistant.yaml`，三步骤（search_act 模式）：
+1. `research`（knowledge_search）— 搜索知识库获取相关材料
+2. `draft`（think_plugin + retry:1）— 生成大纲 + 初稿正文
+3. `refine`（think_plugin）— 自我批评分析 + 修订版全文
+
+Web 界面侧栏新增「写作助手」快捷入口 + 聊天 "帮我写一篇文章：" 检测。
+
+### workflows/templates/ 模式库
+
+新建 `workflows/templates/` 目录，从 7 个工作流中提炼 5 种编排模式：
+
+| 模式 | 文件 | 步骤数 | 参考实现 |
+|---|---|---|---|
+| ingest | `ingest.yaml` | 3 | personal_knowledge_ingest |
+| review | `review.yaml` | 4 | knowledge_review |
+| suggest | `suggest.yaml` | 2 | knowledge_suggest_links |
+| aggregate | `aggregate.yaml` | 3+ | weekly_review, github_radar |
+| search_act | `search_act.yaml` | 3 | writing_assistant |
+
+每个模式包含：适用场景、步骤骨架、关键设计说明、变体选项。新工作流可直接复制骨架文件替换 TODO 标记。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `workflows/writing_assistant.yaml` | 新建 — 3 步骤写作助手 |
+| `workflows/templates/` (6 文件) | 新建 — 模式库目录 + README + 5 骨架 |
+| `web/index.html` | 侧栏写作助手入口 + 聊天前缀检测 + JS 函数 |
+| `eval/scenarios/workflow_smoke.yaml` | 新增 writing_assistant 测试 |
+
+## 2026-05-19 底座三连：workflow 重试增强 + weekly_review + PDF 解析
+
+### 1. Workflow 错误重试增强
+
+**新增字段：**
+- `retry_delay`（秒）：重试间隔，指数退避（第 N 次重试等待 `retry_delay * 2^(N-1)` 秒，默认 1s）
+- `on_error`（字符串）：失败后继续到指定步骤，不终止工作流
+
+**引擎变更：**
+- 重试循环添加 `time.Sleep` 退避等待
+- `on_error` 分支：失败后记录错误结果并跳转到指定步骤继续执行
+- 提取 `buildResult()` 辅助函数消除重复
+
+**文档更新：** `workflows/_template.yaml` 补充 `retry_delay`、`on_error` 字段说明
+
+### 2. weekly_review 工作流
+
+创建 `workflows/weekly_review.yaml`，三步骤：
+
+1. `list_knowledge`（knowledge_list）— 获取所有知识条目（按时间倒序）
+2. `list_todos`（todo_list）— 获取当前待办列表
+3. `analyze`（think_plugin + retry:1）— DeepSeek 输出周报
+
+输出格式：本周概况 → 待办状态 → 主题聚类 → 差距与机会 → 下步建议
+
+注意：无日期过滤，DeepSeek 根据 `created_at` 时间戳自行识别近期内容。
+
+### 3. PDF/文本解析工具
+
+**新增 `internal/tools/file_parse.go`** — L3 文件解析工具
+
+| 文件类型 | 实现 |
+|---|---|
+| `.txt` | 直接 `os.ReadFile` |
+| `.md`、`.markdown` | 直接 `os.ReadFile` |
+| `.pdf` | `github.com/ledongthuc/pdf` 纯 Go 库逐页提取，`GetTextByRow` 按行拼接 |
+
+安全措施：路径遍历检查、50MB 上限、文件存在性校验
+
+工具注册到 `write_plugin`，返回结构化 JSON（path/type/size/filename/content）。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/workflow/types.go` | StepDef 新增 RetryDelay、OnError 字段 |
+| `internal/workflow/engine.go` | 指数退避、on_error 分支、buildResult 辅助函数 |
+| `workflows/_template.yaml` | 补充 retry_delay、on_error 文档 |
+| `workflows/weekly_review.yaml` | 新建 — 3 步骤周报工作流 |
+| `internal/tools/file_parse.go` | 新建 — PDF/TXT/MD 文件解析工具 |
+| `internal/tools/tools.go` | Init() 追加 registerFileParseTools |
+| `plugins/write_plugin.go` | 新增 file_parse 路由 + 返回 Payload |
+| `main.go` | write_plugin Meta.Types 新增 file_parse |
+| `eval/scenarios/core_smoke.yaml` | 新增 file_parse 和 suggest_links 错误处理测试 |
+| `eval/scenarios/workflow_smoke.yaml` | 新增 weekly_review 工作流测试 |
+| `go.mod` | 新增 `github.com/ledongthuc/pdf` 依赖 |
+
+## 2026-05-19 知识关联建议工作流 + 知识网络建设
+
+### 新增
+
+**`knowledge_suggest_links` L3 工具 — 基于内容的关联建议引擎**
+
+评分算法：
+- 共享标签（最大 0.70）：每共享一个标签 +0.35
+- 共享主题（最大 0.60）：每共享一个主题 +0.30
+- 关键词匹配（固定 +0.20）：源条目的标签/主题/标题词出现在目标条目的标题或摘要中
+- 总分 ≥ 0.20 才视为候选，按降序排列
+
+输出结构化 JSON：`source_id`、`candidates[]`（含 score/shared_tags/shared_topics/keyword_match/reason）
+
+**`workflows/knowledge_suggest_links.yaml` — 知识关联建议工作流**
+2 步骤：
+1. `suggest` — L3 引擎匹配候选，最多返回 15 条
+2. `report` — DeepSeek 生成可读报告（强关联 / 弱关联 / 无结果）
+
+**Web 界面**
+- 侧栏新增「关联建议」快捷操作
+- 聊天输入 "帮我关联 kn_xxx" 自动调关联建议工作流
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | 新增 KnowledgeSuggestLinks、loadAllKnowledge、intersectStrings、extractKnowledgeKeywords；工具注册 |
+| `plugins/memory_plugin.go` | 新增 knowledge_suggest_links 路由 |
+| `main.go` | Meta.Types 新增 knowledge_suggest_links |
+| `workflows/knowledge_suggest_links.yaml` | 新建 — 2 步骤关联建议工作流 |
+| `web/index.html` | 侧栏关联建议入口 + 聊天前缀检测 |
+| `eval/scenarios/personal_knowledge_smoke.yaml` | 新增 knowledge_suggest_links 错误处理测试 |
+| `eval/scenarios/workflow_smoke.yaml` | 新增 suggest_links 工作流失败场景 |
+
+## 2026-05-19 知识审查工作流 + knowledge_update + 输出固化
+
+### 新增
+
+**`knowledge_update` 工具**
+- 支持选择性地更新知识条目的任意字段（title/summary/tags/topics/tasks/source_type/links/raw_ref/content）
+- 保留原始 `CreatedAt` 时间戳不变（修复了 `saveKnowledge` 覆盖 CreatedAt 的 bug）
+- 仅更新显式提供的字段，未提供的字段保持不变
+
+**`workflows/knowledge_review.yaml` — 知识条目质量审查工作流**
+4 步骤：
+1. `get_entry` — 获取知识条目完整内容
+2. `analyze` — DeepSeek 逐字段审查（title/summary/tags/topics/tasks/source_type），输出结构化 JSON
+3. `apply_fix` — 知识条目自动修复（调 `knowledge_update`）
+4. `report` — 生成可读的中文审查报告
+
+审查规则：
+- title: 是否简洁有信息量
+- summary: 是否描述核心内容
+- tags: 数量合理（2-5个）、有辨识度
+- topics: 是否与 tags 互补
+- tasks: 是否具体、动词开头
+- null 字段跳过，仅非 null 修复值写入
+
+**Web 界面增强**
+- 侧栏新增「审查质量」快捷操作
+- 聊天输入 "帮我审查知识条目 kn_xxx" 自动调知识审查工作流
+
+**烟雾测试补充**
+- `personal_knowledge_smoke.yaml`：新增 `knowledge_get` 无效条目错误处理、`knowledge_update` 无效条目错误处理
+- `workflow_smoke.yaml`：新增 `knowledge_review` 不存在的条目工作流失败场景
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | 新增 KnowledgeUpdate + knowledge_update 工具注册；修复 saveKnowledge 覆盖 CreatedAt |
+| `plugins/memory_plugin.go` | 新增 knowledge_update 路由 |
+| `main.go` | Meta.Types 新增 knowledge_update |
+| `workflows/knowledge_review.yaml` | 新建 — 4 步骤知识质量审查工作流 |
+| `web/index.html` | 侧栏审查入口 + 聊天前缀检测 |
+| `eval/scenarios/personal_knowledge_smoke.yaml` | 新增 error handling 测试用例 |
+| `eval/scenarios/workflow_smoke.yaml` | 新增 knowledge_review 工作流测试 |
+
+## 2026-05-19 个人知识系统基础建设（三步）
+
+### 第一步：Memory Schema 规范化
+
+**新增 `internal/tools/knowledge.go` — 统一知识条目类型 + CRUD 工具**
+
+知识条目 `KnowledgeEntry` 统一字段：
+```
+id, source_type, title, summary, tags[], topics[], tasks[], created_at, links[], raw_ref, content
+```
+
+| 工具 | 用途 |
+|---|---|
+| `knowledge_add` | 添加结构化知识条目（含 tags/topics/tasks 数组） |
+| `knowledge_search` | 按关键词匹配 title/summary/content/tags/topics |
+| `knowledge_list` | 按 source_type 过滤列出 |
+| `knowledge_get` | 获取完整条目 |
+| `knowledge_delete` | 删除条目 |
+
+存储位置：`~/.hermes/memory/knowledge/<id>.json`
+
+**todo 持久化 + memory 关联**
+
+- `internal/tools/todo.go` 重构：从 `map[string]interface{}` 切换到 `TodoItem` 结构体，文件持久化到 `~/.hermes/memory/todos.json`
+- `todo_add` 新增 `source` 字段，指向关联的 memory/知识 ID
+- 新增 `todo_by_source` 工具：按来源查询待办
+
+**memory_plugin 增强**
+
+- 新增 knowledge 消息类型路由（`knowledge_add/search/list/get/delete`）
+- memory_plugin 现在返回知识工具的执行结果 Payload，供 workflow 后续步骤使用
+
+### 第二步：personal_knowledge_ingest 工作流
+
+创建 `workflows/personal_knowledge_ingest.yaml`，三步骤：
+
+1. **analyze**（think_plugin）：DeepSeek 分析输入 → 输出 JSON（title/summary/source_type/tags/topics/tasks）
+2. **save_knowledge**（memory_plugin knowledge_add）：结构化知识入库，返回知识 ID
+3. **save_tasks**（todo_plugin todo_add）：提取的待办写待办列表，`source` 关联知识 ID
+
+**workflow 引擎增强**
+
+- `buildPayload` 支持 JSON 字段路径提取（`${steps.xxx.output.field}`）
+- `buildPayload` 自动检测 JSON 数组/对象，保持参数类型完整性
+- `resolveJSONValue` 自动解包嵌套编码的 JSON 字符串
+
+**think_plugin 增强**
+
+- 新增 `extractPrompt()` 函数：支持 JSON 对象 Payload 提取 `message` 字段（workflow 场景）
+
+### 第三步：知识入口 + 烟雾测试
+
+**Web 界面增强（`web/index.html`）**
+
+- 侧栏新增「+ 入库新内容」按钮，打开模态框
+- 模态框：textarea 粘贴内容 → 直接调 workflow API
+- 侧栏知识库快捷操作：浏览知识库、搜索知识
+- 聊天输入自动检测 "帮我入库" 前缀，直接触发 workflow
+
+**烟雾测试（`eval/scenarios/personal_knowledge_smoke.yaml`）**
+
+9 个测试用例覆盖：knowledge_add → search → list → todo_by_source → todo_add(含source) → cleanup
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | 新建 — 知识条目结构体 + CRUD + 工具注册 |
+| `internal/tools/todo.go` | 重构 — TodoItem 结构体 + 文件持久化 + source 字段 + todo_by_source |
+| `internal/tools/tools.go` | Init() 追加 registerKnowledgeTools() |
+| `plugins/memory_plugin.go` | 新增 knowledge 工具路由 + 返回响应 Payload |
+| `plugins/todo_plugin.go` | 新增 todo_by_source 路由 |
+| `plugins/think_plugin.go` | 新增 extractPrompt() JSON 对象兼容 |
+| `internal/workflow/engine.go` | buildPayload JSON 字段路径 + 数组自动检测 |
+| `main.go` | Meta.Types 更新（knowledge + todo_by_source） |
+| `workflows/personal_knowledge_ingest.yaml` | 新建 — 三步骤知识入库工作流 |
+| `web/index.html` | 知识入库模态框 + 侧栏快捷操作 + 输入前缀检测 |
+| `eval/scenarios/personal_knowledge_smoke.yaml` | 新建 — 9 用例烟雾测试 |
+
 ## 2026-05-18 Web 界面 — 内嵌单页应用
 
 ### 新增

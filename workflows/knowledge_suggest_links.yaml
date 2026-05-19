@@ -1,0 +1,42 @@
+# 知识关联建议 — 为指定知识条目推荐可关联的条目
+#
+# 流程：
+#   1. suggest:   L3 引擎按标签/主题/关键词匹配，找出候选关联
+#   2. report:    DeepSeek 分析候选列表，推荐最佳关联并说明理由
+#
+# 注意：本工作流仅输出建议，不自动写入 links 字段。
+# 如需确认关联，用户手动调用 knowledge_update 写入 links。
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"knowledge_suggest_links","input":"kn_xxxxxxxx"}}
+
+id: knowledge_suggest_links
+
+steps:
+  - id: suggest
+    plugin: memory_plugin
+    type: knowledge_suggest_links
+    timeout: 15
+    inputs:
+      id: "${input}"
+      max_results: 15
+    next: report
+
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        基于以下关联建议结果，生成一段可读的中文报告。
+
+        说明：
+        - 哪些候选条目值得关联（score ≥ 0.5 的强关联）
+        - 哪些可以顺便看看（score ≥ 0.3 的弱关联）
+        - 如果候选数为 0，说明"暂无相关条目"
+        - 最后建议用户通过 "帮我关联 kn_A 到 kn_B" 来确认写入
+
+        关联建议结果：
+        ${steps.suggest.output}

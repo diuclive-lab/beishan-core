@@ -1,0 +1,72 @@
+# Codex 对话入库 — 从 Codex 对话中提炼结构化知识
+#
+# 流程：
+#   1. extract:       读取 Codex 会话 JSONL，提取 user/assistant 对话
+#   2. analyze:        DeepSeek 提炼决策/模式/任务
+#   3. save_knowledge: 保存为结构化知识条目
+#   4. suggest_links:  关联已有知识
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"codex_conversation_ingest","input":"019e145c-fba7-73b2-ab41-3d16096410f7"}}
+
+id: codex_conversation_ingest
+
+steps:
+  - id: extract
+    plugin: codex_plugin
+    type: codex_session_extract
+    timeout: 15
+    inputs:
+      id: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    inputs:
+      message: >-
+        你是一个知识提炼助手。请分析以下 Codex 对话，提炼其中可沉淀为个人知识的结构化内容。
+
+        原则：只入库结论、决策、模式、任务。不入库寒暄、过程噪音、技术细节。
+
+        对话内容：
+        ${steps.extract.output}
+
+        请严格输出以下 JSON 格式（不加任何其他文字）：
+
+        {
+          "source_type": "codex",
+          "title": "简洁标题（概括本次入库的主题）",
+          "summary": "一句话摘要",
+          "tags": ["标签1", "标签2"],
+          "topics": ["所属主题"],
+          "tasks": ["提取的行动项/待办（无则空数组）"],
+          "content": "整理后的完整内容——保留决策理由、架构选择、模式识别，去掉无用对话"
+        }
+    next: save_knowledge
+
+  - id: save_knowledge
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "${steps.analyze.output.source_type}"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
+      tasks: "${steps.analyze.output.tasks}"
+      content: "${steps.analyze.output.content}"
+    next: suggest_links
+
+  - id: suggest_links
+    plugin: memory_plugin
+    type: knowledge_suggest_links
+    timeout: 10
+    inputs:
+      id: "${steps.save_knowledge.output.id}"
+      max_results: 5

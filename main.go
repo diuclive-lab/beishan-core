@@ -77,14 +77,14 @@ func main() {
 		Types:       []string{"web_search", "web_fetch"},
 	})
 	k.Register("write_plugin", &plugins.WritePlugin{}, kernel.Meta{
-		Description: "文本生成与写作，适用于生成报告、摘要、邮件",
-		Tags:        []string{"write", "generate"},
-		Types:       []string{"write_file", "read_file", "search_files", "patch"},
+		Description: "文件系统操作：读文件、写文件、搜索文件、打补丁、解析文档内容",
+		Tags:        []string{"file", "filesystem"},
+		Types:       []string{"write_file", "read_file", "search_files", "patch", "file_parse"},
 	})
 	k.Register("memory_plugin", &plugins.MemoryPlugin{}, kernel.Meta{
 		Description: "会话记忆管理，存储和召回跨轮上下文信息",
 		Tags:        []string{"memory", "session"},
-		Types:       []string{"session_add", "session_get", "session_search", "session_list", "session_delete", "evidence_add", "evidence_search"},
+		Types:       []string{"session_add", "session_get", "session_search", "session_list", "session_delete", "evidence_add", "evidence_search", "knowledge_add", "knowledge_search", "knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline"},
 	})
 	k.Register("terminal_plugin", &plugins.TerminalPlugin{}, kernel.Meta{
 		Description: "本地终端命令执行，执行 shell 命令和管理后台进程",
@@ -104,7 +104,7 @@ func main() {
 	k.Register("todo_plugin", &plugins.TodoPlugin{}, kernel.Meta{
 		Description: "待办事项管理，添加、列出、标记完成、清除任务",
 		Tags:        []string{"todo", "task"},
-		Types:       []string{"todo_list", "todo_add", "todo_done", "todo_clear"},
+		Types:       []string{"todo_list", "todo_add", "todo_done", "todo_clear", "todo_by_source"},
 	})
 	k.Register("tts_plugin", &plugins.TTSPlugin{}, kernel.Meta{
 		Description: "文本转语音（TTS），使用系统引擎把文字转为音频文件",
@@ -117,7 +117,7 @@ func main() {
 		Types:       []string{"image_generate"},
 	})
 	k.Register("think_plugin", &plugins.ThinkPlugin{}, kernel.Meta{
-		Description: "通用对话与问答，处理用户的聊天、闲聊、创意写作等非特定任务请求",
+		Description: "调用 DeepSeek 进行对话、分析、写作、总结等文本生成任务，不操作文件系统",
 		Tags:        []string{"chat", "dialogue", "general"},
 		Types:       []string{"chat"},
 	})
@@ -125,9 +125,28 @@ func main() {
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},
 	})
+	k.Register("codex_plugin", &plugins.CodexSessionPlugin{}, kernel.Meta{
+		Description: "Codex 对话导入：列出和提取本地 Codex 对话，用于知识库入库",
+		Tags:        []string{"codex", "import"},
+		Types:       []string{"codex_session_list", "codex_session_extract"},
+	})
+
+	k.Register("claude_plugin", &plugins.ClaudePlugin{}, kernel.Meta{
+		Description: "Claude 记忆导入：列出和导入 Claude 记忆文件到知识库",
+		Tags:        []string{"claude", "memory", "import"},
+		Types:       []string{"claude_memory_list", "claude_memory_import"},
+	})
+
+	k.Register("notify_plugin", &plugins.NotifyPlugin{}, kernel.Meta{
+		Description: "通知发送：邮件/Slack/企业微信，适用于 workflow 执行完成后推送结果",
+		Tags:        []string{"notify", "push"},
+		Types:       []string{"notify_send"},
+	})
+
 	k.Register("skill_factory_plugin", plugins.NewSkillFactory(k, "./workflows"), kernel.Meta{
 		Description: "技能工场，根据自然语言描述自动生成 YAML 工作流",
 		Tags:        []string{"skill", "workflow", "generation"},
+		Types:       []string{"skill_create", "skill_list", "skill_view", "skill_delete", "skill_preview", "skill_evaluate"},
 	})
 
 	// 法律审查插件簇（L3 执行插件，编排由 workflow_plugin 处理）

@@ -1,0 +1,47 @@
+# ═══════════════════════════════════════════════════════════
+# 模式: suggest — 获取→推荐→报告
+# ═══════════════════════════════════════════════════════════
+#
+# 适用场景: 基于已有数据推荐关联项、候选人、相关内容
+# 参考实现: knowledge_suggest_links
+# 步骤数: 2 (suggest → report)
+#
+# 关键设计:
+#   - suggest 步骤调用 L3 推荐引擎，输出结构化候选列表
+#   - report 步骤用 think_plugin 做可读化包装
+
+# ─── 骨架 ─────────────────────────────────────────────
+
+id: TODO_suggest_workflow
+
+steps:
+  - id: suggest
+    plugin: TODO_plugin
+    type: TODO_suggest_type
+    timeout: 15
+    inputs:
+      id: "${input}"
+      max_results: 15
+    next: report
+
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        基于以下推荐结果生成可读报告。
+
+        推荐结果：
+        ${steps.suggest.output}
+
+        说明：
+        - 哪些是强推荐（score ≥ 0.5）
+        - 哪些可以看看（score ≥ 0.3）
+        - 如果结果为空，说明"暂无推荐"
+        - 最后建议后续操作步骤
+
+# ─── 变体 ─────────────────────────────────────────────
+#
+# 纯数据版: 不要 report 步骤，suggest 直接输出 JSON
+# 人工确认版: suggest 后不加 next，用户查看候选再决定

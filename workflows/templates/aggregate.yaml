@@ -1,0 +1,58 @@
+# ═══════════════════════════════════════════════════════════
+# 模式: aggregate — 多数据源聚合→聚类→报告
+# ═══════════════════════════════════════════════════════════
+#
+# 适用场景: 多步骤收集数据后综合分析输出报告
+# 参考实现: weekly_review, github_radar
+# 步骤数: 3+ (多个 list/search 步骤 → analyze → report)
+#
+# 关键设计:
+#   - 前序步骤用不同插件从不同数据源收集数据
+#   - analyze 步骤用 ${steps.xxx.output} 引用所有数据
+#   - 可扩展：在中间插入更多 list/search 步骤
+
+# ─── 骨架 ─────────────────────────────────────────────
+
+id: TODO_aggregate_workflow
+
+steps:
+  - id: source_1
+    plugin: TODO_plugin_1
+    type: TODO_type_1
+    timeout: 15
+    inputs:
+      TODO_param: "${input}"
+    next: source_2
+
+  - id: source_2
+    plugin: TODO_plugin_2
+    type: TODO_type_2
+    timeout: 15
+    inputs: {}
+    next: analyze
+
+  # 如果需要更多数据源，在此插入 source_3、source_4...
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    retry_delay: 2
+    inputs:
+      message: >-
+        TODO: 写聚类分析 prompt
+
+        ===== 数据源 1 =====
+        ${steps.source_1.output}
+
+        ===== 数据源 2 =====
+        ${steps.source_2.output}
+
+        TODO: 输出格式要求
+
+# ─── 变体 ─────────────────────────────────────────────
+#
+# 单数据源版: 删 source_2 等步骤，analyze 直接引用 source_1
+# 四路并行版: 四个搜索步骤串联，最后统一分析（如 github_radar）
+# 周期任务版: 配合 scheduler 定时触发

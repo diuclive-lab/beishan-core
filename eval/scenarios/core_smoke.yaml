@@ -64,3 +64,33 @@ cases:
     recipient: memory_plugin
     type: session_get
     payload: '{"session_id":"eval_test"}'
+  - id: file_parse_01
+    desc: 文件解析（不存在的文件→错误处理）
+    recipient: write_plugin
+    type: file_parse
+    payload: '{"path":"/tmp/nonexistent_file_xyz.txt"}'
+  - id: knowledge_links_01
+    desc: 关联建议（不存在的条目→错误处理）
+    recipient: memory_plugin
+    type: knowledge_suggest_links
+    payload: '{"id":"kn_nonexistent"}'
+  - id: codex_01
+    desc: Codex 会话列表（基本功能）
+    recipient: codex_plugin
+    type: codex_session_list
+    payload: '{"limit":3}'
+  - id: codex_02
+    desc: Codex 会话提取（不存在的 ID→错误处理）
+    recipient: codex_plugin
+    type: codex_session_extract
+    payload: '{"id":"nonexistent_session_id"}'
+  - id: claude_01
+    desc: Claude 记忆列表（基本功能）
+    recipient: claude_plugin
+    type: claude_memory_list
+    payload: '{}'
+  - id: claude_02
+    desc: Claude 记忆导入（不存在的名称→错误处理）
+    recipient: claude_plugin
+    type: claude_memory_import
+    payload: '{"name":"nonexistent_memory_file"}'

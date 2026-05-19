@@ -1,0 +1,70 @@
+# ═══════════════════════════════════════════════════════════
+# 模式: search_act — 检索→处理→输出
+# ═══════════════════════════════════════════════════════════
+#
+# 适用场景: 搜索知识库 → 基于结果生成内容（写作/报告/方案）
+# 参考实现: writing_assistant
+# 步骤数: 3 (research → draft → refine)
+#
+# 关键设计:
+#   - research 步骤检索知识库，供后续引用
+#   - draft 步骤基于 research 结果进行创作
+#   - refine 步骤对初稿做自我批评和修订
+
+# ─── 骨架 ─────────────────────────────────────────────
+
+id: TODO_search_act_workflow
+
+steps:
+  - id: research
+    plugin: memory_plugin
+    type: knowledge_search
+    timeout: 15
+    inputs:
+      keyword: "${input}"
+    next: draft
+
+  - id: draft
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    inputs:
+      message: >-
+        TODO: 写创作 prompt
+
+        主题/要求：
+        ${input}
+
+        参考资料：
+        ${steps.research.output}
+
+        请完成：
+        1. 基于参考资料生成大纲
+        2. 根据大纲写出完整初稿
+
+        输出格式：先放大纲，空一行，再放正文。
+    next: refine
+
+  - id: refine
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    inputs:
+      message: >-
+        TODO: 写修订 prompt
+
+        初稿：
+        ${steps.draft.output}
+
+        请完成：
+        1. 分析初稿问题：逻辑、论据、结构
+        2. 输出修订版全文
+
+        输出格式：先用一段话总结修订要点，空一行，再放修订版全文。
+
+# ─── 变体 ─────────────────────────────────────────────
+#
+# 简约版: 删 refine 步骤，draft 直接作为最终输出
+# 深度版: research 后加 analyze 步骤让 DeepSeek 先对材料做分析，再 draft
+# 多轮修订: 可以链式串联多个 refine 步骤（但成本线性增长）

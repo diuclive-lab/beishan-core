@@ -12,3 +12,23 @@ cases:
     recipient: workflow_plugin
     type: workflow_run
     payload: '{"workflow":"legal_review","input":"审查：甲方供货1000台"}'
+  - id: workflow_knowledge_review_notfound
+    desc: 知识审查工作流（不存在的条目→第一步失败→工作流终止）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"knowledge_review","input":"kn_nonexistent"}'
+  - id: workflow_knowledge_suggest_notfound
+    desc: 关联建议工作流（不存在的条目→第一步失败→工作流终止）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"knowledge_suggest_links","input":"kn_nonexistent"}'
+  - id: workflow_weekly_review
+    desc: 周报复盘工作流（3步：知识列表→待办→分析）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"weekly_review","input":""}'
+  - id: workflow_writing_assistant
+    desc: 写作助手工作流（3步：检索→初稿→修订）
+    recipient: workflow_plugin
+    type: workflow_run
+    payload: '{"workflow":"writing_assistant","input":"写一篇关于beishan-core项目架构的简短介绍"}'

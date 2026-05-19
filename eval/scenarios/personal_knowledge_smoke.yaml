@@ -1,0 +1,59 @@
+# 个人知识管理冒烟测试
+# 覆盖：知识条目的 CRUD、持久化待办关联、关联建议
+plugin: personal_knowledge_smoke
+cases:
+  - id: knowledge_01
+    desc: 添加结构化知识条目
+    recipient: memory_plugin
+    type: knowledge_add
+    payload: '{"source_type":"note","title":"冒烟测试笔记","summary":"这是一条测试知识条目","tags":["测试","smoke"],"topics":["质量保障"],"tasks":["验证知识入库流程","写冒烟测试用例"],"content":"冒烟测试的详细内容"}'
+  - id: knowledge_02
+    desc: 搜索知识条目（关键词匹配）
+    recipient: memory_plugin
+    type: knowledge_search
+    payload: '{"keyword":"冒烟测试"}'
+  - id: knowledge_03
+    desc: 列出所有知识条目
+    recipient: memory_plugin
+    type: knowledge_list
+    payload: '{"source_type":"note"}'
+  - id: knowledge_04
+    desc: 搜索不存在的关键词
+    recipient: memory_plugin
+    type: knowledge_search
+    payload: '{"keyword":"不存在的关键词_xyz_"}'
+  - id: todo_06
+    desc: 按来源查询待办
+    recipient: todo_plugin
+    type: todo_by_source
+    payload: '{"source":"smoke_test_demo"}'
+  - id: todo_07
+    desc: 添加带来源的待办
+    recipient: todo_plugin
+    type: todo_add
+    payload: '{"todos":["验证知识关联待办"],"source":"smoke_test_demo"}'
+  - id: todo_08
+    desc: 按来源查询待办（应返回1条）
+    recipient: todo_plugin
+    type: todo_by_source
+    payload: '{"source":"smoke_test_demo"}'
+  - id: knowledge_05
+    desc: 获取不存在的条目（错误处理）
+    recipient: memory_plugin
+    type: knowledge_get
+    payload: '{"id":"kn_nonexistent"}'
+  - id: knowledge_06
+    desc: 更新不存在的条目（错误处理）
+    recipient: memory_plugin
+    type: knowledge_update
+    payload: '{"id":"kn_nonexistent","title":"新标题"}'
+  - id: knowledge_07
+    desc: 关联建议（不存在的条目→错误处理）
+    recipient: memory_plugin
+    type: knowledge_suggest_links
+    payload: '{"id":"kn_nonexistent"}'
+  - id: knowledge_08
+    desc: 清理测试知识条目（搜索获取ID）
+    recipient: memory_plugin
+    type: knowledge_search
+    payload: '{"keyword":"冒烟测试笔记"}'

@@ -29,31 +29,35 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		return nil, err
 	}
 
-	ctx := map[string]interface{}{"input": string(input)}
+	// Unquote input JSON string: JSON `"abc"` → Go `abc`
+	inputStr := string(input)
+	var unquoted string
+	if json.Unmarshal(input, &unquoted) == nil {
+		inputStr = unquoted
+	}
+	ctx := map[string]interface{}{"input": inputStr}
 	var results []StepResult
 	currentStep := def.Steps[0].ID
 
 	for currentStep != "done" && currentStep != "" {
 		step := findStep(def, currentStep)
 		if step == nil {
-			return &WorkflowResult{
-				WorkflowID: workflowID, Steps: results,
-				FinalStep: currentStep, Success: false,
-				Error: fmt.Sprintf("步骤 %s 未定义", currentStep),
-			}, nil
+			return buildResult(workflowID, results, currentStep, false, fmt.Sprintf("步骤 %s 未定义", currentStep)), nil
 		}
 
 		payload := buildPayload(step.Inputs, ctx)
 
-		// 超时：YAML 指定或默认 120 秒
 		timeout := step.Timeout
 		if timeout <= 0 {
 			timeout = 120
 		}
-		// 重试：YAML 指定或默认 0
 		maxRetry := step.Retry
 		if maxRetry < 0 {
 			maxRetry = 0
+		}
+		retryDelay := step.RetryDelay
+		if retryDelay <= 0 {
+			retryDelay = 1
 		}
 
 		var resp kernel.Message
@@ -69,19 +73,25 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 				break
 			}
 			if attempt < maxRetry {
-				fmt.Printf("[工作流] 步骤 %s 失败(第%d次)，重试...\n", step.ID, attempt+1)
+				wait := time.Duration(retryDelay*(1<<uint(attempt))) * time.Second
+				fmt.Printf("[工作流] 步骤 %s 失败(第%d次)，等待 %v 后重试...\n", step.ID, attempt+1, wait)
+				time.Sleep(wait)
 			}
 		}
 
 		result := StepResult{ID: step.ID}
 		if callErr != nil {
-			result.Error = callErr.Error()
+			result.Error = fmt.Sprintf("步骤 %s 失败(%d次重试后): %v", step.ID, maxRetry, callErr)
 			results = append(results, result)
-			return &WorkflowResult{
-				WorkflowID: workflowID, Steps: results,
-				FinalStep: step.ID, Success: false,
-				Error: fmt.Sprintf("步骤 %s 失败(%d次重试后): %v", step.ID, maxRetry, callErr),
-			}, nil
+			ctx["steps."+step.ID+".error"] = result.Error
+
+			// on_error：继续到指定步骤，不终止工作流
+			if step.OnError != "" {
+				fmt.Printf("[工作流] 步骤 %s 失败，跳过后续重试，继续到 %s\n", step.ID, step.OnError)
+				currentStep = step.OnError
+				continue
+			}
+			return buildResult(workflowID, results, step.ID, false, result.Error), nil
 		}
 		result.Output = string(resp.Payload)
 		results = append(results, result)
@@ -91,10 +101,15 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		currentStep = resolveNext(step, ctx)
 	}
 
+	return buildResult(workflowID, results, currentStep, true, ""), nil
+}
+
+func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string) *WorkflowResult {
 	return &WorkflowResult{
-		WorkflowID: workflowID, Steps: results,
-		FinalStep: currentStep, Success: true,
-	}, nil
+		WorkflowID: workflowID, Steps: steps,
+		FinalStep: finalStep, Success: success,
+		Error: err,
+	}
 }
 
 func (e *Engine) load(id string) (*WorkflowDef, error) {
@@ -127,7 +142,7 @@ func findStep(def *WorkflowDef, id string) *StepDef {
 
 var tmplRe = regexp.MustCompile(`\$\{([^}]+)\}`)
 
-func buildPayload(inputs map[string]string, ctx map[string]interface{}) json.RawMessage {
+func buildPayload(inputs map[string]interface{}, ctx map[string]interface{}) json.RawMessage {
 	if len(inputs) == 0 {
 		if input, ok := ctx["input"]; ok {
 			return json.RawMessage(fmt.Sprintf(`"%v"`, input))
@@ -136,18 +151,72 @@ func buildPayload(inputs map[string]string, ctx map[string]interface{}) json.Raw
 	}
 
 	result := make(map[string]interface{})
-	for key, tmpl := range inputs {
+	for key, rawTmpl := range inputs {
+		tmpl, ok := rawTmpl.(string)
+		if !ok {
+			result[key] = rawTmpl
+			continue
+		}
+		if ref, ok := singleTemplateRef(tmpl); ok {
+			if v, found := resolveRef(ctx, ref); found {
+				result[key] = v
+				continue
+			}
+		}
+
 		value := tmplRe.ReplaceAllStringFunc(tmpl, func(match string) string {
 			ref := strings.TrimPrefix(strings.TrimSuffix(match, "}"), "${")
 			if v, ok := ctx[ref]; ok {
 				return fmt.Sprintf("%v", v)
 			}
+			// JSON 字段路径提取：${steps.xxx.output.field}
+			if fv, ok := extractJSONFieldValue(ctx, ref); ok {
+				return valueToString(fv)
+			}
 			return match
 		})
-		result[key] = value
+
+		// 自动检测 JSON 数组/对象，保持类型完整性
+		trimmed := strings.TrimSpace(value)
+		if len(trimmed) >= 2 && (trimmed[0] == '[' || trimmed[0] == '{') && json.Valid([]byte(trimmed)) {
+			var parsed interface{}
+			json.Unmarshal([]byte(trimmed), &parsed)
+			result[key] = parsed
+		} else {
+			result[key] = value
+		}
 	}
 	data, _ := json.Marshal(result)
 	return data
+}
+
+func singleTemplateRef(tmpl string) (string, bool) {
+	matches := tmplRe.FindStringSubmatch(strings.TrimSpace(tmpl))
+	if len(matches) != 2 || strings.TrimSpace(tmpl) != matches[0] {
+		return "", false
+	}
+	return matches[1], true
+}
+
+func resolveRef(ctx map[string]interface{}, ref string) (interface{}, bool) {
+	if v, ok := ctx[ref]; ok {
+		return v, true
+	}
+	return extractJSONFieldValue(ctx, ref)
+}
+
+func valueToString(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []interface{}, map[string]interface{}:
+		b, _ := json.Marshal(t)
+		return string(b)
+	default:
+		return fmt.Sprintf("%v", t)
+	}
 }
 
 func resolveNext(step *StepDef, ctx map[string]interface{}) string {
@@ -184,37 +253,66 @@ func evaluateCondition(expr string, ctx map[string]interface{}) bool {
 }
 
 func extractJSONField(ctx map[string]interface{}, ref string) string {
+	v, ok := extractJSONFieldValue(ctx, ref)
+	if !ok {
+		return ""
+	}
+	return valueToString(v)
+}
+
+func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{}, bool) {
 	idx := strings.Index(ref, ".output")
 	if idx < 0 {
-		return ""
+		return nil, false
 	}
 	ctxKey := ref[:idx+7]
 	fieldPath := strings.TrimPrefix(ref[idx+8:], ".")
 
 	raw, ok := ctx[ctxKey]
 	if !ok {
-		return ""
+		return nil, false
 	}
 	rawStr, ok := raw.(string)
 	if !ok {
-		return ""
+		return nil, false
 	}
 
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(rawStr), &data); err != nil {
-		return ""
+	// 处理 JSON 嵌套编码：先尝试解包最外层字符串
+	parsed := resolveJSONValue([]byte(rawStr))
+	if parsed == nil {
+		return nil, false
 	}
 
-	current := interface{}(data)
+	current := parsed
 	for _, part := range strings.Split(fieldPath, ".") {
 		m, ok := current.(map[string]interface{})
 		if !ok {
-			return ""
+			return nil, false
 		}
 		current = m[part]
 		if current == nil {
-			return ""
+			return nil, true
 		}
 	}
-	return fmt.Sprintf("%v", current)
+	return current, true
+}
+
+// resolveJSONValue 递归解析 JSON，自动解包嵌套编码的字符串
+func resolveJSONValue(raw []byte) interface{} {
+	// 先试对象
+	var obj map[string]interface{}
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return obj
+	}
+	// 再试数组
+	var arr []interface{}
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr
+	}
+	// 如果是 JSON 字符串（嵌套编码），解包后递归
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return resolveJSONValue([]byte(str))
+	}
+	return nil
 }

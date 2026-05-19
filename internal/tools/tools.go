@@ -225,6 +225,13 @@ func Init() {
 	registerVisionTool()
 	registerImageGenTool()
 	registerTTSTool()
+	registerKnowledgeTools()
+	registerFileParseTools()
+	registerNotifyTools()
+	registerCodexTools()
+	registerClaudeTools()
+	registerEmbedTools()
+	registerSkillEvalTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }

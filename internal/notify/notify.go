@@ -48,4 +48,27 @@ func formatPayload(payload json.RawMessage) string {
 	return string(payload)
 }
 
+/* SendViaChannel 结构化通知发送，供 L3 工具直接调用。
+   channel: email | slack | wechat
+   target: SMTP URL 或 webhook URL
+   subject: 仅 email 使用
+   payload: 消息内容 */
+func SendViaChannel(channel, target, subject string, payload json.RawMessage) error {
+	switch channel {
+	case "email":
+		// email 需要特殊处理：把 subject 嵌入 payload
+		if subject != "" {
+			wrapped := fmt.Sprintf("Subject: %s\n\n%s", subject, formatPayload(payload))
+			payload, _ = json.Marshal(wrapped)
+		}
+		return SendEmail(target, payload)
+	case "slack":
+		return SendSlack(target, payload)
+	case "wechat":
+		return SendWeChat(target, payload)
+	default:
+		return fmt.Errorf("未知通知渠道: %s", channel)
+	}
+}
+
 var _ = fmt.Sprintf // suppress unused

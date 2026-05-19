@@ -31,6 +31,13 @@ body {
 .sidebar .status { font-size: 12px; color: var(--text-dim); }
 .sidebar .status.ok { color: var(--success); }
 .sidebar .workflows { flex: 1; overflow-y: auto; }
+.sidebar .btn-accent {
+  background: var(--accent); color: #000; border: none; border-radius: var(--radius);
+  padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+  text-align: center; transition: opacity .15s;
+}
+.sidebar .btn-accent:hover { opacity: .85; }
+.sidebar .btn-accent:active { opacity: .7; }
 .workflow-item {
   padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
   font-size: 13px; transition: background .15s; list-style: none;
@@ -65,6 +72,32 @@ body {
   padding: 10px 20px; font-size: 14px; cursor: pointer; font-weight: 600;
 }
 .input-bar button:disabled { opacity: .4; cursor: not-allowed; }
+/* ─── 模态框 ─── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  align-items: center; justify-content: center; z-index: 100;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; width: 600px; max-width: 90vw; max-height: 80vh;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.modal h3 { font-size: 16px; color: var(--accent); }
+.modal textarea {
+  width: 100%; min-height: 200px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; color: var(--text); font-size: 14px;
+  font-family: inherit; resize: vertical; outline: none;
+}
+.modal textarea:focus { border-color: var(--accent); }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal .actions button {
+  padding: 8px 20px; border-radius: var(--radius); font-size: 14px;
+  font-weight: 600; cursor: pointer; border: none;
+}
+.modal .actions .cancel { background: transparent; color: var(--text-dim); }
+.modal .actions .submit { background: var(--accent); color: #000; }
+.modal .actions .submit:disabled { opacity: .4; cursor: not-allowed; }
 /* ─── 滚动 ─── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -75,10 +108,52 @@ body {
 
 <div class="sidebar">
   <h2>beishan-core</h2>
-  <span class="status" id="status">● 检查连接中...</span>
-  <div style="margin-top:8px"><h2>工作流</h2></div>
+  <span class="status" id="status">&#9679; 检查连接中...</span>
+  <button class="btn-accent" onclick="showKnowledgeModal()">+ 入库新内容</button>
+  <div style="margin-top:4px"><h2>工作流</h2></div>
   <ul class="workflows" id="workflow-list">
     <li style="color:var(--text-dim);font-size:13px;padding:8px">加载中...</li>
+  </ul>
+  <div style="margin-top:8px"><h2>最近知识</h2></div>
+  <ul class="workflows" id="recent-knowledge">
+    <li style="color:var(--text-dim);font-size:13px;padding:8px">加载中...</li>
+  </ul>
+  <div style="margin-top:8px"><h2>导入</h2></div>
+  <ul class="workflows">
+    <li class="workflow-item" onclick="sendCodexList()">
+      <div class="name">&#128230; Codex 对话入库</div>
+      <div class="desc">从 Codex 历史对话提炼结构化知识</div>
+    </li>
+    <li class="workflow-item" onclick="sendClaudeImport()">
+      <div class="name">&#128218; Claude 记忆导入</div>
+      <div class="desc">导入 Claude 记忆文件到知识库</div>
+    </li>
+  </ul>
+  <div style="margin-top:8px"><h2>写作</h2></div>
+  <ul class="workflows">
+    <li class="workflow-item" onclick="sendWriting()">
+      <div class="name">&#9999;&#65039; 写作助手</div>
+      <div class="desc">基于知识库写文章/报告/方案</div>
+    </li>
+  </ul>
+  <div style="margin-top:8px"><h2>知识库</h2></div>
+  <ul class="workflows">
+    <li class="workflow-item" onclick="sendKnowledgeList()">
+      <div class="name">&#128196; 浏览知识库</div>
+      <div class="desc">列出所有已入库条目</div>
+    </li>
+    <li class="workflow-item" onclick="sendKnowledgeSearch()">
+      <div class="name">&#128269; 搜索知识</div>
+      <div class="desc">按关键词搜索条目</div>
+    </li>
+    <li class="workflow-item" onclick="sendKnowledgeReview()">
+      <div class="name">&#128203; 审查质量</div>
+      <div class="desc">审查条目标题/标签/任务的合理性</div>
+    </li>
+    <li class="workflow-item" onclick="sendKnowledgeSuggestLinks()">
+      <div class="name">&#128279; 关联建议</div>
+      <div class="desc">推荐与当前条目相关的其他知识</div>
+    </li>
   </ul>
 </div>
 
@@ -91,6 +166,21 @@ body {
   </div>
 </div>
 
+<!-- 知识入库模态框 -->
+<div class="modal-overlay" id="knowledge-modal">
+  <div class="modal">
+    <h3>入库新内容</h3>
+    <p style="font-size:13px;color:var(--text-dim)">
+      粘贴你的文章、想法、笔记或聊天记录，系统将自动提取摘要、标签、主题和待办事项。
+    </p>
+    <textarea id="knowledge-content" placeholder="在此粘贴内容..."></textarea>
+    <div class="actions">
+      <button class="cancel" onclick="hideKnowledgeModal()">取消</button>
+      <button class="submit" id="knowledge-submit" onclick="doKnowledgeIngest()">入库</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = window.location.origin;
 
@@ -100,10 +190,10 @@ async function checkHealth() {
   try {
     const r = await fetch(API + '/health');
     const d = await r.json();
-    el.textContent = '● 已连接  :8013';
+    el.textContent = '&#9679; 已连接  :8013';
     el.className = 'status ok';
   } catch {
-    el.textContent = '● 未连接';
+    el.textContent = '&#9679; 未连接';
     el.className = 'status';
   }
 }
@@ -111,6 +201,53 @@ checkHealth();
 setInterval(checkHealth, 10000);
 
 // ─── 加载工作流 ───
+async function loadRecentKnowledge() {
+  const el = document.getElementById('recent-knowledge');
+  try {
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({recipient:'memory_plugin',type:'knowledge_list',payload:{}})
+    });
+    const d = await r.json();
+    let items = [];
+    if (d && d.payload) {
+      if (typeof d.payload === 'string') {
+        items = d.payload.split('\n').filter(l => l.trim()).slice(0, 5);
+      } else {
+        el.innerHTML = '<li style="color:var(--text-dim);font-size:13px;padding:8px">暂无条目</li>';
+        return;
+      }
+    }
+    if (items.length === 0) {
+      el.innerHTML = '<li style="color:var(--text-dim);font-size:13px;padding:8px">暂无条目</li>';
+      return;
+    }
+    el.innerHTML = items.map(line => {
+      const match = line.match(/^(\S+)\s/);
+      const id = match ? match[1] : '';
+      const display = line.length > 50 ? line.substring(0, 50) + '...' : line;
+      return '<li class="workflow-item" onclick="copyKnowledgeId(\'' + id + '\')" title="点击复制 ID">' +
+        '<div class="name">' + display.replace(id, '<span style="color:var(--warn)">' + id + '</span>') + '</div>' +
+        '<div class="desc">点击复制 ID</div></li>';
+    }).join('');
+  } catch {
+    el.innerHTML = '<li style="color:var(--text-dim);font-size:13px;padding:8px">加载失败</li>';
+  }
+}
+
+function copyKnowledgeId(id) {
+  if (!id) return;
+  navigator.clipboard.writeText(id).then(() => {
+    const old = document.getElementById('send-btn').textContent;
+    document.getElementById('send-btn').textContent = '已复制 ' + id;
+    setTimeout(() => document.getElementById('send-btn').textContent = old, 2000);
+  }).catch(() => {
+    document.getElementById('input').value = id;
+    document.getElementById('input').select();
+  });
+}
+
 async function loadWorkflows() {
   const el = document.getElementById('workflow-list');
   try {
@@ -133,9 +270,120 @@ async function loadWorkflows() {
   }
 }
 loadWorkflows();
+loadRecentKnowledge();
 
 function sendWorkflow(name) {
   document.getElementById('input').value = '帮我跑一下 ' + name;
+  send();
+}
+
+// ─── 知识库模态框 ───
+function showKnowledgeModal() {
+  document.getElementById('knowledge-modal').classList.add('show');
+  document.getElementById('knowledge-content').value = '';
+  document.getElementById('knowledge-content').focus();
+}
+function hideKnowledgeModal() {
+  document.getElementById('knowledge-modal').classList.remove('show');
+}
+
+async function doKnowledgeIngest() {
+  const content = document.getElementById('knowledge-content').value.trim();
+  if (!content) return;
+
+  const btn = document.getElementById('knowledge-submit');
+  btn.disabled = true;
+  btn.textContent = '入库中...';
+
+  try {
+    // 直接调 workflow API
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        recipient: 'workflow_plugin',
+        type: 'workflow_run',
+        payload: {workflow: 'personal_knowledge_ingest', input: content}
+      })
+    });
+    const d = await r.json();
+
+    hideKnowledgeModal();
+    addMsg('user', '入库新内容:\n' + content.substring(0, 200) + (content.length > 200 ? '...' : ''));
+
+    let reply = '';
+    if (d.payload) {
+      const wf = d.payload;
+      if (wf.WorkflowID) {
+        reply = `知识入库工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '&#10003; 成功' : '&#10007; 失败'}\n`;
+        reply += `共执行 ${wf.Steps.length} 步`;
+        if (wf.Steps.length > 0) {
+          reply += `\n\n步骤详情：`;
+          wf.Steps.forEach(s => {
+            reply += `\n  ${s.ID}: ${s.Error || 'ok'}`;
+          });
+        }
+      } else {
+        reply = JSON.stringify(wf);
+      }
+    } else {
+      reply = d.note || JSON.stringify(d);
+    }
+    addMsg('system', reply, d);
+  } catch (err) {
+    hideKnowledgeModal();
+    addMsg('system', '入库请求失败: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '入库';
+  }
+}
+
+// ─── 知识库快捷操作 ───
+function sendKnowledgeList() {
+  document.getElementById('input').value = '列出我的所有知识条目';
+  send();
+}
+
+function sendKnowledgeSearch() {
+  const input = document.getElementById('input');
+  input.value = '搜索知识：';
+  input.focus();
+  setTimeout(() => input.setSelectionRange(5, 5), 0);
+}
+
+function sendKnowledgeReview() {
+  const input = document.getElementById('input');
+  input.value = '帮我审查知识条目 kn_';
+  input.focus();
+  // 选中 ID 输入位置
+  setTimeout(() => input.setSelectionRange(10, input.value.length), 0);
+}
+
+// ─── 知识关联与写作快捷操作 ───
+function sendKnowledgeSuggestLinks() {
+  const input = document.getElementById('input');
+  input.value = '帮我关联 kn_';
+  input.focus();
+  setTimeout(() => input.setSelectionRange(6, input.value.length), 0);
+}
+
+function sendWriting() {
+  const input = document.getElementById('input');
+  input.value = '帮我写一篇文章：';
+  input.focus();
+  setTimeout(() => input.setSelectionRange(10, input.value.length), 0);
+}
+
+function sendCodexList() {
+  const input = document.getElementById('input');
+  input.value = '列出我的 Codex 对话';
+  send();
+}
+
+function sendClaudeImport() {
+  const input = document.getElementById('input');
+  input.value = '导入全部 Claude 记忆';
   send();
 }
 
@@ -172,25 +420,71 @@ async function send() {
   btn.disabled = true;
   addMsg('user', text);
 
+  // 检测是否触发工作流
+  let payload;
+  if (text.startsWith('帮我入库') || text.startsWith('入库以下内容')) {
+    const content = text.replace(/^(帮我入库[:：]?\s*|入库以下内容[:：]?\s*)/, '');
+    payload = {
+      recipient: 'workflow_plugin',
+      type: 'workflow_run',
+      payload: {workflow: 'personal_knowledge_ingest', input: content || text}
+    };
+  } else if (text.startsWith('帮我审查') || text.startsWith('审查知识')) {
+    const id = text.replace(/^(帮我审查知识条目?[:：]?\s*|审查知识条目?[:：]?\s*)/, '').trim();
+    payload = {
+      recipient: 'workflow_plugin',
+      type: 'workflow_run',
+      payload: {workflow: 'knowledge_review', input: id}
+    };
+  } else if (text.startsWith('列出我的 Codex') || text.startsWith('列出对话') || text.startsWith('Codex 列表')) {
+    payload = {
+      recipient: 'codex_plugin',
+      type: 'codex_session_list',
+      payload: {}
+    };
+  } else if (text.startsWith('导入 Codex') || text.startsWith('导入对话') || text.startsWith('codex_')) {
+    const id = text.replace(/^(导入 Codex[:：]?\s*|导入对话[:：]?\s*|codex_)/, '').trim();
+    payload = {
+      recipient: 'workflow_plugin',
+      type: 'workflow_run',
+      payload: {workflow: 'codex_conversation_ingest', input: id}
+    };
+  } else if (text.startsWith('帮我写') || text.startsWith('写作助手')) {
+    const topic = text.replace(/^(帮我写[:：]?\s*|帮我写一篇文章[:：]?\s*|写作助手[:：]?\s*)/, '').trim();
+    payload = {
+      recipient: 'workflow_plugin',
+      type: 'workflow_run',
+      payload: {workflow: 'writing_assistant', input: topic || text}
+    };
+  } else if (text.startsWith('帮我关联') || text.startsWith('关联建议')) {
+    const id = text.replace(/^(帮我关联知识条目?[:：]?\s*|帮我关联[:：]?\s*|关联建议[:：]?\s*)/, '').trim();
+    payload = {
+      recipient: 'workflow_plugin',
+      type: 'workflow_run',
+      payload: {workflow: 'knowledge_suggest_links', input: id}
+    };
+  } else {
+    payload = {message: text, async: false};
+  }
+
   try {
     const r = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({message: text, async: false})
+      body: JSON.stringify(payload)
     });
     const d = await r.json();
 
-    // 提取可读内容
     let reply = '';
     if (d.type === 'workflow.result') {
       const wf = d.payload;
-      reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '✓ 成功' : '✗ 失败'}\n`;
+      reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '&#10003; 成功' : '&#10007; 失败'}\n`;
       reply += `共 ${wf.Steps.length} 步`;
     } else if (d.type === 'chat.response') {
       reply = d.payload || '(空响应)';
     } else if (d.type === 'skill.result' && d.payload) {
       reply = d.payload.note || '操作完成';
-      loadWorkflows(); // 刷新工作流列表
+      loadWorkflows();
     } else if (d.type && d.payload) {
       reply = typeof d.payload === 'string' ? d.payload : JSON.stringify(d.payload);
     } else {

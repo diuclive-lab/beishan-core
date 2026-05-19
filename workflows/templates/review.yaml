@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════
+# 模式: review — 获取→审查→修复→报告
+# ═══════════════════════════════════════════════════════════
+#
+# 适用场景: 审查已有知识条目的质量，自动修复可优化字段
+# 参考实现: knowledge_review
+# 步骤数: 4 (get_entry → analyze → apply_fix → report)
+#
+# 关键设计:
+#   - analyze 输出 JSON 含 fixes 对象，null 字段跳过，仅非 null 值写入
+#   - apply_fix 调用 knowledge_update，只传需要修改的字段
+#   - report 步骤引用前两步的输出做摘要
+
+# ─── 骨架 ─────────────────────────────────────────────
+
+id: TODO_review_workflow
+
+steps:
+  - id: get_entry
+    plugin: TODO_plugin          # 获取待审查条目
+    type: TODO_get_type
+    timeout: 10
+    inputs:
+      id: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        TODO: 写审查 prompt
+
+        待审查内容：
+        ${steps.get_entry.output}
+
+        输出格式：
+        {
+          "overall": "good|fair|poor",
+          "issues": [{"field":"字段","severity":"minor|major","desc":"问题","suggestion":"建议"}],
+          "fixes": {
+            "field1": "建议值",     # 无需修改的字段设为 null
+            "tags": ["建议标签"]
+          },
+          "summary": "一句话结论"
+        }
+    next: apply_fix
+
+  - id: apply_fix
+    plugin: TODO_plugin
+    type: TODO_update_type
+    timeout: 15
+    inputs:
+      id: "${steps.get_entry.output.id}"
+      TODO_field1: "${steps.analyze.output.fixes.TODO_field1}"
+      TODO_field2: "${steps.analyze.output.fixes.TODO_field2}"
+    next: report
+
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        基于以下信息生成可读报告。
+        原始条目：${steps.get_entry.output.id}
+        审查结果：${steps.analyze.output}
+        修复结果：${steps.apply_fix.output}
+
+# ─── 变体 ─────────────────────────────────────────────
+#
+# 只审查不修复: 删 apply_fix 步骤，analyze 直接 next: report
+# 手动确认: apply_fix 后不加 report，让用户检查 fixes 再决定

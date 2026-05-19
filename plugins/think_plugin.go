@@ -28,8 +28,7 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return kernel.Message{}, fmt.Errorf("think_plugin: 未知类型 %s", msg.Type)
 	}
 
-	userText := string(msg.Payload)
-	userText = strings.TrimFunc(userText, func(r rune) bool { return r == '"' })
+	userText := extractPrompt(msg.Payload)
 
 	reply, err := callDeepSeek(userText)
 	if err != nil {
@@ -105,6 +104,23 @@ func callDeepSeek(prompt string) (string, error) {
 	}
 
 	return result.Choices[0].Message.Content, nil
+}
+
+// extractPrompt 从 Payload 中提取用户提示文本。
+// 支持两种格式：
+//   - JSON 对象：提取 message 字段（workflow 场景）
+//   - JSON 字符串：直接返回（普通场景）
+func extractPrompt(payload []byte) string {
+	s := string(payload)
+	// 尝试解析为 JSON 对象，提取 message 字段
+	var obj map[string]interface{}
+	if json.Unmarshal(payload, &obj) == nil {
+		if msg, ok := obj["message"].(string); ok {
+			return msg
+		}
+	}
+	// 回退：去掉外层引号
+	return strings.TrimFunc(s, func(r rune) bool { return r == '"' })
 }
 
 func truncate(s string, n int) string {

@@ -1,0 +1,22 @@
+# Claude 记忆导入 — 将 Claude 记忆文件导入知识库
+#
+# 流程：
+#   1. import_memory:  读取并导入 Claude 记忆文件
+#
+# 导入后可在 Web 侧栏「最近知识」中找到新条目，
+# 手动点击「关联建议」入口进行关联。
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"claude_memory_ingest","input":"all"}}
+
+id: claude_memory_ingest
+
+steps:
+  - id: import_memory
+    plugin: claude_plugin
+    type: claude_memory_import
+    timeout: 30
+    inputs:
+      name: "${input}"

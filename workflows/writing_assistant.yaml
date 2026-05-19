@@ -1,0 +1,81 @@
+# 写作助手 — 基于知识库内容辅助写作
+#
+# 流程：
+#   1. research:   搜索知识库获取相关材料
+#   2. draft:      生成大纲 + 初稿
+#   3. refine:     自我批评 + 修订
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"writing_assistant","input":"写一篇关于XX的文章"}}
+
+id: writing_assistant
+
+steps:
+  - id: research
+    plugin: memory_plugin
+    type: knowledge_search
+    timeout: 15
+    inputs:
+      keyword: "${input}"
+    next: draft
+
+  - id: draft
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    inputs:
+      message: >-
+        你是一个写作助手。请基于以下主题和参考资料，完成写作任务。
+
+        主题/要求：
+        ${input}
+
+        知识库检索结果（相关条目）：
+        ${steps.research.output}
+
+        请按以下步骤执行，输出完整结果：
+
+        ## 第一步：生成大纲
+        根据主题和参考资料，先列出文章大纲。大纲应包括：
+        - 标题（吸引人且准确）
+        - 引言要点
+        - 正文各部分要点（每部分说明要写什么）
+        - 结论要点
+
+        ## 第二步：写出初稿
+        基于大纲，用流畅的中文写出完整的文章初稿。
+        参考资料中的有用信息应当融入文章，但不要生硬引用"根据搜索结果"。
+        保持文章风格统一，约 800-1500 字。
+
+        输出格式：
+        先放大纲，然后空一行，再放正文。
+    next: refine
+
+  - id: refine
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    inputs:
+      message: >-
+        你是一个资深编辑。请对以下文章初稿进行审阅和修订。
+
+        初稿：
+        ${steps.draft.output}
+
+        请按以下步骤执行：
+
+        ## 第一步：审阅分析
+        - 逻辑是否通顺？有无断裂感？
+        - 论据是否充分？是否引用了相关材料？
+        - 结构是否合理？各段落之间过渡自然吗？
+        - 语言是否准确？有无语病或不当表达？
+
+        ## 第二步：修订
+        基于审阅分析，输出修订后的完整文章。
+        注意保留原文的核心观点和信息，只改进表达方式和结构。
+
+        输出格式：
+        先用一段话总结修订要点，然后空一行，再放修订版全文。

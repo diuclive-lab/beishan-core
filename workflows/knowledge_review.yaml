@@ -1,0 +1,96 @@
+# 知识条目质量审查 — 审查入库知识条目的质量，自动修复可优化字段
+#
+# 流程：
+#   1. get_entry:  获取指定条目的完整内容
+#   2. analyze:    DeepSeek 逐字段审查质量，输出修复建议（结构化 JSON）
+#   3. apply_fix:  按照审查结果自动更新有问题的字段
+#   4. report:     生成可读的审查报告
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"knowledge_review","input":"kn_xxxxxxxx"}}
+
+id: knowledge_review
+
+steps:
+  - id: get_entry
+    plugin: memory_plugin
+    type: knowledge_get
+    timeout: 10
+    inputs:
+      id: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        你是一个知识库质量审查助手。请审查以下知识条目 JSON 的每个字段，
+        输出严格的结构化 JSON（不加任何其他文字）：
+
+        审查规则：
+        - source_type: 是否在 chat|article|idea|web|file|note|codex|claude_memory 中选择了最合适的
+        - title: 是否简洁（5-15字）、有信息量，不空泛
+        - summary: 是否描述了核心内容，长度是否合适（30-100字）
+        - tags: 数量是否合理（2-5个），是否具有辨识度、不过于通用
+        - topics: 是否与 tags 互补，不重复
+        - tasks: 如果是可操作内容，是否提取了具体的行动项；task 需要用动词开头
+        - 所有字段的值如果是空字符串或空数组，视为问题
+
+        输出格式：
+        {
+          "overall": "good|fair|poor",
+          "issues": [
+            {"field": "字段名", "severity": "minor|major", "desc": "问题描述", "suggestion": "改进建议"}
+          ],
+          "fixes": {
+            "source_type": "…或空字符串表示无需修改",
+            "title": "…",
+            "summary": "…",
+            "tags": ["…"],
+            "topics": ["…"],
+            "tasks": ["…"]
+          },
+          "summary": "一句话审查结论"
+        }
+
+        注意：
+        - 不属于修复范围的字段（id、created_at、links、raw_ref、content）无需审查
+        - fixes 中的字段如果无需修改，设为 null（不要用空字符串或空数组）
+        - 仅对确实需要修改的字段提供建议值
+
+        知识条目：
+        ${steps.get_entry.output}
+    next: apply_fix
+
+  - id: apply_fix
+    plugin: memory_plugin
+    type: knowledge_update
+    timeout: 15
+    inputs:
+      id: "${steps.get_entry.output.id}"
+      source_type: "${steps.analyze.output.fixes.source_type}"
+      title: "${steps.analyze.output.fixes.title}"
+      summary: "${steps.analyze.output.fixes.summary}"
+      tags: "${steps.analyze.output.fixes.tags}"
+      topics: "${steps.analyze.output.fixes.topics}"
+      tasks: "${steps.analyze.output.fixes.tasks}"
+    next: report
+
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        基于以下信息，生成一段可读的中文审查报告。说明审查了哪条知识、发现什么问题、
+        做了哪些修复。如果无问题就说明"该条目质量良好"。
+
+        原始条目 ID：${steps.get_entry.output.id}
+
+        审查结果：${steps.analyze.output}
+
+        修复结果：${steps.apply_fix.output}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"beishan/internal/tools"
 	"beishan/kernel"
 	"gopkg.in/yaml.v3"
 )
@@ -45,6 +46,18 @@ func NewSkillFactory(k *kernel.Kernel, workflowsDir string) *SkillFactoryPlugin 
 
 func (p *SkillFactoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	switch msg.Type {
+	case "skill_evaluate":
+		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
+		fmt.Printf("[技能评估] %s\n", result.Output[:min(len(result.Output), 200)])
+		var respPayload json.RawMessage
+		output := result.Output
+		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
+			respPayload = json.RawMessage(output)
+		} else {
+			respPayload, _ = json.Marshal(output)
+		}
+		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
+
 	case "skill_create":
 		return p.handleCreate(msg)
 	case "skill_list":

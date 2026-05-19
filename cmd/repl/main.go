@@ -19,7 +19,7 @@ func main() {
 	// 检查服务是否启动
 	resp, err := http.Get(api + "/health")
 	if err != nil {
-		fmt.Printf("无法连接 %s，请先启动服务：cd /Users/dc/Desktop/0 && go run main.go\n", api)
+		fmt.Printf("无法连接 %s，请先启动服务：cd <project_dir> && go run main.go\n", api)
 		os.Exit(1)
 	}
 	resp.Body.Close()

@@ -1,0 +1,75 @@
+# 文件入库 — 解析本地文件并自动入库为知识条目
+#
+# 流程：
+#   1. parse:   file_parse 提取文件内容
+#   2. analyze: DeepSeek 结构化分析
+#   3. save:    knowledge_add 入库
+#   4. suggest: 关联已有知识
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"file_ingest","input":"/path/to/file.md"}}
+#
+# 支持格式: .txt, .md, .pdf
+
+id: file_ingest
+
+steps:
+  - id: parse
+    plugin: write_plugin
+    type: file_parse
+    timeout: 30
+    retry: 1
+    inputs:
+      path: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    retry: 1
+    inputs:
+      message: >-
+        你是一个知识提炼助手。请分析以下文件内容，输出严格的结构化 JSON（不加任何其他文字）。
+
+        文件类型：${steps.parse.output.type}
+        文件名：${steps.parse.output.filename}
+
+        ----- 文件内容 -----
+        ${steps.parse.output.content}
+
+        输出格式：
+        {
+          "source_type": "文件类型（file|note|article）",
+          "title": "简洁标题",
+          "summary": "一句话摘要",
+          "tags": ["标签1", "标签2"],
+          "topics": ["所属主题"],
+          "tasks": ["提取的行动项（无则空数组）"]
+        }
+    next: save
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "${steps.analyze.output.source_type}"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
+      tasks: "${steps.analyze.output.tasks}"
+      raw_ref: "${input}"
+      content: "${steps.parse.output.content}"
+    next: suggest
+
+  - id: suggest
+    plugin: memory_plugin
+    type: knowledge_suggest_links
+    timeout: 10
+    inputs:
+      id: "${steps.save.output.id}"
+      max_results: 5
