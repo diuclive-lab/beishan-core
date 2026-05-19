@@ -10,7 +10,7 @@
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"parking_stats","input":""}}
 
-id: parking_stats
+id: parking/parking_stats
 
 steps:
   - id: list_all

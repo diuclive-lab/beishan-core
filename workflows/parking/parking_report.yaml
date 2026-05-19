@@ -18,7 +18,7 @@
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"parking_report","input":"weekly"}}
 
-id: parking_report
+id: parking/parking_report
 
 steps:
   - id: list_parking

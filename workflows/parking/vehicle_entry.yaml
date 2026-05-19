@@ -13,7 +13,7 @@
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"vehicle_entry","input":"丰田 豫A00100 张三 临时访客"}}
 
-id: vehicle_entry
+id: parking/vehicle_entry
 
 steps:
   - id: parse

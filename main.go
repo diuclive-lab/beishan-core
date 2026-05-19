@@ -362,24 +362,19 @@ func main() {
 /* buildWorkflowSummary 扫描 workflows/ 目录，提取每个 YAML 工作流的 id 和描述。
    用于注入 Router 提示词，让 DeepSeek 知道可用工作流。 */
 func buildWorkflowSummary(dir string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-
 	var sb strings.Builder
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") || e.Name() == "_template.yaml" {
-			continue
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") ||
+			info.Name() == "_template.yaml" || strings.HasPrefix(info.Name(), ".") {
+			return nil
 		}
 
-		path := filepath.Join(dir, e.Name())
 		f, err := os.Open(path)
 		if err != nil {
-			continue
+			return nil
 		}
+		defer f.Close()
 
-		// 读取 id 和描述
 		var id, desc string
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
@@ -387,32 +382,30 @@ func buildWorkflowSummary(dir string) string {
 			if line == "" {
 				continue
 			}
-			// 提取头部注释作为描述
 			if strings.HasPrefix(line, "#") && desc == "" {
 				desc = strings.TrimSpace(strings.TrimPrefix(line, "#"))
 				continue
 			}
-			// 提取 id 字段
 			if strings.HasPrefix(line, "id:") {
 				id = strings.TrimSpace(line[3:])
 				break
 			}
-			// 遇到非空、非注释行就停
 			if !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "---") {
 				break
 			}
 		}
-		f.Close()
 
 		if id == "" {
-			id = strings.TrimSuffix(e.Name(), ".yaml")
+			rel, _ := filepath.Rel(dir, path)
+			id = strings.TrimSuffix(rel, ".yaml")
 		}
 		if desc != "" {
 			sb.WriteString(fmt.Sprintf("  - %s: %s\n", id, desc))
 		} else {
 			sb.WriteString(fmt.Sprintf("  - %s\n", id))
 		}
-	}
+		return nil
+	})
 
 	return sb.String()
 }

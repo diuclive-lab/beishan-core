@@ -10,7 +10,7 @@
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"vehicle_exit","input":"豫A00100"}}
 
-id: vehicle_exit
+id: parking/vehicle_exit
 
 steps:
   - id: search
