@@ -1,0 +1,48 @@
+# 车辆入库 — 记录车辆信息并存入知识库
+#
+# 流程：
+#   1. parse:      DeepSeek 从自然语言提取车辆信息
+#   2. save:       入库（source_type=parking）
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"vehicle_entry","input":"丰田 豫A00100 张三"}}
+
+id: vehicle_entry
+
+steps:
+  - id: parse
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        从以下内容提取车辆入库信息，输出严格的 JSON：
+
+        {
+          "brand": "品牌",
+          "plate": "车牌号",
+          "owner": "停车人",
+          "entry_time": "入库时间（当前时间）"
+        }
+
+        输入内容：
+        ${input}
+    next: save
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "parking"
+      title: "${steps.parse.output.plate}"
+      summary: "${steps.parse.output.brand} - ${steps.parse.output.owner}"
+      tags: '["parking", "${steps.parse.output.brand}"]'
+      content: |
+        品牌: ${steps.parse.output.brand}
+        车牌号: ${steps.parse.output.plate}
+        停车人: ${steps.parse.output.owner}
+        入库时间: ${steps.parse.output.entry_time}
+        状态: 在库

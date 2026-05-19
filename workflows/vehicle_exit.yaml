@@ -1,0 +1,51 @@
+# 车辆出库 — 按车牌号记录出库时间
+#
+# 流程：
+#   1. search:    按车牌号搜索入库记录
+#   2. confirm:   DeepSeek 确认信息并生成出库记录
+#   3. update:    更新知识条目（增加出库时间）
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"vehicle_exit","input":"豫A00100"}}
+
+id: vehicle_exit
+
+steps:
+  - id: search
+    plugin: memory_plugin
+    type: knowledge_search
+    timeout: 15
+    inputs:
+      keyword: "${input}"
+    next: confirm
+
+  - id: confirm
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      message: >-
+        从搜索结果中找出车牌号为"${input}"的车辆记录，输出 JSON。
+
+        {
+          "found": true/false,
+          "id": "知识条目ID（找到时）",
+          "current_content": "当前记录内容",
+          "exit_time": "当前时间",
+          "updated_content": "当前内容 + '\n出库时间: 当前时间\n状态: 已出库'"
+        }
+
+        搜索结果：
+        ${steps.search.output}
+    next: update
+
+  - id: update
+    plugin: memory_plugin
+    type: knowledge_update
+    timeout: 15
+    skip_if: "steps.confirm.output.found == false"
+    inputs:
+      id: "${steps.confirm.output.id}"
+      content: "${steps.confirm.output.updated_content}"

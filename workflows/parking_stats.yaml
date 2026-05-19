@@ -1,0 +1,47 @@
+# 停车统计 — 统计车辆入库/出库情况
+#
+# 流程：
+#   1. list_all:    列出所有停车记录
+#   2. list_in:     列出在库车辆
+#   3. analyze:     DeepSeek 统计分析
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"parking_stats","input":""}}
+
+id: parking_stats
+
+steps:
+  - id: list_all
+    plugin: memory_plugin
+    type: knowledge_list
+    timeout: 15
+    inputs:
+      source_type: "parking"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      message: >-
+        基于以下停车记录数据，生成统计报告。
+
+        格式要求：
+        ## 总览
+        - 总记录数
+        - 在库数 / 已出库数
+
+        ## 品牌分布
+        - 各品牌数量及占比
+
+        ## 在库车辆
+        - 车牌号、品牌、停车人、入库时间
+
+        ## 停车时长排行（已出库车辆）
+        - 按停车时长从长到短排列
+
+        ===== 停车记录 =====
+        ${steps.list_all.output}
