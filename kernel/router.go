@@ -65,7 +65,7 @@ func (r *Router) SetWorkflowSummary(summary string) {
 func NewRouter(apiKey string) *Router {
 	return &Router{
 		apiKey: apiKey,
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -106,19 +106,15 @@ func (r *Router) buildPluginList() string {
 func (r *Router) Route(msg Message) (*Decision, error) {
 	pluginList := r.buildPluginList()
 
-		prompt := fmt.Sprintf(
-			`Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
-		Recipient is the plugin to handle this request. msg_type is the message type the plugin expects (e.g. web_search, write_file, terminal_exec, code_exec, session_search, todo_add, clarify, text_to_speech, image_generate, workflow_run, memory_add, session_add, browser_navigate). Use the most specific msg_type for the request.
-		When routing to workflow_plugin, set msg_type to "workflow_run" and payload to the JSON string: {"workflow":"<workflow_name>"}
-		Available plugins:
-		%sInput: %s`,
+		promptTmpl := llm.RouterPrompt()
+		prompt := fmt.Sprintf(promptTmpl,
 			pluginList,
 			msg.Type+": "+string(msg.Payload),
 		)
 
 	resp, err := r.callDeepSeek(prompt)
 	if err != nil {
-		return nil, fmt.Errorf("DeepSeek 调用失败: %w", err)
+		return nil, fmt.Errorf("LLM 调用失败: %w", err)
 	}
 
 	return r.parseDecision(resp)
@@ -162,7 +158,7 @@ func (r *Router) callDeepSeek(prompt string) (string, error) {
 		return "", err
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("DeepSeek 未返回结果")
+		return "", fmt.Errorf("LLM 未返回结果")
 	}
 
 	return result.Choices[0].Message.Content, nil

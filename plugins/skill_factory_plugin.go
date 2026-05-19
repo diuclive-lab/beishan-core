@@ -235,7 +235,7 @@ User request: %s`, nameHint, pluginList, description)
 		return "", fmt.Errorf("解析响应失败: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("DeepSeek 未返回结果")
+		return "", fmt.Errorf("LLM 未返回结果")
 	}
 
 	content := result.Choices[0].Message.Content
