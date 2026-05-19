@@ -21,6 +21,8 @@
 #   inputs:   构建 payload 的参数映射
 #             "${input}"             → 用户的原始输入
 #             "${steps.<id>.output}" → 前面某步骤的输出结果
+#   steps:    并行子步骤列表（仅 type=parallel/步骤使用，goroutine 并发执行）
+#             各子步骤结果可通过 ${steps.<parent_id>.output.<sub_id>} 引用
 #   next:     下一步路由（最后一步省略则自动结束）
 #             字符串: next: next_step_id
 #             条件分支:
@@ -84,3 +86,31 @@ steps:
 #     inputs:
 #       analysis: "${steps.clause_analysis.output}"
 #     # next 省略 → 自动结束
+
+# ─── 并行步骤示例 ──────────────────────────────
+# 多个子步骤通过 goroutine 并发执行，等待全部完成后再继续
+#
+# steps:
+#   - id: parallel_search
+#     type: parallel                    # 标记为并行步骤
+#     timeout: 60
+#     steps:                            # 子步骤并发执行
+#       - id: search_go
+#         plugin: search_plugin
+#         type: web_search
+#         inputs:
+#           query: "Go framework"
+#       - id: search_python
+#         plugin: search_plugin
+#         type: web_search
+#         inputs:
+#           query: "Python library"
+#     next: summarize
+#
+#   - id: summarize
+#     plugin: think_plugin
+#     type: chat
+#     inputs:
+#       message: >-
+#         Go 搜索结果: ${steps.parallel_search.output.search_go}
+#         Python 搜索结果: ${steps.parallel_search.output.search_python}

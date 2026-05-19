@@ -1,5 +1,47 @@
 # 开发日志
 
+## 2026-05-19 workflow parallel 并行步骤（goroutine + channel 并发）
+
+### 新增：并行步骤
+
+StepDef 新增 `steps` 字段（`ParallelSteps []StepDef`），支持工作流中定义并行子步骤。
+
+**引擎实现：**
+- 检测 `len(step.ParallelSteps) > 0` 时走并行路径
+- 每个子步骤在独立 goroutine 中通过 `e.Kernel.Call` 执行
+- 通过 channel 收集所有子步骤结果
+- 等待全部完成后继续到 `next` 步骤
+- 子步骤结果可通过 `${steps.<parent_id>.output.<sub_id>}` 引用
+
+**YAML 用法：**
+```yaml
+- id: batch_search
+  type: parallel
+  timeout: 60
+  steps:
+    - id: search_go
+      plugin: search_plugin
+      type: web_search
+      inputs:
+        query: "Go framework"
+    - id: search_python
+      plugin: search_plugin
+      type: web_search
+      inputs:
+        query: "Python library"
+  next: summarize
+```
+
+**`_template.yaml`**：补充 `steps` 字段说明 + 并行步骤示例
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/workflow/types.go` | StepDef 新增 ParallelSteps 字段 |
+| `internal/workflow/engine.go` | Run 检测并行步骤 + runParallel 方法 |
+| `workflows/_template.yaml` | 文档+示例 |
+
 ## 2026-05-19 monthly_review 月报工作流 + skill_evaluate 评估工具
 
 ### monthly_review 月报工作流

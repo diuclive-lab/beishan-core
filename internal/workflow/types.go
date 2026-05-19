@@ -30,15 +30,16 @@ StepDef 工作流中的单个步骤。
 	retry_delay: 重试间隔秒数，默认 1
 */
 type StepDef struct {
-	ID         string                 `yaml:"id"`
-	Plugin     string                 `yaml:"plugin"`
-	Type       string                 `yaml:"type"`
-	Inputs     map[string]interface{} `yaml:"inputs,omitempty"`
-	Timeout    int                    `yaml:"timeout,omitempty"`     // 秒，默认 120
-	Retry      int                    `yaml:"retry,omitempty"`       // 失败重试次数，默认 0
-	RetryDelay int                    `yaml:"retry_delay,omitempty"` // 重试间隔秒数，默认 1
-	OnError    string                 `yaml:"on_error,omitempty"`    // 失败后继续到指定步骤
-	Next       NextList               `yaml:"next,omitempty"`
+	ID            string                 `yaml:"id"`
+	Plugin        string                 `yaml:"plugin"`
+	Type          string                 `yaml:"type"`
+	Inputs        map[string]interface{} `yaml:"inputs,omitempty"`
+	Timeout       int                    `yaml:"timeout,omitempty"`        // 秒，默认 120
+	Retry         int                    `yaml:"retry,omitempty"`          // 失败重试次数，默认 0
+	RetryDelay    int                    `yaml:"retry_delay,omitempty"`    // 重试间隔秒数，默认 1
+	OnError       string                 `yaml:"on_error,omitempty"`       // 失败后继续到指定步骤
+	ParallelSteps []StepDef              `yaml:"steps,omitempty"`          // 并行子步骤
+	Next          NextList               `yaml:"next,omitempty"`
 }
 
 /* NextList 支持 next 字段的字符串和列表两种格式。 */

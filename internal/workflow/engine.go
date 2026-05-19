@@ -47,6 +47,14 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 
 		payload := buildPayload(step.Inputs, ctx)
 
+		// 并行步骤：goroutine + WaitGroup 并发执行子步骤
+		if len(step.ParallelSteps) > 0 {
+			result := e.runParallel(step, ctx)
+			results = append(results, result)
+			currentStep = resolveNext(step, ctx)
+			continue
+		}
+
 		timeout := step.Timeout
 		if timeout <= 0 {
 			timeout = 120
@@ -110,6 +118,62 @@ func buildResult(workflowID string, steps []StepResult, finalStep string, succes
 		FinalStep: finalStep, Success: success,
 		Error: err,
 	}
+}
+
+// runParallel 并行执行步骤的多个子步骤（goroutine + channel）
+func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResult {
+	result := StepResult{ID: step.ID}
+	timeout := step.Timeout
+	if timeout <= 0 {
+		timeout = 120
+	}
+
+	type subResult struct {
+		id     string
+		output string
+		err    error
+	}
+
+	ch := make(chan subResult, len(step.ParallelSteps))
+	for i := range step.ParallelSteps {
+		sub := step.ParallelSteps[i]
+		go func(s StepDef) {
+			payload := buildPayload(s.Inputs, ctx)
+			resp, err := e.Kernel.Call(kernel.Message{
+				Recipient: s.Plugin,
+				Type:      s.Type,
+				Payload:   payload,
+			}, time.Duration(timeout)*time.Second)
+			if err != nil {
+				ch <- subResult{id: s.ID, err: err}
+				return
+			}
+			ch <- subResult{id: s.ID, output: string(resp.Payload)}
+		}(sub)
+	}
+
+	var outputs []string
+	var errs []string
+	for range step.ParallelSteps {
+		r := <-ch
+		ctxKey := "steps." + step.ID + ".output." + r.id
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.id, r.err))
+			ctx[ctxKey] = fmt.Sprintf("error: %v", r.err)
+		} else {
+			outputs = append(outputs, r.output)
+			ctx[ctxKey] = r.output
+		}
+	}
+
+	if len(errs) > 0 {
+		result.Error = "并行步骤部分失败: " + strings.Join(errs, "; ")
+		ctx["steps."+step.ID+".output"] = "parallel_errors: " + result.Error
+	} else {
+		result.Output = strings.Join(outputs, "\n")
+		ctx["steps."+step.ID+".output"] = result.Output
+	}
+	return result
 }
 
 func (e *Engine) load(id string) (*WorkflowDef, error) {
