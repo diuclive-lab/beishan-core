@@ -192,8 +192,8 @@ func ClaudeMemoryImport(name string) *ToolResult {
 		}
 
 		// 直接调 knowledge_add 保存
-		r := KnowledgeAdd("claude_memory", title, desc,
-			tags, nil, nil, nil, fpath, body)
+		r := KnowledgeAdd("claude_memory", "", title, desc,
+			tags, nil, nil, nil, fpath, body, 0, "")
 		if r.Success {
 			var idObj struct{ ID string }
 			json.Unmarshal([]byte(r.Output), &idObj)

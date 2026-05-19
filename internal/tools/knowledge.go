@@ -14,17 +14,21 @@ import (
 /* ─── KnowledgeEntry 统一知识条目 ──────────────── */
 
 type KnowledgeEntry struct {
-	ID         string   `json:"id"`
-	SourceType string   `json:"source_type"` // chat|article|idea|web|file|note|codex|claude_memory
-	Title      string   `json:"title"`
-	Summary    string   `json:"summary"`
-	Tags       []string `json:"tags"`
-	Topics     []string `json:"topics"`
-	Tasks      []string `json:"tasks"` // 提取的任务/行动项
-	CreatedAt  int64    `json:"created_at"`
-	Links      []string `json:"links"`             // 关联的 memory/知识 ID
-	RawRef     string   `json:"raw_ref"`           // 原始来源引用
-	Content    string   `json:"content,omitempty"` // 完整内容（可选）
+	ID           string   `json:"id"`
+	SourceType   string   `json:"source_type"`              // 来源：chat|article|idea|web|file|note|codex|claude_memory
+	KnowledgeType string  `json:"knowledge_type,omitempty"` // 认知类型：Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry
+	Title        string   `json:"title"`
+	Summary      string   `json:"summary"`
+	Tags         []string `json:"tags"`
+	Topics       []string `json:"topics"`
+	Tasks        []string `json:"tasks"` // 提取的任务/行动项
+	Confidence   float64  `json:"confidence,omitempty"` // 置信度 0-1
+	Importance   string   `json:"importance,omitempty"` // 重要性：high|medium|low
+	CreatedAt    int64    `json:"created_at"`
+	UpdatedAt    int64    `json:"updated_at,omitempty"`
+	Links        []string `json:"links"`             // 关联的 memory/知识 ID
+	RawRef       string   `json:"raw_ref"`           // 原始来源引用
+	Content      string   `json:"content,omitempty"` // 完整内容（可选）
 }
 
 /* ─── 存储引擎 ─────────────────────────────────── */
@@ -73,7 +77,7 @@ func newKnowledgeID() string {
 
 /* ─── 公开 API ─────────────────────────────────── */
 
-func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links []string, rawRef, content string) *ToolResult {
+func KnowledgeAdd(sourceType, knowledgeType, title, summary string, tags, topics, tasks, links []string, rawRef, content string, confidence float64, importance string) *ToolResult {
 	if sourceType == "" {
 		return errorResult("source_type 不能为空")
 	}
@@ -90,19 +94,21 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 
 	now := time.Now().Unix()
 	entry := &KnowledgeEntry{
-		ID:         newKnowledgeID(),
-		SourceType: sourceType,
-		Title:      title,
-		Summary:    summary,
-		Tags:       tags,
-		Topics:     topics,
-		Tasks:      tasks,
-		CreatedAt:  now,
-		Links:      links,
-		RawRef:     rawRef,
-		Content:    content,
+		ID:            newKnowledgeID(),
+		SourceType:    sourceType,
+		KnowledgeType: knowledgeType,
+		Title:         title,
+		Summary:       summary,
+		Tags:          tags,
+		Topics:        topics,
+		Tasks:         tasks,
+		Confidence:    confidence,
+		Importance:    importance,
+		CreatedAt:     now,
+		Links:         links,
+		RawRef:        rawRef,
+		Content:       content,
 	}
-	// 保存，但保持 CreatedAt 为首次创建时间
 	saveKnowledge(entry)
 
 	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"知识已入库"}`, entry.ID, title))
@@ -158,7 +164,7 @@ func KnowledgeSearch(keyword string) *ToolResult {
 	return successResult(strings.Join(results, "\n"))
 }
 
-func KnowledgeList(sourceType string, days int) *ToolResult {
+func KnowledgeList(sourceType, knowledgeType string, days int) *ToolResult {
 	initKnowledgeDir()
 	entries, _ := os.ReadDir(knowledgeDir)
 
@@ -174,6 +180,9 @@ func KnowledgeList(sourceType string, days int) *ToolResult {
 			continue
 		}
 		if sourceType != "" && entry.SourceType != sourceType {
+			continue
+		}
+		if knowledgeType != "" && entry.KnowledgeType != knowledgeType {
 			continue
 		}
 		if days > 0 && time.Unix(entry.CreatedAt, 0).Before(cutoff) {
@@ -194,8 +203,12 @@ func KnowledgeList(sourceType string, days int) *ToolResult {
 	for _, e := range kEntries {
 		created := time.Unix(e.CreatedAt, 0).Format("01-02 15:04")
 		tags := strings.Join(e.Tags, ", ")
-		sb.WriteString(fmt.Sprintf("%s [%s] %s — %s (tags: %s)\n",
-			e.ID, e.SourceType, e.Title, created, tags))
+		ktype := e.KnowledgeType
+		if ktype == "" {
+			ktype = "-"
+		}
+		sb.WriteString(fmt.Sprintf("%s [%s|%s] %s — %s (tags: %s)\n",
+			e.ID, e.SourceType, ktype, e.Title, created, tags))
 	}
 	return successResult(sb.String())
 }
@@ -230,6 +243,10 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 		entry.SourceType = v
 		changed = true
 	}
+	if v, ok := fields["knowledge_type"].(string); ok && v != "" {
+		entry.KnowledgeType = v
+		changed = true
+	}
 	if v, ok := fields["title"].(string); ok && v != "" {
 		entry.Title = v
 		changed = true
@@ -254,6 +271,14 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 		entry.Links = v
 		changed = true
 	}
+	if v, ok := fields["confidence"].(float64); ok {
+		entry.Confidence = v
+		changed = true
+	}
+	if v, ok := fields["importance"].(string); ok && v != "" {
+		entry.Importance = v
+		changed = true
+	}
 	if v, ok := fields["raw_ref"].(string); ok {
 		entry.RawRef = v
 		changed = true
@@ -261,6 +286,9 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 	if v, ok := fields["content"].(string); ok {
 		entry.Content = v
 		changed = true
+	}
+	if changed {
+		entry.UpdatedAt = time.Now().Unix()
 	}
 
 	if !changed {
@@ -879,12 +907,13 @@ func KnowledgeTimeline(groupBy string) *ToolResult {
 	return successResult(string(b))
 }
 func registerKnowledgeTools() {
-	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
+	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks/knowledge_type）。",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"source_type", "title", "summary"},
 			"properties": map[string]interface{}{
 				"source_type": stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
+				"knowledge_type": stringParam("认知类型: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
 				"title":       stringParam("知识条目标题"),
 				"summary":     stringParam("内容摘要（一句话到一段话）"),
 				"tags": map[string]interface{}{
@@ -907,6 +936,11 @@ func registerKnowledgeTools() {
 					"description": "关联的 memory/知识 ID 列表",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"confidence": map[string]interface{}{
+					"type":        "number",
+					"description": "置信度 0-1",
+				},
+				"importance": stringParam("重要性: high|medium|low"),
 				"raw_ref": stringParam("原始来源引用，如 URL 或文件路径"),
 				"content": map[string]interface{}{
 					"oneOf": []interface{}{
@@ -921,8 +955,10 @@ func registerKnowledgeTools() {
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
+			confidence, _ := args["confidence"].(float64)
 			return KnowledgeAdd(
 				strArg(args, "source_type"),
+				strArg(args, "knowledge_type"),
 				strArg(args, "title"),
 				strArg(args, "summary"),
 				strSliceArg(args, "tags"),
@@ -931,6 +967,8 @@ func registerKnowledgeTools() {
 				strSliceArg(args, "links"),
 				strArg(args, "raw_ref"),
 				contentOrJoin(args, "content"),
+				confidence,
+				strArg(args, "importance"),
 			)
 		},
 	)
@@ -948,17 +986,18 @@ func registerKnowledgeTools() {
 		},
 	)
 
-	Register("knowledge_list", "列出所有知识条目，可按来源类型和天数过滤。",
+	Register("knowledge_list", "列出所有知识条目，可按来源类型、认知类型和天数过滤。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"source_type": stringParam("可选的来源类型过滤"),
-				"days":        intParam("最近 N 天（0=全部）"),
+				"source_type":    stringParam("可选的来源类型过滤"),
+				"knowledge_type": stringParam("可选的认知类型过滤: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
+				"days":           intParam("最近 N 天（0=全部）"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
 			days, _ := args["days"].(float64)
-			return KnowledgeList(strArg(args, "source_type"), int(days))
+			return KnowledgeList(strArg(args, "source_type"), strArg(args, "knowledge_type"), int(days))
 		},
 	)
 
@@ -993,10 +1032,11 @@ func registerKnowledgeTools() {
 			"type":     "object",
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
-				"id":          stringParam("要更新的知识条目 ID"),
-				"source_type": stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
-				"title":       stringParam("知识条目标题"),
-				"summary":     stringParam("内容摘要"),
+				"id":            stringParam("要更新的知识条目 ID"),
+				"source_type":   stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
+				"knowledge_type": stringParam("认知类型: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
+				"title":         stringParam("知识条目标题"),
+				"summary":       stringParam("内容摘要"),
 				"tags": map[string]interface{}{
 					"type":        "array",
 					"description": "标签列表",
@@ -1017,8 +1057,13 @@ func registerKnowledgeTools() {
 					"description": "关联 ID 列表",
 					"items":       map[string]interface{}{"type": "string"},
 				},
-				"raw_ref": stringParam("原始来源引用"),
-				"content": stringParam("完整内容"),
+				"confidence": map[string]interface{}{
+					"type":        "number",
+					"description": "置信度 0-1",
+				},
+				"importance": stringParam("重要性: high|medium|low"),
+				"raw_ref":    stringParam("原始来源引用"),
+				"content":    stringParam("完整内容"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -1114,7 +1159,7 @@ func registerKnowledgeTools() {
 
 func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 	fields := make(map[string]interface{})
-	for _, key := range []string{"source_type", "title", "summary", "raw_ref", "content"} {
+	for _, key := range []string{"source_type", "knowledge_type", "title", "summary", "importance", "raw_ref", "content"} {
 		raw, ok := args[key]
 		if !ok || raw == nil {
 			continue
@@ -1129,6 +1174,9 @@ func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 			continue
 		}
 		fields[key] = strSliceArg(args, key)
+	}
+	if v, ok := args["confidence"].(float64); ok {
+		fields["confidence"] = v
 	}
 	return fields
 }

@@ -27,4 +27,5 @@ type Message struct {
 	Payload       json.RawMessage `json:"payload"`
 	CorrelationID string          `json:"correlation_id,omitempty"`
 	ReplyTo       string          `json:"reply_to,omitempty"`
+	Provider      string          `json:"provider,omitempty"` // 可选，指定 LLM provider（local/deepseek/xiaomi/openai）
 }

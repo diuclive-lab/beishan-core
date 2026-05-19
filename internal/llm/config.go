@@ -14,11 +14,23 @@ var providers = map[string]Provider{
 		Name:    "deepseek",
 		BaseURL: "https://api.deepseek.com/v1",
 		Model:   "deepseek-chat",
-		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
+		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":{},"reason":"","confidence":0.0}
 Recipient is the plugin to handle this request. msg_type is the message type the plugin expects.
-When routing to workflow_plugin, set msg_type to "workflow_run" and payload to {"workflow":"<name>"}
+IMPORTANT: payload must be a JSON object, not a string.
 Available plugins:
-%sInput: %s`,
+%s
+
+Routing rules with payload formats:
+- "搜索知识库"/"查知识"/"我的笔记" → recipient:memory_plugin, msg_type:knowledge_search, payload:{"keyword":"user input"}
+- "搜索"/"搜一下"/"查找资料" (web) → recipient:search_plugin, msg_type:web_search, payload:{"query":"user input"}
+- "列出知识"/"知识列表" → recipient:memory_plugin, msg_type:knowledge_list, payload:{}
+- "添加知识"/"记录一下" → recipient:memory_plugin, msg_type:knowledge_add, payload:{"title":"...","summary":"..."}
+- workflow → recipient:workflow_plugin, msg_type:workflow_run, payload:{"workflow":"name"}
+- chat/greetings → recipient:think_plugin, msg_type:chat, payload:{}
+- ALWAYS include payload field matching the msg_type format above
+- ONLY output the JSON, no markdown, no explanations
+
+Input: %s`,
 	},
 	"xiaomi": {
 		Name:    "xiaomi",
@@ -29,16 +41,17 @@ Available plugins:
 			"Available plugins with payload formats:\n" +
 			"- search_plugin: web_search (payload:{\"query\":\"...\"}), web_fetch (payload:{\"url\":\"...\"})\n" +
 			"- write_plugin: write_file, read_file, file_parse\n" +
-			"- memory_plugin: knowledge_add, knowledge_search, knowledge_list\n" +
+			"- memory_plugin: knowledge_search (payload:{\"keyword\":\"...\"}), knowledge_list (payload:{}), knowledge_add (payload:{\"title\":\"...\",\"summary\":\"...\"})\n" +
 			"- terminal_plugin: terminal_exec\n" +
 			"- todo_plugin: todo_add, todo_list, todo_done\n" +
-			"- think_plugin: chat (no payload needed)\n" +
+			"- think_plugin: chat (payload:{})\n" +
 			"- workflow_plugin: workflow_run (payload:{\"workflow\":\"<name>\"})\n" +
 			"\nRules:\n" +
-			"- chat/greetings -> recipient think_plugin, msg_type chat\n" +
-			"- search -> recipient search_plugin, msg_type web_search, payload query:\"user input\"\n" +
+			"- chat/greetings -> recipient think_plugin, msg_type chat, payload {}\n" +
+			"- 知识库搜索 -> recipient memory_plugin, msg_type knowledge_search, payload keyword:\"user input\"\n" +
+			"- web search -> recipient search_plugin, msg_type web_search, payload query:\"user input\"\n" +
 			"- workflow -> recipient workflow_plugin, msg_type workflow_run, payload workflow:\"name\"\n" +
-			"- ALWAYS include payload field matching the msg_type format\n" +
+			"- ALWAYS include payload as JSON object matching the msg_type format\n" +
 			"- ONLY output the JSON, no markdown, no explanations\n" +
 			"\nUser input:\n%s",
 	},
@@ -50,6 +63,16 @@ Available plugins:
 Available plugins:
 %s
 Input: %s`,
+	},
+	"local": {
+		Name:    "local",
+		BaseURL: "http://127.0.0.1:8090/v1",
+		Model:   "qwen3.6-27B",
+		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
+Recipient is the plugin to handle this request. msg_type is the message type the plugin expects.
+When routing to workflow_plugin, set msg_type to "workflow_run" and payload to {"workflow":"<name>"}
+Available plugins:
+%sInput: %s`,
 	},
 }
 
@@ -92,4 +115,39 @@ func ChatEndpoint() string {
 
 func RouterPrompt() string {
 	return activeProvider().RouterPrompt
+}
+
+/* ─── Provider Override: 按名称获取配置，用于 workflow 指定模型 ─── */
+
+func providerByName(name string) (Provider, bool) {
+	p, ok := providers[name]
+	return p, ok
+}
+
+func ChatEndpointFor(provider string) string {
+	if p, ok := providerByName(provider); ok {
+		if u := os.Getenv("LLM_BASE_URL"); u != "" && provider == activeProvider().Name {
+			return u + "/chat/completions"
+		}
+		return p.BaseURL + "/chat/completions"
+	}
+	return ChatEndpoint()
+}
+
+func APIKeyFor(provider string) string {
+	// local provider 默认使用 local-dev key（llama-server --api-key）
+	if provider == "local" {
+		if k := os.Getenv("LOCAL_API_KEY"); k != "" {
+			return k
+		}
+		return "local-dev"
+	}
+	return APIKey()
+}
+
+func ModelFor(provider string) string {
+	if p, ok := providerByName(provider); ok {
+		return p.Model
+	}
+	return Model()
 }

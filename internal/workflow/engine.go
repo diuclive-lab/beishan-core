@@ -91,6 +91,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 				Recipient: step.Plugin,
 				Type:      step.Type,
 				Payload:   payload,
+				Provider:  step.Provider,
 			}, time.Duration(timeout)*time.Second)
 
 			if callErr == nil {
@@ -174,6 +175,7 @@ func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResu
 				Recipient: s.Plugin,
 				Type:      s.Type,
 				Payload:   payload,
+				Provider:  s.Provider,
 			}, time.Duration(timeout)*time.Second)
 			if err != nil {
 				ch <- subResult{id: s.ID, err: err}

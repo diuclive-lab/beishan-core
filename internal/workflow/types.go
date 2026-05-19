@@ -34,6 +34,7 @@ type StepDef struct {
 	ID            string                 `yaml:"id"`
 	Plugin        string                 `yaml:"plugin"`
 	Type          string                 `yaml:"type"`
+	Provider      string                 `yaml:"provider,omitempty"`      // 可选，指定 LLM provider（local/deepseek/xiaomi）
 	Inputs        map[string]interface{} `yaml:"inputs,omitempty"`
 	Timeout       int                    `yaml:"timeout,omitempty"`        // 秒，默认 120
 	Retry         int                    `yaml:"retry,omitempty"`          // 失败重试次数，默认 0

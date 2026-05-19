@@ -3,6 +3,7 @@ package kernel
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -119,7 +120,20 @@ func (k *Kernel) Send(msg Message) error {
 		msg.Type = decision.MsgType
 		}
 		if len(decision.Payload) > 0 {
-			msg.Payload = decision.Payload
+			// 解包 LLM 输出的字符串 payload（如 "{\"keyword\":\"...\"}" → {"keyword":"..."})
+			payload := decision.Payload
+			var str string
+			if err := json.Unmarshal(payload, &str); err == nil && len(str) > 0 && str[0] == '{' {
+				if json.Valid([]byte(str)) {
+					payload = json.RawMessage(str)
+				}
+			}
+			// 如果路由器返回空对象 {}，保留原始 payload（避免覆盖用户消息）
+			if string(payload) == "{}" && len(msg.Payload) > 0 && string(msg.Payload) != "{}" {
+				// 保留原始 payload
+			} else {
+				msg.Payload = payload
+			}
 		}
 	}
 

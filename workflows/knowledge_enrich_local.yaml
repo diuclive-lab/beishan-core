@@ -1,0 +1,66 @@
+# 知识条目增强（本地模型版） — 用本地 Qwen3.6-27B 分析并补充知识条目
+#
+# 与 knowledge_enrich.yaml 的区别：
+#   - provider: local（全程走本地模型，不消耗云端 token）
+#   - 适合批量处理大量知识条目
+#
+# 触发方式:
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"knowledge_enrich_local","input":"kn_xxx"}}
+
+id: knowledge_enrich_local
+
+steps:
+  - id: get
+    plugin: memory_plugin
+    type: knowledge_get
+    timeout: 10
+    inputs:
+      id: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    provider: local
+    timeout: 300
+    retry: 1
+    inputs:
+      message: >-
+        你是一个知识管理助手。请分析以下知识条目，输出改进后的结构化信息。
+
+        原则：
+        - 摘要要精炼（50字以内），突出核心价值
+        - 标签要精准（3-5个），便于检索
+        - 主题要明确（1-2个），归类清晰
+        - 如果原文质量已经很好，保持不变
+
+        当前条目：
+        ${steps.get.output}
+
+        请严格输出以下 JSON 格式（不加任何其他文字）：
+
+        {
+          "title": "标题（如需修改）",
+          "summary": "改进后的摘要",
+          "tags": ["标签1", "标签2", "标签3"],
+          "topics": ["主题1"],
+          "changed": true
+        }
+
+        如果条目质量已经足够好，不需要修改，请输出：
+        {"changed": false}
+    next: update
+
+  - id: update
+    plugin: memory_plugin
+    type: knowledge_update
+    timeout: 15
+    skip_if: "steps.analyze.output.changed == 'false'"
+    inputs:
+      id: "${input}"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
