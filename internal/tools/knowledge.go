@@ -35,6 +35,41 @@ type KnowledgeEntry struct {
 	ExpiresAt  int64     `json:"expires_at,omitempty"`   // 过期时间戳，0=永久
 }
 
+/* ─── Retrieval Trace ──────────────────────────── */
+
+type RetrievalStage struct {
+	Stage  string         `json:"stage"`  // "embedding" | "keyword_expand" | "score" | "graph_expand" | "ranking"
+	Method string         `json:"method"` // 具体方法
+	Input  string         `json:"input"`  // 输入摘要
+	Output map[string]any `json:"output"` // 结构化输出
+	Score  float64        `json:"score"`  // 分数（如有）
+	Reason string         `json:"reason"` // 原因
+}
+
+type RetrievalTrace struct {
+	Query  string          `json:"query"`
+	Stages []RetrievalStage `json:"stages"`
+}
+
+func NewRetrievalTrace(query string) *RetrievalTrace {
+	return &RetrievalTrace{Query: query}
+}
+
+func (t *RetrievalTrace) Add(stage RetrievalStage) {
+	t.Stages = append(t.Stages, stage)
+}
+
+func (t *RetrievalTrace) Log() {
+	if len(t.Stages) == 0 {
+		return
+	}
+	fmt.Printf("[retrieval] query=%q stages=%d\n", t.Query, len(t.Stages))
+	for _, s := range t.Stages {
+		fmt.Printf("  stage=%s method=%s input=%q output=%+v score=%.2f reason=%q\n",
+			s.Stage, s.Method, s.Input, s.Output, s.Score, s.Reason)
+	}
+}
+
 /* ─── 存储引擎 ─────────────────────────────────── */
 
 var (
@@ -593,7 +628,7 @@ func min(a, b int) int {
 	return b
 }
 
-func SearchMemory(query string, limit int) []ScoredEntry {
+func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry {
 	if limit <= 0 {
 		limit = 3
 	}
@@ -603,17 +638,44 @@ func SearchMemory(query string, limit int) []ScoredEntry {
 	if embeddingEnabled() {
 		if emb, ok := tryEmbedding(query); ok {
 			direct = searchByEmbedding(emb, limit*2)
+			if trace != nil {
+				trace.Add(RetrievalStage{
+					Stage:  "embedding",
+					Method: "vector_search",
+					Input:  query,
+					Output: map[string]any{"candidates": len(direct)},
+					Reason: "embedding endpoint available",
+				})
+			}
 		}
 	}
 	// 路径2：LLM 关键词扩展 + 加权评分
 	if len(direct) == 0 {
 		if expanded, err := expandKeywordsViaAPI(query); err == nil && len(expanded) > 0 {
 			direct = SearchWithScore(strings.Join(expanded, " "), limit*2)
+			if trace != nil {
+				trace.Add(RetrievalStage{
+					Stage:  "keyword_expand",
+					Method: "llm_expand+score",
+					Input:  query,
+					Output: map[string]any{"keywords": expanded, "candidates": len(direct)},
+					Reason: "embedding unavailable, fallback to keyword expansion",
+				})
+			}
 		}
 	}
 	// 路径3：原文直接匹配（兜底）
 	if len(direct) == 0 {
 		direct = SearchWithScore(query, limit*2)
+		if trace != nil {
+			trace.Add(RetrievalStage{
+				Stage:  "score",
+				Method: "direct_match",
+				Input:  query,
+				Output: map[string]any{"candidates": len(direct)},
+				Reason: "all other methods failed, fallback to direct match",
+			})
+		}
 	}
 
 	// 图扩展：沿 Links 找到关联条目，二跳降权
@@ -622,6 +684,7 @@ func SearchMemory(query string, limit int) []ScoredEntry {
 		seen[e.ID] = true
 	}
 	var expanded []ScoredEntry
+	var graphLinked int
 	for _, e := range direct {
 		expanded = append(expanded, e)
 		linked := loadLinkedEntries(e.ID)
@@ -630,6 +693,7 @@ func SearchMemory(query string, limit int) []ScoredEntry {
 				continue
 			}
 			seen[le.ID] = true
+			graphLinked++
 			expanded = append(expanded, ScoredEntry{
 				ID:         le.ID,
 				Title:      le.Title,
@@ -639,6 +703,16 @@ func SearchMemory(query string, limit int) []ScoredEntry {
 				Score:      e.Score / 2,
 			})
 		}
+	}
+	if trace != nil && graphLinked > 0 {
+		trace.Add(RetrievalStage{
+			Stage:  "graph_expand",
+			Method: "link_traversal",
+			Input:  fmt.Sprintf("direct=%d", len(direct)),
+			Output: map[string]any{"linked": graphLinked, "total": len(expanded)},
+			Score:  0.5,
+			Reason: "hop=1, decay=0.5",
+		})
 	}
 
 	// 重排后取 top-N
@@ -654,6 +728,15 @@ func SearchMemory(query string, limit int) []ScoredEntry {
 	})
 	if len(expanded) > limit {
 		expanded = expanded[:limit]
+	}
+	if trace != nil {
+		trace.Add(RetrievalStage{
+			Stage:  "ranking",
+			Method: "sort+limit",
+			Input:  fmt.Sprintf("candidates=%d", len(expanded)),
+			Output: map[string]any{"final": len(expanded)},
+			Reason: "score desc, memory priority",
+		})
 	}
 	return expanded
 }
