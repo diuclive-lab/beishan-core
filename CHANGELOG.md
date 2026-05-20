@@ -1,6 +1,190 @@
 # 开发日志
 
-## 2026-05-19 多模型 API 适配 + 条件跳过 + 停车管理 + 旧项目审计
+## 2026-05-20 记忆层：Agent 自动知识检索 + 双轨语义引擎
+
+### 背景与问题
+
+项目底座已经非常扎实——知识全链路、15 个工作流、Web 界面、多模型适配。但存在一个根本问题：**知识库中的知识是孤立的**。用户通过工作流和手动录入积累了 20+ 条验证过的知识条目（如"270m 不可用"、"M2 8GB 跑不动本地模型"等），但智能体（think_plugin）回答问题时完全不知道这些知识的存在，每次都在信息真空中对话。
+
+### 方案探索过程
+
+**尝试 1：另台电脑的 "硬化检索 + 自动注入"**
+
+```
+每次聊天 → 自动 KnowledgeRetrieve → 注入 system prompt
+```
+
+问题：L4（think_plugin）直接 import L3（internal/tools），突破了架构边界。且将判断权交给了 LLM（知识注入后 LLM "自行决定"是否使用），违反了硬化层原则。**方案废弃。**
+
+**尝试 2：全局 Context Enrichment Layer**
+
+```
+用户消息 → L1 Router → ★ Context Enrichment（自动检索知识）→ L4 Plugin
+```
+
+推演后发现：并不是所有消息都需要知识。workflow_plugin、terminal_plugin、todo_plugin 等完全不需要，全局层反而增加延迟、可能干扰正常执行。**否定。**
+
+**尝试 3：图结构神经网络**
+
+```
+L3 建知识图谱 → 带类型的关系边 → L4 消费
+```
+
+推演出核心问题：L4 不会主动消费这个神经网络。L3 建了一张死图，没有智能度。**否定。**
+
+**尝试 4：插件级自动注入（最终方案）**
+
+只在 think_plugin 的 OnMessage 中，在调 LLM 之前固定执行一次知识检索，结果注入 标签。其他插件零影响。
+
+```
+think_plugin.OnMessage:
+  用户消息
+    → 1. SearchMemory(query)     ← 固定步骤，不是 LLM 决策
+    → 2. FormatForPrompt(top-3)  ← 确定性格式化
+    → 3. callLLM(msg + background) ← LLM 只做生成
+```
+
+这个方案符合所有架构原则：硬化层原则（检索是确定性代码）、工具 > Agent（检索写死在代码里）、内核冻结（不动 L1）、提示词只描述格式（不注入"你可以查知识库"指令）。
+
+### 关键决策
+
+**决策 1：记忆检索用向量还是关键词？**
+
+- 尝试了纯关键词加权评分（SearchWithScore：title +3, tags +2, summary +1）
+- 发现中文分词瓶颈：用户说"关于本地模型"→ 切词后得到"关于本地模型"→ 无法匹配"本地模型方案已放弃"
+- 改为双向子串匹配 + 字符窗口重叠解决中文切词问题
+- 最终方案：双轨（embedding 向量 + LLM 关键词扩展兜底），embedding 通过环境变量配置，不写死任何工具
+
+**决策 2：自建 vs 接外部记忆系统（Mem0 等）**
+
+自建，理由：
+- 完全控制，符合硬化层哲学
+- 无外部依赖（48K stars 的 Mem0 内部用 LLM 驱动实体提取，和硬化层哲学冲突）
+- 不引入黑盒
+
+**决策 3：写入时机**
+
+三种写入都支持：
+- V1 主动记忆（knowledge_remember 工具，Agent 自主调用）
+- V2 后台审查（scheduler 触发工作流批量分析对话记录）
+- 实时写入不做（噪音太多）
+
+**决策 4：embedding 不绑定任何工具**
+
+通过环境变量 `EMBEDDING_ENDPOINT` + `EMBEDDING_MODEL` 配置，可以是 Ollama / llama.cpp / 自建 glue 子进程。参考 internal/llm 的 provider 模式，无厂商依赖。
+
+### 实现细节
+
+#### 双轨检索（`internal/tools/knowledge.go`）
+
+```
+SearchMemory(query)
+  ├─ EMBEDDING_ENDPOINT 已配置 → tryEmbedding → searchByEmbedding
+  │    向量语义检索，余弦相似度 > 0.4 返回 top-3
+  │    无 embedding 的条目异步后台补全（batchFillEmbedding）
+  │    不阻塞当前请求
+  │
+  └─ 未配置 → expandKeywordsViaAPI → SearchWithScore
+       LLM 保意图扩展（prompt 锁定"专有名词保持原样"+"示例锚定"）
+       扩展 3-5 个搜索词 → 加权评分 → top-3
+```
+
+#### 保意图扩展（`expandKeywordsViaAPI`）
+
+```
+问题："beishan-core 怎么启动" → beishan-core,启动,boot,main.go
+问题："本地模型最终决定"      → 本地模型,local model,推理
+```
+
+使用 `llm.ChatCompletion`（新增的共享 LLM 调用函数），不经过 think_plugin 自身路径，避免递归。
+
+#### 格式化注入（`FormatForPrompt`）
+
+```
+<background>
+1. 本地模型方案已放弃（claude_memory, project）
+   2026-05-07 决定放弃本地模型，M2 8GB 不够，走纯 API 路线
+2. beishan-core 路由机制（architecture, routing）
+   DeepSeek 路由，confidence < 0.4 拒绝，Recipient 非空时直接转发
+</background>
+```
+
+最多 3 条，每条两行，summary 截断到 100 字。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/llm/config.go` | +ChatCompletion 共享 LLM 调用函数 |
+| `internal/tools/knowledge.go` | +Embedding 字段、tryEmbedding、searchByEmbedding、expandKeywordsViaAPI、SearchMemory、KnowledgeReindex、saveKnowledge 自动计算向量 |
+| `plugins/think_plugin.go` | OnMessage: SearchWithScore → SearchMemory；callDeepSeek 改用 llm.ChatCompletion 避免递归 |
+| `plugins/memory_plugin.go` | +knowledge_remember、knowledge_reindex 路由 |
+| `main.go` | +knowledge_reindex Meta.Types |
+| `workflows/knowledge_enrich.yaml` | 修复 data 参数（远程合并的 bug：knowledge_update 无 data 字段，改为逐字段传） |
+
+### 架构原则对账
+
+| 原则 | 是否违反 |
+|---|---|
+| 硬化层原则 | ✅ 检索是确定性 L3 工具调用，结果可硬化校验 |
+| 工具 > Agent | ✅ 检索是写死在代码里的，不是 LLM 决定的 |
+| 提示词只描述格式 | ✅ system prompt 只多了知识内容，没有"你可以查知识库"指令 |
+| 内核冻结 | ✅ 不动 L1，不动 kernel 代码 |
+| 厂商无关 | ✅ embedding 通过环境变量配置，不绑定具体工具 |
+| 避免递归 | ✅ expandKeywords 用 llm.ChatCompletion，不走 think_plugin 路径 |
+
+### 实测验证
+
+- "本地模型最终决定" → ✅ 命中"本地模型方案已放弃"等条目
+- "beishan-core 路由机制" → ✅ 命中架构决策条目，正确描述强制 DeepSeek 路由
+- knowledge_remember / knowledge_reindex → ✅ 写入/补全正常
+- 全量编译通过
+
+### 配置方式
+
+```bash
+# 可选，不配置则走 DeepSeek 扩展降级
+export EMBEDDING_ENDPOINT=http://localhost:11434/v1/embeddings
+export EMBEDDING_MODEL=nomic-embed-text
+
+# 已有条目补全向量
+curl -X POST ... -d '{"recipient":"memory_plugin","type":"knowledge_reindex"}'
+```
+
+### 补充：记忆优先排序 + 过期机制 + Web 记忆入口
+
+基于第一版反馈，补充三个完善项：
+
+**记忆优先排序**（一行改动）
+
+检索结果按分数降序排列时，同分数下 `source_type=memory` 的条目优先排在前面。修改两处 sort 逻辑（SearchWithScore + searchByEmbedding），确保记忆比知识更易被命中。
+
+**过期机制**
+
+两处设计取舍：
+- 不用自动时间过期（删错了找不回来，"今天"这种词不好判断，30天太武断）
+- 用显式标记 `Ephemeral` + `ExpiresAt`：`knowledge_remember` 支持 `expires_in_days` 参数，>0 时标记为临时记忆并在到期后不参与检索
+- 已过期条目**只屏蔽不出现在检索结果中**，不自动删除，可通过 `knowledge_list` 或手动清理
+
+```go
+type KnowledgeEntry struct {
+    Ephemeral  bool      // 临时记忆，到期不参与检索
+    ExpiresAt  int64     // 过期时间戳，0=永久
+}
+```
+
+**Web 记忆入口**
+
+侧栏新增"记忆"区 + "浏览记忆"按钮，调用 `knowledge_list?source_type=memory` 列出所有记忆条目。后端零改动。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/tools/knowledge.go` | +Ephemeral、ExpiresAt 字段；KnowledgeRemember 支持 expires_in_days；两处排序加 memory 优先；两处检索过滤过期条目 |
+| `web/index.html` | 侧栏新增"记忆"区域 + sendMemoryList 函数 |
+
+## 2026-05-19 远程合并：payload 修复 + knowledge_enrich 修复
 
 ### 多模型 API 适配（LLM_PROVIDER）
 

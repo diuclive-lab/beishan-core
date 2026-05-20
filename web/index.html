@@ -136,6 +136,13 @@ body {
       <div class="desc">基于知识库写文章/报告/方案</div>
     </li>
   </ul>
+  <div style="margin-top:8px"><h2>记忆</h2></div>
+  <ul class="workflows">
+    <li class="workflow-item" onclick="sendMemoryList()">
+      <div class="name">&#128221; 浏览记忆</div>
+      <div class="desc">浏览 Agent 自主记录的关键事实</div>
+    </li>
+  </ul>
   <div style="margin-top:8px"><h2>知识库</h2></div>
   <ul class="workflows">
     <li class="workflow-item" onclick="sendKnowledgeList()">
@@ -342,6 +349,11 @@ async function doKnowledgeIngest() {
 // ─── 知识库快捷操作 ───
 function sendKnowledgeList() {
   document.getElementById('input').value = '列出我的所有知识条目';
+  send();
+}
+
+function sendMemoryList() {
+  document.getElementById('input').value = '列出记忆条目';
   send();
 }
 

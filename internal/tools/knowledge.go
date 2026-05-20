@@ -1,34 +1,38 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"beishan/internal/llm"
 )
 
 /* ─── KnowledgeEntry 统一知识条目 ──────────────── */
 
 type KnowledgeEntry struct {
-	ID           string   `json:"id"`
-	SourceType   string   `json:"source_type"`              // 来源：chat|article|idea|web|file|note|codex|claude_memory
-	KnowledgeType string  `json:"knowledge_type,omitempty"` // 认知类型：Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry
-	Title        string   `json:"title"`
-	Summary      string   `json:"summary"`
-	Tags         []string `json:"tags"`
-	Topics       []string `json:"topics"`
-	Tasks        []string `json:"tasks"` // 提取的任务/行动项
-	Confidence   float64  `json:"confidence,omitempty"` // 置信度 0-1
-	Importance   string   `json:"importance,omitempty"` // 重要性：high|medium|low
-	CreatedAt    int64    `json:"created_at"`
-	UpdatedAt    int64    `json:"updated_at,omitempty"`
-	Links        []string `json:"links"`             // 关联的 memory/知识 ID
-	RawRef       string   `json:"raw_ref"`           // 原始来源引用
-	Content      string   `json:"content,omitempty"` // 完整内容（可选）
+	ID         string   `json:"id"`
+	SourceType string   `json:"source_type"` // chat|article|idea|web|file|note|codex|claude_memory
+	Title      string   `json:"title"`
+	Summary    string   `json:"summary"`
+	Tags       []string `json:"tags"`
+	Topics     []string `json:"topics"`
+	Tasks      []string `json:"tasks"` // 提取的任务/行动项
+	CreatedAt  int64    `json:"created_at"`
+	Links      []string  `json:"links"`                   // 关联的 memory/知识 ID
+	RawRef     string    `json:"raw_ref"`                 // 原始来源引用
+	Content    string    `json:"content,omitempty"`       // 完整内容（可选）
+	Embedding  []float64 `json:"embedding,omitempty"`     // 语义嵌入向量，用于语义检索
+	Ephemeral  bool      `json:"ephemeral,omitempty"`     // 临时记忆，到期不参与检索
+	ExpiresAt  int64     `json:"expires_at,omitempty"`   // 过期时间戳，0=永久
 }
 
 /* ─── 存储引擎 ─────────────────────────────────── */
@@ -62,6 +66,15 @@ func loadKnowledge(id string) *KnowledgeEntry {
 
 func saveKnowledge(entry *KnowledgeEntry) {
 	initKnowledgeDir()
+
+	// 写入时顺带计算 embedding（失败不影响入库）
+	if embeddingEnabled() && len(entry.Embedding) == 0 {
+		text := entry.Title + " " + entry.Summary
+		if emb, ok := tryEmbedding(text); ok {
+			entry.Embedding = emb
+		}
+	}
+
 	data, _ := json.MarshalIndent(entry, "", "  ")
 	os.WriteFile(knowledgePath(entry.ID), data, 0644)
 }
@@ -77,7 +90,7 @@ func newKnowledgeID() string {
 
 /* ─── 公开 API ─────────────────────────────────── */
 
-func KnowledgeAdd(sourceType, knowledgeType, title, summary string, tags, topics, tasks, links []string, rawRef, content string, confidence float64, importance string) *ToolResult {
+func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links []string, rawRef, content string) *ToolResult {
 	if sourceType == "" {
 		return errorResult("source_type 不能为空")
 	}
@@ -94,24 +107,45 @@ func KnowledgeAdd(sourceType, knowledgeType, title, summary string, tags, topics
 
 	now := time.Now().Unix()
 	entry := &KnowledgeEntry{
-		ID:            newKnowledgeID(),
-		SourceType:    sourceType,
-		KnowledgeType: knowledgeType,
-		Title:         title,
-		Summary:       summary,
-		Tags:          tags,
-		Topics:        topics,
-		Tasks:         tasks,
-		Confidence:    confidence,
-		Importance:    importance,
-		CreatedAt:     now,
-		Links:         links,
-		RawRef:        rawRef,
-		Content:       content,
+		ID:         newKnowledgeID(),
+		SourceType: sourceType,
+		Title:      title,
+		Summary:    summary,
+		Tags:       tags,
+		Topics:     topics,
+		Tasks:      tasks,
+		CreatedAt:  now,
+		Links:      links,
+		RawRef:     rawRef,
+		Content:    content,
 	}
+	// 保存，但保持 CreatedAt 为首次创建时间
 	saveKnowledge(entry)
 
 	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"知识已入库"}`, entry.ID, title))
+}
+
+// KnowledgeRemember 轻量记忆写入：包装 KnowledgeAdd，固定 source_type="memory"。
+// Agent 主动调用时用此工具记录关键事实、用户偏好、决策结果。
+func KnowledgeRemember(title, summary string, tags []string, expiresInDays int) *ToolResult {
+	if title == "" && summary == "" {
+		return errorResult("title 和 summary 不能同时为空")
+	}
+	now := time.Now().Unix()
+	entry := &KnowledgeEntry{
+		ID:         newKnowledgeID(),
+		SourceType: "memory",
+		Title:      title,
+		Summary:    summary,
+		Tags:       tags,
+		CreatedAt:  now,
+	}
+	if expiresInDays > 0 {
+		entry.Ephemeral = true
+		entry.ExpiresAt = now + int64(expiresInDays*86400)
+	}
+	saveKnowledge(entry)
+	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"记忆已记录"}`, entry.ID, title))
 }
 
 func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
@@ -164,7 +198,341 @@ func KnowledgeSearch(keyword string) *ToolResult {
 	return successResult(strings.Join(results, "\n"))
 }
 
-func KnowledgeList(sourceType, knowledgeType string, days int) *ToolResult {
+/* ─── ScoredEntry 加权检索结果 ────────────── */
+
+type ScoredEntry struct {
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Summary    string   `json:"summary"`
+	Tags       []string `json:"tags"`
+	SourceType string   `json:"source_type"`
+	Score      int      `json:"score"`
+}
+
+func SearchWithScore(query string, limit int) []ScoredEntry {
+	if limit <= 0 {
+		limit = 3
+	}
+
+	all := loadAllKnowledge()
+	var scored []ScoredEntry
+	q := strings.ToLower(query)
+
+	for _, entry := range all {
+		score := 0
+		title := strings.ToLower(entry.Title)
+		summary := strings.ToLower(entry.Summary)
+
+		// 正向：query 是否在条目字段中（完全匹配字段子串）
+		if strings.Contains(title, q) {
+			score += 3
+		} else if stringContainsAny(title, q) {
+			// 反向：条目标题的关键词是否在 query 中
+			// 处理 "关于本地模型" → "本地模型方案已放弃" 这种情况
+			score += 3
+		}
+
+		for _, tag := range entry.Tags {
+			if strings.Contains(strings.ToLower(tag), q) || strings.Contains(q, strings.ToLower(tag)) {
+				score += 2
+				break
+			}
+		}
+
+		if strings.Contains(summary, q) {
+			score += 1
+		} else if stringContainsAny(summary, q) {
+			score += 1
+		}
+
+		if score > 0 {
+			scored = append(scored, ScoredEntry{
+				ID:         entry.ID,
+				Title:      entry.Title,
+				Summary:    entry.Summary,
+				Tags:       entry.Tags,
+				SourceType: entry.SourceType,
+				Score:      score,
+			})
+		}
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		// 同分数时 memory 优先
+		if scored[i].Score == scored[j].Score {
+			im := scored[i].SourceType == "memory"
+			jm := scored[j].SourceType == "memory"
+			if im != jm {
+				return im
+			}
+		}
+		return scored[i].Score > scored[j].Score
+	})
+
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	return scored
+}
+
+// stringContainsAny 检查 target 中的语义词是否出现在 query 中。
+// 按空格/标点切词后，对中文词取所有 ≥2 字符的连续子串匹配。
+// 解决中文不依赖分词："本地模型方案已放弃" → 检查 "本地" "模型" "方案" 等是否在 query 中。
+func stringContainsAny(target, query string) bool {
+	raw := strings.FieldsFunc(target, func(r rune) bool {
+		return r == ' ' || r == '　' || r == '，' || r == '。' || r == '、' ||
+			r == '：' || r == '（' || r == '）' || r == '—' || r == '|'
+	})
+	q := strings.ToLower(query)
+	for _, token := range raw {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		// 检查整个 token 是否在 query 中
+		lower := strings.ToLower(token)
+		if strings.Contains(q, lower) {
+			return true
+		}
+		// 对于长中文词，拆成 2/3/4 字符窗口匹配
+		runes := []rune(lower)
+		if len(runes) > 3 {
+			for i := 0; i < len(runes)-1; i++ {
+				for j := i + 2; j <= len(runes) && j-i < 5; j++ {
+					seg := string(runes[i:j])
+					if len([]rune(seg)) >= 2 && strings.Contains(q, seg) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// FormatForPrompt 将检索结果格式化为 <background> 文本。
+// 每条两行：标题+标签一行，summary 一行。最多 3 条，summary 截断到 100 字。
+func FormatForPrompt(entries []ScoredEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n")
+	sb.WriteString("<background>\n")
+	for i, e := range entries {
+		tags := strings.Join(e.Tags, ", ")
+		if tags == "" {
+			tags = e.SourceType
+		}
+		summary := e.Summary
+		runes := []rune(summary)
+		if len(runes) > 100 {
+			summary = string(runes[:100]) + "..."
+		}
+		sb.WriteString(fmt.Sprintf("%d. %s（%s）\n", i+1, e.Title, tags))
+		sb.WriteString(fmt.Sprintf("   %s\n", summary))
+	}
+	sb.WriteString("</background>")
+	return sb.String()
+}
+
+
+/* ─── embedding 引擎 ────────────────────────── */
+
+var embeddingEndpoint = os.Getenv("EMBEDDING_ENDPOINT")
+var embeddingModel = os.Getenv("EMBEDDING_MODEL")
+
+func embeddingEnabled() bool {
+	return embeddingEndpoint != ""
+}
+
+// tryEmbedding 调通用 embedding API 计算文本向量。
+// 不绑定任何具体工具（Ollama/llama.cpp/glue 均可），靠环境变量配置端点。
+func tryEmbedding(text string) ([]float64, bool) {
+	if !embeddingEnabled() {
+		return nil, false
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"model": embeddingModel,
+		"input": text,
+	})
+	if err != nil {
+		return nil, false
+	}
+	resp, err := http.Post(embeddingEndpoint, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, false
+	}
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, false
+	}
+	return result.Data[0].Embedding, true
+}
+
+// searchByEmbedding 向量相似度检索。
+// 无 embedding 的条目异步触发惰性补全。
+func searchByEmbedding(queryEmb []float64, limit int) []ScoredEntry {
+	all := loadAllKnowledge()
+	var scored []ScoredEntry
+	var pending []*KnowledgeEntry
+
+	for _, entry := range all {
+		// 跳过过期条目
+		if entry.Ephemeral && entry.ExpiresAt > 0 && time.Now().Unix() > entry.ExpiresAt {
+			continue
+		}
+		if len(entry.Embedding) == 0 {
+			pending = append(pending, entry)
+			continue
+		}
+		sim := cosineSimilarity(queryEmb, entry.Embedding)
+		if sim >= 0.4 {
+			scored = append(scored, ScoredEntry{
+				ID:         entry.ID,
+				Title:      entry.Title,
+				Summary:    entry.Summary,
+				Tags:       entry.Tags,
+				SourceType: entry.SourceType,
+				Score:      int(sim * 100),
+			})
+		}
+	}
+
+	if len(pending) > 0 {
+		go batchFillEmbedding(pending)
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		// 同分数时 memory 优先
+		if scored[i].Score == scored[j].Score {
+			im := scored[i].SourceType == "memory"
+			jm := scored[j].SourceType == "memory"
+			if im != jm {
+				return im
+			}
+		}
+		return scored[i].Score > scored[j].Score
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	return scored
+}
+
+// batchFillEmbedding 批量补全 embedding，后台调用。
+func batchFillEmbedding(entries []*KnowledgeEntry) {
+	if !embeddingEnabled() {
+		return
+	}
+	for _, e := range entries {
+		if len(e.Embedding) > 0 {
+			continue
+		}
+		text := e.Title + " " + e.Summary
+		if emb, ok := tryEmbedding(text); ok {
+			e.Embedding = emb
+			saveKnowledge(e)
+		}
+	}
+}
+
+// expandKeywordsViaAPI 用 LLM 做保意图的关键词扩展。
+func expandKeywordsViaAPI(query string) ([]string, error) {
+	sysP := "你是一个搜索查询优化器。只输出搜索词列表，不要其他内容。"
+	userP := fmt.Sprintf(`任务：输出3-5个最能代表以下问题核心意图的搜索词。
+要求：
+- 保持原始意图，不要过度扩展
+- 专有名词、技术术语保持原样
+- 可以加1-2个近义词，必须语义高度相关
+- 用逗号分隔，只输出词列表
+
+示例：
+问题："beishan-core 怎么启动" → beishan-core,启动,boot,main.go
+问题："我们之前聊过本地模型吗" → 本地模型,local model,Ollama,推理
+
+问题："%%s"`, query)
+	result, err := llm.ChatCompletion(sysP, userP, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var tokens []string
+	for _, t := range strings.Split(result, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			tokens = append(tokens, t)
+		}
+	}
+	if len(tokens) == 0 {
+		return []string{query}, nil
+	}
+	return tokens, nil
+}
+
+/* ─── SearchMemory 统一入口 ──────────────────── */
+
+// SearchMemory 统一记忆检索入口。
+// 试图顺序：
+//   1. embedding 在线 → 向量语义检索
+//   2. 降级 → LLM 关键词扩展 → 加权评分
+//   3. 均不可用 → 原文直接匹配
+func SearchMemory(query string, limit int) []ScoredEntry {
+	if limit <= 0 {
+		limit = 3
+	}
+	// 路径1：embedding 向量检索
+	if embeddingEnabled() {
+		if emb, ok := tryEmbedding(query); ok {
+			results := searchByEmbedding(emb, limit)
+			if len(results) > 0 {
+				return results
+			}
+			return nil
+		}
+	}
+	// 路径2：LLM 关键词扩展 + 加权评分
+	if expanded, err := expandKeywordsViaAPI(query); err == nil && len(expanded) > 0 {
+		results := SearchWithScore(strings.Join(expanded, " "), limit)
+		if len(results) > 0 {
+			return results
+		}
+	}
+	// 路径3：原文直接匹配（兜底）
+	return SearchWithScore(query, limit)
+}
+
+/* ─── KnowledgeReindex 批量补全工具 ──────────── */
+
+func KnowledgeReindex() *ToolResult {
+	if !embeddingEnabled() {
+		return successResult(`{"message":"EMBEDDING_ENDPOINT 未设置，跳过"}`)
+	}
+	all := loadAllKnowledge()
+	var count int
+	for _, e := range all {
+		if len(e.Embedding) > 0 {
+			continue
+		}
+		text := e.Title + " " + e.Summary
+		if emb, ok := tryEmbedding(text); ok {
+			e.Embedding = emb
+			saveKnowledge(e)
+			count++
+		}
+	}
+	return successResult(fmt.Sprintf(`{"message":"补全完成","count":%%d}`, count))
+}
+
+func KnowledgeList(sourceType string, days int) *ToolResult {
 	initKnowledgeDir()
 	entries, _ := os.ReadDir(knowledgeDir)
 
@@ -180,9 +548,6 @@ func KnowledgeList(sourceType, knowledgeType string, days int) *ToolResult {
 			continue
 		}
 		if sourceType != "" && entry.SourceType != sourceType {
-			continue
-		}
-		if knowledgeType != "" && entry.KnowledgeType != knowledgeType {
 			continue
 		}
 		if days > 0 && time.Unix(entry.CreatedAt, 0).Before(cutoff) {
@@ -203,12 +568,8 @@ func KnowledgeList(sourceType, knowledgeType string, days int) *ToolResult {
 	for _, e := range kEntries {
 		created := time.Unix(e.CreatedAt, 0).Format("01-02 15:04")
 		tags := strings.Join(e.Tags, ", ")
-		ktype := e.KnowledgeType
-		if ktype == "" {
-			ktype = "-"
-		}
-		sb.WriteString(fmt.Sprintf("%s [%s|%s] %s — %s (tags: %s)\n",
-			e.ID, e.SourceType, ktype, e.Title, created, tags))
+		sb.WriteString(fmt.Sprintf("%s [%s] %s — %s (tags: %s)\n",
+			e.ID, e.SourceType, e.Title, created, tags))
 	}
 	return successResult(sb.String())
 }
@@ -243,10 +604,6 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 		entry.SourceType = v
 		changed = true
 	}
-	if v, ok := fields["knowledge_type"].(string); ok && v != "" {
-		entry.KnowledgeType = v
-		changed = true
-	}
 	if v, ok := fields["title"].(string); ok && v != "" {
 		entry.Title = v
 		changed = true
@@ -271,14 +628,6 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 		entry.Links = v
 		changed = true
 	}
-	if v, ok := fields["confidence"].(float64); ok {
-		entry.Confidence = v
-		changed = true
-	}
-	if v, ok := fields["importance"].(string); ok && v != "" {
-		entry.Importance = v
-		changed = true
-	}
 	if v, ok := fields["raw_ref"].(string); ok {
 		entry.RawRef = v
 		changed = true
@@ -286,9 +635,6 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 	if v, ok := fields["content"].(string); ok {
 		entry.Content = v
 		changed = true
-	}
-	if changed {
-		entry.UpdatedAt = time.Now().Unix()
 	}
 
 	if !changed {
@@ -907,13 +1253,12 @@ func KnowledgeTimeline(groupBy string) *ToolResult {
 	return successResult(string(b))
 }
 func registerKnowledgeTools() {
-	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks/knowledge_type）。",
+	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"source_type", "title", "summary"},
 			"properties": map[string]interface{}{
 				"source_type": stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
-				"knowledge_type": stringParam("认知类型: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
 				"title":       stringParam("知识条目标题"),
 				"summary":     stringParam("内容摘要（一句话到一段话）"),
 				"tags": map[string]interface{}{
@@ -936,11 +1281,6 @@ func registerKnowledgeTools() {
 					"description": "关联的 memory/知识 ID 列表",
 					"items":       map[string]interface{}{"type": "string"},
 				},
-				"confidence": map[string]interface{}{
-					"type":        "number",
-					"description": "置信度 0-1",
-				},
-				"importance": stringParam("重要性: high|medium|low"),
 				"raw_ref": stringParam("原始来源引用，如 URL 或文件路径"),
 				"content": map[string]interface{}{
 					"oneOf": []interface{}{
@@ -955,10 +1295,8 @@ func registerKnowledgeTools() {
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
-			confidence, _ := args["confidence"].(float64)
 			return KnowledgeAdd(
 				strArg(args, "source_type"),
-				strArg(args, "knowledge_type"),
 				strArg(args, "title"),
 				strArg(args, "summary"),
 				strSliceArg(args, "tags"),
@@ -967,8 +1305,6 @@ func registerKnowledgeTools() {
 				strSliceArg(args, "links"),
 				strArg(args, "raw_ref"),
 				contentOrJoin(args, "content"),
-				confidence,
-				strArg(args, "importance"),
 			)
 		},
 	)
@@ -986,18 +1322,46 @@ func registerKnowledgeTools() {
 		},
 	)
 
-	Register("knowledge_list", "列出所有知识条目，可按来源类型、认知类型和天数过滤。",
+		Register("knowledge_remember", "记录一条记忆（轻量写入知识库，source_type=memory）。Agent 自主记录关键事实、决策、偏好。",
+			map[string]interface{}{
+				"type":     "object",
+				"required": []string{"title", "summary"},
+				"properties": map[string]interface{}{
+					"title":   stringParam("记忆标题，简洁描述这条事实"),
+					"summary": stringParam("记忆内容（一句话到一段话）"),
+					"tags": map[string]interface{}{
+						"type":        "array",
+						"description": "标签列表",
+						"items":       map[string]interface{}{"type": "string"},
+					},
+					"expires_in_days": map[string]interface{}{
+						"type":        "integer",
+						"description": "过期天数，到期后不参与检索。0=永久（默认0）。",
+					},
+				},
+			},
+			func(args map[string]interface{}) *ToolResult {
+				expDays, _ := args["expires_in_days"].(float64)
+				return KnowledgeRemember(
+					strArg(args, "title"),
+					strArg(args, "summary"),
+					strSliceArg(args, "tags"),
+					int(expDays),
+				)
+			},
+		)
+
+	Register("knowledge_list", "列出所有知识条目，可按来源类型和天数过滤。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"source_type":    stringParam("可选的来源类型过滤"),
-				"knowledge_type": stringParam("可选的认知类型过滤: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
-				"days":           intParam("最近 N 天（0=全部）"),
+				"source_type": stringParam("可选的来源类型过滤"),
+				"days":        intParam("最近 N 天（0=全部）"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
 			days, _ := args["days"].(float64)
-			return KnowledgeList(strArg(args, "source_type"), strArg(args, "knowledge_type"), int(days))
+			return KnowledgeList(strArg(args, "source_type"), int(days))
 		},
 	)
 
@@ -1032,11 +1396,10 @@ func registerKnowledgeTools() {
 			"type":     "object",
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
-				"id":            stringParam("要更新的知识条目 ID"),
-				"source_type":   stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
-				"knowledge_type": stringParam("认知类型: Principle|ADR|Lesson|AntiPattern|Hotspot|Telemetry"),
-				"title":         stringParam("知识条目标题"),
-				"summary":       stringParam("内容摘要"),
+				"id":          stringParam("要更新的知识条目 ID"),
+				"source_type": stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
+				"title":       stringParam("知识条目标题"),
+				"summary":     stringParam("内容摘要"),
 				"tags": map[string]interface{}{
 					"type":        "array",
 					"description": "标签列表",
@@ -1057,13 +1420,8 @@ func registerKnowledgeTools() {
 					"description": "关联 ID 列表",
 					"items":       map[string]interface{}{"type": "string"},
 				},
-				"confidence": map[string]interface{}{
-					"type":        "number",
-					"description": "置信度 0-1",
-				},
-				"importance": stringParam("重要性: high|medium|low"),
-				"raw_ref":    stringParam("原始来源引用"),
-				"content":    stringParam("完整内容"),
+				"raw_ref": stringParam("原始来源引用"),
+				"content": stringParam("完整内容"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -1155,11 +1513,21 @@ func registerKnowledgeTools() {
 			return KnowledgeTimeline(strArg(args, "group_by"))
 		},
 	)
+
+	Register("knowledge_reindex", "为所有无 embedding 的知识条目计算语义向量。需要配置 EMBEDDING_ENDPOINT。",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeReindex()
+		},
+	)
 }
 
 func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 	fields := make(map[string]interface{})
-	for _, key := range []string{"source_type", "knowledge_type", "title", "summary", "importance", "raw_ref", "content"} {
+	for _, key := range []string{"source_type", "title", "summary", "raw_ref", "content"} {
 		raw, ok := args[key]
 		if !ok || raw == nil {
 			continue
@@ -1174,9 +1542,6 @@ func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 			continue
 		}
 		fields[key] = strSliceArg(args, key)
-	}
-	if v, ok := args["confidence"].(float64); ok {
-		fields["confidence"] = v
 	}
 	return fields
 }

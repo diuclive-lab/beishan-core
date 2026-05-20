@@ -1,6 +1,62 @@
 package llm
 
-import "os"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"time"
+)
+
+// ChatCompletion 共享 LLM Chat API 调用。
+// 返回响应文本，不注入任何额外上下文（纯文本补全）。
+// think_plugin（主回答）和 expandKeywordsViaAPI（语义扩展）共用此函数。
+func ChatCompletion(system, user string, timeout time.Duration) (string, error) {
+	apiKey := APIKey()
+	if apiKey == "" {
+		return "", fmt.Errorf("LLM_API_KEY 未设置")
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"model": Model(),
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
+		},
+	})
+
+	req, err := http.NewRequest("POST", ChatEndpoint(), bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API 调用失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("解析响应失败: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("LLM 未返回结果")
+	}
+	return result.Choices[0].Message.Content, nil
+}
 
 type Provider struct {
 	Name         string

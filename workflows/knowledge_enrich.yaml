@@ -68,4 +68,7 @@ steps:
     skip_if: "steps.analyze.output.changed == 'false'"
     inputs:
       id: "${input}"
-      data: "${steps.analyze.output}"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.summary}"
+      tags: "${steps.analyze.output.tags}"
+      topics: "${steps.analyze.output.topics}"
