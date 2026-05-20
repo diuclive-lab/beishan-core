@@ -150,11 +150,13 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 
 	userText := extractPrompt(msg.Payload)
 
+	// 从 Payload 提取 session_id（L4 层负责，不依赖 L1 kernel.Message）
+	sessionID := extractSessionID(msg.Payload)
+
 	// 清理过期的 pending remember
 	cleanupExpiredPending()
 
 	// 检测是否是确认回复
-	sessionID := msg.SessionID
 	if isConfirmReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
@@ -246,6 +248,19 @@ func extractPrompt(payload []byte) string {
 	}
 	// 回退：去掉外层引号
 	return strings.TrimFunc(s, func(r rune) bool { return r == '"' })
+}
+
+// extractSessionID 从 Payload 中提取 session_id。
+// session_id 是 runtime concept，存储在 Payload 中（L4 层负责），
+// 不依赖 L1 kernel.Message。
+func extractSessionID(payload []byte) string {
+	var obj map[string]interface{}
+	if json.Unmarshal(payload, &obj) == nil {
+		if sid, ok := obj["session_id"].(string); ok {
+			return sid
+		}
+	}
+	return ""
 }
 
 func truncate(s string, n int) string {

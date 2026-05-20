@@ -258,12 +258,15 @@ func main() {
 		if sessionID == "" {
 			sessionID = newSessionID()
 		}
-		msg := kernel.Message{Sender: "user", SessionID: sessionID}
+		msg := kernel.Message{Sender: "user"}
 		async := false
 
 		if txt, ok := raw["message"].(string); ok {
 			msg.Type = "chat"
-			msg.Payload = json.RawMessage(`"` + txt + `"`)
+			// session_id 放入 Payload（L4 plugin 层负责），不污染 L1 kernel.Message
+			payloadObj := map[string]string{"message": txt, "session_id": sessionID}
+			pb, _ := json.Marshal(payloadObj)
+			msg.Payload = pb
 			if a, ok := raw["async"].(bool); ok {
 				async = a
 			}
@@ -278,6 +281,10 @@ func main() {
 				msg.Recipient = rcp
 			}
 			if p, ok := raw["payload"]; ok {
+				// 注入 session_id 到 payload（L4 层负责）
+				if obj, ok := p.(map[string]interface{}); ok {
+					obj["session_id"] = sessionID
+				}
 				pb, _ := json.Marshal(p)
 				msg.Payload = pb
 			}
