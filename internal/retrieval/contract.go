@@ -14,6 +14,7 @@ const (
 	KindLinked   RetrievalKind = "linked"   // L0.5 图扩展
 	KindSemantic RetrievalKind = "semantic" // L2 语义回退
 	KindCode     RetrievalKind = "code"     // 代码检索
+	KindEpisodic RetrievalKind = "episodic" // 情景记忆（会话历史）
 )
 
 /* ─── ContradictionAnnotation 矛盾标注 ──────────── */
@@ -80,6 +81,8 @@ func FormatForPromptFull(results []RetrievalResult) string {
 			prefix = "🔍 "
 		case KindCode:
 			prefix = "📁 "
+		case KindEpisodic:
+			prefix = "🕐 "
 		}
 		// 代码结果用文件路径作为标题
 		if r.Source == KindCode && r.FilePath != "" {

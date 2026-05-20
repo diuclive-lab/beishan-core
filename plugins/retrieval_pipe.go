@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"beishan/internal/retrieval"
 	"beishan/internal/tools"
@@ -39,20 +40,61 @@ func RunKnowledgeRetrieval(query string, limit int) ([]retrieval.RetrievalResult
 	return results, trace
 }
 
-// RunFullRetrieval 执行完整检索（知识 + 代码）。
+// RunFullRetrieval 执行完整检索（三柱分流：Episodic / Semantic / External）。
 func RunFullRetrieval(query string, projectPath string) ([]retrieval.RetrievalResult, *tools.RetrievalTrace) {
-	results, trace := RunKnowledgeRetrieval(query, 3)
+	trace := tools.NewRetrievalTrace(query)
+	intent := classifyIntent(query)
 
-	// 代码检索：当检测到代码问题且有项目路径时
-	if looksLikeCodeQuestion(query) && projectPath != "" {
-		codeResults := RunCodeRetrieval(query, projectPath, 2, trace)
-		results = append(results, codeResults...)
-		// 总上限 5 条
-		if len(results) > 5 {
-			results = results[:5]
+	var results []retrieval.RetrievalResult
+
+	switch intent {
+	case IntentEpisodic:
+		// "我们之前讨论过..." → 情景优先，语义补充
+		episodic := RunEpisodicRetrieval(query, 3, trace)
+		results = append(results, episodic...)
+		semantic, _ := RunKnowledgeRetrieval(query, 1)
+		results = append(results, semantic...)
+
+	case IntentSemantic:
+		// "决策是什么" "结论" → 语义优先
+		semantic, _ := RunKnowledgeRetrieval(query, 3)
+		results = append(results, semantic...)
+
+	case IntentCode:
+		// "代码" "函数" → 代码优先，语义补充
+		if projectPath != "" {
+			code := RunCodeRetrieval(query, projectPath, 3, trace)
+			results = append(results, code...)
+		}
+		semantic, _ := RunKnowledgeRetrieval(query, 1)
+		results = append(results, semantic...)
+
+	default: // IntentMixed
+		// 无法判断 → 三路各取配额
+		semantic, _ := RunKnowledgeRetrieval(query, 2)
+		results = append(results, semantic...)
+		episodic := RunEpisodicRetrieval(query, 1, trace)
+		results = append(results, episodic...)
+		if looksLikeCodeQuestion(query) && projectPath != "" {
+			code := RunCodeRetrieval(query, projectPath, 1, trace)
+			results = append(results, code...)
 		}
 	}
 
+	// 总上限 5 条
+	if len(results) > 5 {
+		results = results[:5]
+	}
+
+	// 记录意图到 trace
+	trace.Add(tools.RetrievalStage{
+		Stage:  "intent",
+		Method: "keyword_classify",
+		Input:  query,
+		Output: map[string]any{"intent": string(intent), "total": len(results)},
+	})
+
+	fmt.Printf("[retrieval] intent=%s results=%d\n", intent, len(results))
 	return results, trace
 }
 
@@ -107,6 +149,142 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+/* ─── 意图分类（确定性，零 LLM）─────────────────────── */
+
+// QueryIntent 查询意图
+type QueryIntent string
+
+const (
+	IntentEpisodic QueryIntent = "episodic" // "之前讨论过" "上次说的"
+	IntentSemantic QueryIntent = "semantic" // "决策" "结论" "方案"
+	IntentCode     QueryIntent = "code"     // "代码" "函数" "实现"
+	IntentMixed    QueryIntent = "mixed"    // 无法判断，混合检索
+)
+
+// episodicKeywords 情景记忆触发词
+var episodicKeywords = []string{
+	"之前", "上次", "讨论过", "聊过", "历史", "记得",
+	"什么时候", "几月", "当时", "那次", "曾经", "过去",
+	"还记得", "说过", "提到过",
+}
+
+// semanticKeywords 语义知识触发词（decision/conclusion oriented）
+var semanticKeywords = []string{
+	"决策", "决定", "结论", "方案", "教训", "原则",
+	"为什么放弃", "最终", "确定", "选择了",
+}
+
+// classifyIntent 确定性意图分类
+func classifyIntent(text string) QueryIntent {
+	lower := strings.ToLower(text)
+
+	epiScore := 0
+	semScore := 0
+	codeScore := 0
+
+	for _, kw := range episodicKeywords {
+		if strings.Contains(lower, kw) {
+			epiScore++
+		}
+	}
+	for _, kw := range semanticKeywords {
+		if strings.Contains(lower, kw) {
+			semScore++
+		}
+	}
+	for _, kw := range codeQuestionKeywords {
+		if strings.Contains(lower, kw) {
+			codeScore++
+		}
+	}
+
+	maxScore := epiScore
+	if semScore > maxScore {
+		maxScore = semScore
+	}
+	if codeScore > maxScore {
+		maxScore = codeScore
+	}
+	if maxScore == 0 {
+		return IntentMixed
+	}
+
+	switch {
+	case codeScore == maxScore && codeScore > 0:
+		return IntentCode
+	case epiScore > semScore:
+		return IntentEpisodic
+	case semScore > epiScore:
+		return IntentSemantic
+	default:
+		return IntentMixed
+	}
+}
+
+/* ─── Episodic Retrieval 管道 ──────────────────────── */
+
+// RunEpisodicRetrieval 情景记忆检索管道
+// 搜索会话历史，按时间倒序 + recency 加权
+func RunEpisodicRetrieval(query string, limit int, trace *tools.RetrievalTrace) []retrieval.RetrievalResult {
+	matches := tools.SessionSearchStructured(query, limit*2)
+
+	if len(matches) == 0 {
+		return nil
+	}
+
+	var results []retrieval.RetrievalResult
+	seen := make(map[string]bool) // 按 session 去重（每 session 最多 1 条）
+
+	now := time.Now().Unix()
+	for _, m := range matches {
+		if seen[m.SessionID] {
+			continue
+		}
+		seen[m.SessionID] = true
+
+		// Recency decay: 7天内满分，每多一天 -1 分
+		ageDays := int((now - m.Timestamp) / 86400)
+		recencyScore := 5 - ageDays
+		if recencyScore < 1 {
+			recencyScore = 1
+		}
+
+		ts := time.Unix(m.Timestamp, 0).Format("01-02 15:04")
+
+		results = append(results, retrieval.RetrievalResult{
+			Source:     retrieval.KindEpisodic,
+			EntryID:    m.SessionID,
+			Title:      fmt.Sprintf("%s 对话 — %s", ts, m.Role),
+			Summary:    truncateStr(m.Payload, 120),
+			SourceType: "session",
+			Score:      recencyScore,
+		})
+
+		if len(results) >= limit {
+			break
+		}
+	}
+
+	if trace != nil {
+		trace.Add(tools.RetrievalStage{
+			Stage:  "L0_episodic",
+			Method: "session_search",
+			Input:  query,
+			Output: map[string]any{"matches": len(matches), "sessions": len(results)},
+		})
+	}
+
+	return results
+}
+
+func truncateStr(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
 }
 
 // RunCodeRetrieval 代码检索管道

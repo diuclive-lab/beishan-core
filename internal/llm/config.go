@@ -82,8 +82,8 @@ Routing rules with payload formats:
 - "列出知识"/"知识列表" → recipient:memory_plugin, msg_type:knowledge_list, payload:{}
 - "添加知识"/"记录一下" → recipient:memory_plugin, msg_type:knowledge_add, payload:{"title":"...","summary":"..."}
 - workflow → recipient:workflow_plugin, msg_type:workflow_run, payload:{"workflow":"name"}
-- chat/greetings → recipient:think_plugin, msg_type:chat, payload:{}
-- ALWAYS include payload field matching the msg_type format above
+- ALL other queries (including questions about past discussions, decisions, code, etc.) → recipient:think_plugin, msg_type:chat, payload:{}
+- think_plugin handles its own retrieval (knowledge + code + session history). Do NOT route conversational queries to memory_plugin.
 - ONLY output the JSON, no markdown, no explanations
 
 Input: %s`,

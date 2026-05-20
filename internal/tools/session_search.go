@@ -35,6 +35,79 @@ func registerSessionSearchTools() {
 	)
 }
 
+/* ─── SessionSearchStructured 结构化会话检索（供 retrieval pipe 调用）── */
+
+// SessionMatch 结构化会话搜索结果
+type SessionMatch struct {
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+	MsgType   string `json:"msg_type"`
+	Payload   string `json:"payload"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// SessionSearchStructured 结构化会话搜索，返回按时间倒序排列的匹配结果。
+// 供 retrieval pipe 的 Episodic 管道调用。
+func SessionSearchStructured(keyword string, limit int) []SessionMatch {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	keywords := strings.Fields(strings.ToLower(keyword))
+	sessionDir := filepath.Join(MemoryDir, "sessions")
+	entries, _ := os.ReadDir(sessionDir)
+
+	var results []SessionMatch
+
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		sid := strings.TrimSuffix(e.Name(), ".json")
+		data, _ := os.ReadFile(filepath.Join(sessionDir, e.Name()))
+		var s struct {
+			Messages []struct {
+				Role      string `json:"role"`
+				Type      string `json:"type"`
+				Payload   string `json:"payload"`
+				CreatedAt int64  `json:"created_at"`
+			} `json:"messages"`
+		}
+		json.Unmarshal(data, &s)
+
+		for _, m := range s.Messages {
+			// 排除 workflow 执行结果
+			if m.Role == "workflow_plugin" || m.Type == "workflow.result" {
+				continue
+			}
+			payloadLower := strings.ToLower(m.Payload)
+			for _, kw := range keywords {
+				if strings.Contains(payloadLower, kw) {
+					results = append(results, SessionMatch{
+						SessionID: sid,
+						Role:      m.Role,
+						MsgType:   m.Type,
+						Payload:   m.Payload,
+						Timestamp: m.CreatedAt,
+					})
+					break
+				}
+			}
+			if len(results) >= limit {
+				goto done
+			}
+		}
+	}
+done:
+
+	// 时间倒序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp > results[j].Timestamp
+	})
+
+	return results
+}
+
 func sessionSearchHandler(args map[string]interface{}) *ToolResult {
 	keyword, _ := args["keyword"].(string)
 	limit := 20
