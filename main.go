@@ -249,8 +249,16 @@ func main() {
 			return
 		}
 
-		sessionID := newSessionID()
-		msg := kernel.Message{Sender: "user"}
+		// 允许客户端传入 session_id 以维持会话连续性（如 Suggest-to-Remember 确认流程）
+		// 未传入时自动生成新 sessionID
+		sessionID := ""
+		if sid, ok := raw["session_id"].(string); ok && sid != "" {
+			sessionID = sid
+		}
+		if sessionID == "" {
+			sessionID = newSessionID()
+		}
+		msg := kernel.Message{Sender: "user", SessionID: sessionID}
 		async := false
 
 		if txt, ok := raw["message"].(string); ok {
@@ -309,7 +317,15 @@ func main() {
 		}
 
 		saveToSession(sessionID, msg.Recipient, resp.Type, resp.Payload)
-		json.NewEncoder(w).Encode(resp)
+
+		// 包装响应，附加 session_id 供客户端后续请求使用
+		wrapped := map[string]interface{}{
+			"session_id": sessionID,
+			"sender":     resp.Sender,
+			"type":       resp.Type,
+			"payload":    json.RawMessage(resp.Payload),
+		}
+		json.NewEncoder(w).Encode(wrapped)
 	})
 
 	mux.HandleFunc("/api/result/", func(w http.ResponseWriter, r *http.Request) {

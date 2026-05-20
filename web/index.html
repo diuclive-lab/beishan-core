@@ -190,6 +190,7 @@ body {
 
 <script>
 const API = window.location.origin;
+let lastSessionId = null; // 用于维持会话连续性（如 Suggest-to-Remember 确认流程）
 
 // ─── 状态检测 ───
 async function checkHealth() {
@@ -477,6 +478,10 @@ async function send() {
     };
   } else {
     payload = {message: text, async: false};
+    // 如果有待确认的记忆，传入上次的 session_id 以维持会话连续性
+    if (lastSessionId) {
+      payload.session_id = lastSessionId;
+    }
   }
 
   try {
@@ -486,6 +491,11 @@ async function send() {
       body: JSON.stringify(payload)
     });
     const d = await r.json();
+
+    // 存储 session_id 供后续请求使用
+    if (d.session_id) {
+      lastSessionId = d.session_id;
+    }
 
     let reply = '';
     if (d.type === 'workflow.result') {

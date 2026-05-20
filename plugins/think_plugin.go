@@ -26,9 +26,9 @@ type PendingRemember struct {
 }
 
 var (
-	// 只存储最近一个 pending remember（简化实现）
-	latestPending   *PendingRemember
-	latestPendingMu sync.Mutex
+	// session-scoped pending remember
+	pendingRemembers   = make(map[string]*PendingRemember)
+	pendingRemembersMu sync.Mutex
 )
 
 // rememberTriggers 保守的触发关键词
@@ -71,8 +71,8 @@ func extractRememberCandidate(userText, reply string) (title, summary string) {
 	return
 }
 
-// createPendingRemember 创建待确认记忆
-func createPendingRemember(title, summary string) *PendingRemember {
+// createPendingRemember 创建待确认记忆（session-scoped，single-active）
+func createPendingRemember(sessionID, title, summary string) *PendingRemember {
 	id := "pr_" + newID()
 	pr := &PendingRemember{
 		ID:        id,
@@ -80,45 +80,49 @@ func createPendingRemember(title, summary string) *PendingRemember {
 		Summary:   summary,
 		ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
 	}
-	latestPendingMu.Lock()
-	latestPending = pr
-	latestPendingMu.Unlock()
+	pendingRemembersMu.Lock()
+	pendingRemembers[sessionID] = pr // replace previous
+	pendingRemembersMu.Unlock()
 	return pr
 }
 
 // confirmPendingRemember 确认待确认记忆
-func confirmPendingRemember() *PendingRemember {
-	latestPendingMu.Lock()
-	defer latestPendingMu.Unlock()
-	if latestPending == nil {
+func confirmPendingRemember(sessionID string) *PendingRemember {
+	pendingRemembersMu.Lock()
+	defer pendingRemembersMu.Unlock()
+	pr, ok := pendingRemembers[sessionID]
+	if !ok {
 		return nil
 	}
-	if time.Now().Unix() > latestPending.ExpiresAt {
-		latestPending = nil
+	if time.Now().Unix() > pr.ExpiresAt {
+		delete(pendingRemembers, sessionID)
 		return nil
 	}
-	pr := latestPending
-	latestPending = nil
+	delete(pendingRemembers, sessionID)
 	return pr
 }
 
 // isConfirmReply 检测是否是确认回复
-func isConfirmReply(text string) bool {
+func isConfirmReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "确认" || t == "是" || t == "yes" {
-		latestPendingMu.Lock()
-		defer latestPendingMu.Unlock()
-		return latestPending != nil && time.Now().Unix() <= latestPending.ExpiresAt
+		pendingRemembersMu.Lock()
+		defer pendingRemembersMu.Unlock()
+		pr, ok := pendingRemembers[sessionID]
+		return ok && time.Now().Unix() <= pr.ExpiresAt
 	}
 	return false
 }
 
 // cleanupExpiredPending 清理过期的 pending remember
 func cleanupExpiredPending() {
-	latestPendingMu.Lock()
-	defer latestPendingMu.Unlock()
-	if latestPending != nil && time.Now().Unix() > latestPending.ExpiresAt {
-		latestPending = nil
+	pendingRemembersMu.Lock()
+	defer pendingRemembersMu.Unlock()
+	now := time.Now().Unix()
+	for id, pr := range pendingRemembers {
+		if now > pr.ExpiresAt {
+			delete(pendingRemembers, id)
+		}
 	}
 }
 
@@ -150,8 +154,9 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	cleanupExpiredPending()
 
 	// 检测是否是确认回复
-	if isConfirmReply(userText) {
-		pr := confirmPendingRemember()
+	sessionID := msg.SessionID
+	if isConfirmReply(sessionID, userText) {
+		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
 			// 调用 knowledge_remember 写入
 			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
@@ -183,9 +188,9 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	if shouldSuggestRemember(userText, reply) {
 		title, summary := extractRememberCandidate(userText, reply)
 		if title != "" {
-			pr := createPendingRemember(title, summary)
+			pr := createPendingRemember(sessionID, title, summary)
 			reply += fmt.Sprintf("\n\n---\n是否将此结论加入知识库？回复「确认」即可。")
-			fmt.Printf("[思考] 检测到值得记住的结论: %s (pending=%s)\n", title, pr.ID)
+			fmt.Printf("[思考] 检测到值得记住的结论: %s (session=%s, pending=%s)\n", title, sessionID, pr.ID)
 		}
 	}
 
