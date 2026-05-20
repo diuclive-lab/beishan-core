@@ -228,6 +228,20 @@ KnowledgeAdd 入库后异步触发，不阻塞写入路径：
 | containsStr / min 辅助 | 10 |
 | 已知知识间开始互相连接 | ∞ |
 
+### Bug 修复：embedding 环境变量初始化时序
+
+**根因**：Go 包级变量初始化发生在所有 `init()` 函数之前。`var embeddingEndpoint = os.Getenv("EMBEDDING_ENDPOINT")` 在 `tools` 包初始化时执行，此时 `main.init()` 尚未运行，`.env` 尚未加载。
+
+**影响**：所有通过 `.env` 配置 embedding 的用户静默降级：
+- `SearchMemory` 跳过向量路径，走关键词降级
+- `saveKnowledge` 写入时不计算向量
+- `batchFillEmbedding` / `KnowledgeReindex` 永远返回"未设置"
+- 不报错、不 panic，用户不知道 embedding 从未生效
+
+**修复**：包级变量 → 函数调用，os.Getenv 在运行时执行。
+
+**涉及文件**：`internal/tools/knowledge.go`（+12/-5 行）
+
 ## 2026-05-19 远程合并：payload 修复 + knowledge_enrich 修复
 
 ### 多模型 API 适配（LLM_PROVIDER）
