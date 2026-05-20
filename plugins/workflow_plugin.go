@@ -45,8 +45,29 @@ func (p *WorkflowPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return kernel.Message{}, fmt.Errorf("workflow_plugin: %w", err)
 	}
 
-	payload, _ := json.Marshal(result)
 	fmt.Printf("[工作流] %s: %d 步完成\n", result.WorkflowID, len(result.Steps))
+
+	// 如果有 FinalOutput，直接返回可读文本（而非嵌套 JSON）
+	if result.FinalOutput != "" && result.Success {
+		// 尝试解析 FinalOutput（可能是 JSON 字符串）
+		var parsed interface{}
+		if json.Unmarshal([]byte(result.FinalOutput), &parsed) == nil {
+			// 是合法 JSON，直接返回
+			return kernel.Message{
+				Type:    "workflow.result",
+				Payload: []byte(result.FinalOutput),
+			}, nil
+		}
+		// 不是 JSON，返回原始文本
+		outputJSON, _ := json.Marshal(result.FinalOutput)
+		return kernel.Message{
+			Type:    "workflow.result",
+			Payload: outputJSON,
+		}, nil
+	}
+
+	// 降级：返回完整 WorkflowResult
+	payload, _ := json.Marshal(result)
 	return kernel.Message{
 		Type:    "workflow.result",
 		Payload: payload,

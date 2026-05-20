@@ -13,11 +13,13 @@ import (
 func registerSessionSearchTools() {
 	Register("session_search", "Search messages across all stored sessions by keyword.",
 		map[string]interface{}{
-			"type":     "object",
-			"required": []string{"keyword"},
+			"type":                 "object",
+			"required":             []string{"keyword"},
+			"additionalProperties": true,
 			"properties": map[string]interface{}{
 				"keyword": stringParam("Keyword to search for in session messages"),
 				"limit":   intParam("Max results (default 20)"),
+				"role":    stringParam("Filter by role (e.g., 'user', 'think_plugin'). Empty = all roles"),
 			},
 		},
 		sessionSearchHandler,
@@ -25,8 +27,9 @@ func registerSessionSearchTools() {
 
 	Register("session_list", "List all stored sessions sorted by last update time.",
 		map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties":           map[string]interface{}{},
 		},
 		sessionListHandler,
 	)
@@ -38,6 +41,10 @@ func sessionSearchHandler(args map[string]interface{}) *ToolResult {
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
 	}
+	roleFilter, _ := args["role"].(string)
+
+	// 拆分关键词（空格分隔 → OR 匹配）
+	keywords := strings.Fields(strings.ToLower(keyword))
 
 	sessionDir := filepath.Join(MemoryDir, "sessions")
 	entries, _ := os.ReadDir(sessionDir)
@@ -68,8 +75,25 @@ func sessionSearchHandler(args map[string]interface{}) *ToolResult {
 		json.Unmarshal(data, &s)
 
 		for _, m := range s.Messages {
-			if strings.Contains(strings.ToLower(m.Payload), strings.ToLower(keyword)) ||
-				strings.Contains(strings.ToLower(m.Type), strings.ToLower(keyword)) {
+			// Role 过滤
+			if roleFilter != "" && m.Role != roleFilter {
+				continue
+			}
+			// 排除 workflow 执行结果
+			if m.Role == "workflow_plugin" || m.Type == "workflow.result" {
+				continue
+			}
+			// OR 匹配：任一关键词命中即匹配
+			payloadLower := strings.ToLower(m.Payload)
+			typeLower := strings.ToLower(m.Type)
+			matched := false
+			for _, kw := range keywords {
+				if strings.Contains(payloadLower, kw) || strings.Contains(typeLower, kw) {
+					matched = true
+					break
+				}
+			}
+			if matched {
 				results = append(results, result{sid, m.Role, m.Type, m.Payload, m.CreatedAt})
 				if len(results) >= limit {
 					goto done

@@ -2,8 +2,7 @@
 #
 # 流程：
 #   1. scan:     扫描最近对话记录，提取包含触发关键词的对话
-#   2. analyze:  分析候选对话，提取知识标题和摘要
-#   3. report:   生成审查报告
+#   2. analyze:  分析候选对话，提取知识标题和摘要，直接输出 JSON 格式
 #
 # 触发方式:
 #   POST /api/chat
@@ -12,6 +11,9 @@
 #
 # 设计原则：
 #   - deterministic review：基于关键词触发，不依赖 LLM 判断
+#   - LLM 只做一次语义提取（analyze），输出结构化 JSON
+#   - Code 负责渲染（deterministic renderer）
+#   - Schema contract + validation gate
 #   - 只生成报告，不自动写入
 #   - 人工确认后才入库
 
@@ -23,12 +25,14 @@ steps:
     type: session_search
     timeout: 30
     inputs:
-      query: "已放弃 最终方案 确认结论 架构决定 经验教训 踩坑记录 最终决定"
+      keyword: "已放弃 最终方案 确认结论 架构决定 经验教训 踩坑记录 最终决定"
       limit: 50
+    next:
+      - goto: analyze
 
   - id: analyze
     plugin: think_plugin
-    type: chat
+    type: chat  # kernel routing 语义（L1）
     timeout: 120
     inputs:
       message: |
@@ -44,40 +48,20 @@ steps:
         - 最终决定
 
         对话记录：
-        ${scan}
+        ${steps.scan.output}
 
-        输出格式（JSON 数组）：
-        [
-          {
-            "title": "知识标题",
-            "summary": "知识摘要",
-            "score": 0.91,
-            "reason": "为什么值得记住",
-            "session_id": "来源会话"
-          }
-        ]
+        输出格式（严格JSON，不要任何其他文本）：
+        {
+          "candidates": [
+            {
+              "title": "知识标题",
+              "summary": "知识摘要（50字以内）",
+              "score": 0.91,
+              "reason": "为什么值得记住"
+            }
+          ]
+        }
 
-        如果没有值得记住的知识，输出空数组 []
-
-  - id: report
-    plugin: think_plugin
-    type: chat
-    timeout: 60
-    inputs:
-      message: |
-        生成知识审查报告：
-
-        ${analyze}
-
-        格式：
-        [Knowledge Review Report]
-        时间: $(date)
-        候选知识: ${count}
-
-        逐条列出：
-        Candidate N
-          score: X.XX
-          title: "标题"
-          reason: 原因
-
-        结尾提示：是否确认入库？回复「确认 1,2」或「跳过」
+        如果没有值得记住的知识，输出：
+        {"candidates": []}
+      mode: review_extract  # L4 语义

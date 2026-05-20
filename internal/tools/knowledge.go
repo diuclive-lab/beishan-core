@@ -16,6 +16,25 @@ import (
 	"beishan/internal/llm"
 )
 
+/* ─── TypedLink 有类型的知识关联 ──────────────── */
+
+// LinkType 链接类型（代码定义的枚举，不是 LLM 决策）
+type LinkType string
+
+const (
+	LinkRelated     LinkType = "related"     // 相关（现有 autoLink）
+	LinkContradicts LinkType = "contradicts"  // 矛盾
+	LinkSupersedes  LinkType = "supersedes"   // 替代/演进
+	LinkSupports    LinkType = "supports"     // 支持/佐证
+)
+
+// TypedLink 有类型的关联链接
+type TypedLink struct {
+	TargetID string   `json:"target_id"`
+	Type     LinkType `json:"type"`
+	Reason   string   `json:"reason"` // 为什么建这个链接（可审计）
+}
+
 /* ─── KnowledgeEntry 统一知识条目 ──────────────── */
 
 type KnowledgeEntry struct {
@@ -27,7 +46,8 @@ type KnowledgeEntry struct {
 	Topics     []string `json:"topics"`
 	Tasks      []string `json:"tasks"` // 提取的任务/行动项
 	CreatedAt  int64    `json:"created_at"`
-	Links      []string  `json:"links"`                   // 关联的 memory/知识 ID
+	Links      []string  `json:"links"`                   // 关联的 memory/知识 ID（旧格式，兼容）
+	TypedLinks []TypedLink `json:"typed_links,omitempty"` // 有类型的关联链接（新格式）
 	RawRef     string    `json:"raw_ref"`                 // 原始来源引用
 	Content    string    `json:"content,omitempty"`       // 完整内容（可选）
 	Embedding  []float64 `json:"embedding,omitempty"`     // 语义嵌入向量，用于语义检索
@@ -241,13 +261,23 @@ func KnowledgeSearch(keyword string) *ToolResult {
 /* ─── ScoredEntry 加权检索结果 ────────────── */
 
 type ScoredEntry struct {
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Summary    string   `json:"summary"`
-	Tags       []string `json:"tags"`
-	SourceType string   `json:"source_type"`
-	Score      int      `json:"score"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Summary       string   `json:"summary"`
+	Tags          []string `json:"tags"`
+	SourceType    string   `json:"source_type"`
+	Score         int      `json:"score"`
+	Contradictions []ContradictionAnnotation `json:"contradictions,omitempty"`
 }
+
+// ContradictionAnnotation 矛盾标注（供 FormatForPrompt 渲染）
+type ContradictionAnnotation struct {
+	TargetTitle string `json:"target_title"`
+	Reason      string `json:"reason"`
+}
+
+// decisionKeywords 决策类标签关键词（结构化加权用）
+var decisionKeywords = []string{"决策", "决定", "架构", "方案", "结论", "教训", "放弃", "最终"}
 
 func SearchWithScore(query string, limit int) []ScoredEntry {
 	if limit <= 0 {
@@ -267,8 +297,6 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 		if strings.Contains(title, q) {
 			score += 3
 		} else if stringContainsAny(title, q) {
-			// 反向：条目标题的关键词是否在 query 中
-			// 处理 "关于本地模型" → "本地模型方案已放弃" 这种情况
 			score += 3
 		}
 
@@ -286,13 +314,18 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 		}
 
 		if score > 0 {
+			// ── 结构化加权（L1 层） ──────────────────
+			structuralBoost, contradictions := computeStructuralBoost(entry)
+			score += structuralBoost
+
 			scored = append(scored, ScoredEntry{
-				ID:         entry.ID,
-				Title:      entry.Title,
-				Summary:    entry.Summary,
-				Tags:       entry.Tags,
-				SourceType: entry.SourceType,
-				Score:      score,
+				ID:             entry.ID,
+				Title:          entry.Title,
+				Summary:        entry.Summary,
+				Tags:           entry.Tags,
+				SourceType:     entry.SourceType,
+				Score:          score,
+				Contradictions: contradictions,
 			})
 		}
 	}
@@ -313,6 +346,48 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 		scored = scored[:limit]
 	}
 	return scored
+}
+
+// computeStructuralBoost 计算结构化加权分数 + 矛盾标注。
+// 加权规则：
+//   - 决策类标签（决策/决定/架构/方案/结论/教训/放弃）: +1
+//   - 有 TypedLinks: +1
+//   - 有 contradicts 链接: +2 + 收集矛盾标注
+func computeStructuralBoost(entry *KnowledgeEntry) (int, []ContradictionAnnotation) {
+	boost := 0
+	var contradictions []ContradictionAnnotation
+
+	// 决策类标签加权
+	for _, tag := range entry.Tags {
+		tagLower := strings.ToLower(tag)
+		for _, kw := range decisionKeywords {
+			if strings.Contains(tagLower, kw) {
+				boost += 1
+				break
+			}
+		}
+	}
+
+	// TypedLink 存在加权
+	if len(entry.TypedLinks) > 0 {
+		boost += 1
+	}
+
+	// 矛盾链接加权 + 收集标注
+	for _, tl := range entry.TypedLinks {
+		if tl.Type == LinkContradicts {
+			boost += 2
+			target := loadKnowledge(tl.TargetID)
+			if target != nil {
+				contradictions = append(contradictions, ContradictionAnnotation{
+					TargetTitle: target.Title,
+					Reason:      tl.Reason,
+				})
+			}
+		}
+	}
+
+	return boost, contradictions
 }
 
 // stringContainsAny 检查 target 中的语义词是否出现在 query 中。
@@ -351,7 +426,7 @@ func stringContainsAny(target, query string) bool {
 }
 
 // FormatForPrompt 将检索结果格式化为 <background> 文本。
-// 每条两行：标题+标签一行，summary 一行。最多 3 条，summary 截断到 100 字。
+// 每条两行：标题+标签一行，summary 一行。矛盾条目追加 ⚠️ 标注。
 func FormatForPrompt(entries []ScoredEntry) string {
 	if len(entries) == 0 {
 		return ""
@@ -371,6 +446,63 @@ func FormatForPrompt(entries []ScoredEntry) string {
 		}
 		sb.WriteString(fmt.Sprintf("%d. %s（%s）\n", i+1, e.Title, tags))
 		sb.WriteString(fmt.Sprintf("   %s\n", summary))
+		// 矛盾标注
+		for _, c := range e.Contradictions {
+			reason := c.Reason
+			if reason == "" {
+				reason = "存在矛盾观点"
+			}
+			sb.WriteString(fmt.Sprintf("   ⚠️ 矛盾: \"%s\" — %s\n", c.TargetTitle, reason))
+		}
+	}
+	sb.WriteString("</background>")
+	return sb.String()
+}
+
+// FormatForPromptFull 将 RetrievalResult 格式化为带来源标注的 <background> 文本。
+// 标注：⚠️ 矛盾 / 📎 演进 / 🔗 关联 / 🔍 语义
+func FormatForPromptFull(results []RetrievalResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n")
+	sb.WriteString("<background>\n")
+	for i, r := range results {
+		tags := strings.Join(r.Entry.Tags, ", ")
+		if tags == "" {
+			tags = r.Entry.SourceType
+		}
+		summary := r.Entry.Summary
+		runes := []rune(summary)
+		if len(runes) > 100 {
+			summary = string(runes[:100]) + "..."
+		}
+		// 来源标注
+		prefix := ""
+		switch r.Source {
+		case KindLinked:
+			switch r.LinkType {
+			case LinkContradicts:
+				prefix = "⚠️ "
+			case LinkSupersedes:
+				prefix = "📎 "
+			default:
+				prefix = "🔗 "
+			}
+		case KindSemantic:
+			prefix = "🔍 "
+		}
+		sb.WriteString(fmt.Sprintf("%d. %s%s（%s）\n", i+1, prefix, r.Entry.Title, tags))
+		sb.WriteString(fmt.Sprintf("   %s\n", summary))
+		// 矛盾标注
+		for _, c := range r.Contradictions {
+			reason := c.Reason
+			if reason == "" {
+				reason = "存在矛盾观点"
+			}
+			sb.WriteString(fmt.Sprintf("   ⚠️ 矛盾: \"%s\" — %s\n", c.TargetTitle, reason))
+		}
 	}
 	sb.WriteString("</background>")
 	return sb.String()
@@ -493,62 +625,71 @@ func batchFillEmbedding(entries []*KnowledgeEntry) {
 	}
 }
 
-// expandKeywordsViaAPI 用 LLM 做保意图的关键词扩展。
-func expandKeywordsViaAPI(query string) ([]string, error) {
-	sysP := "你是一个搜索查询优化器。只输出搜索词列表，不要其他内容。"
-	userP := fmt.Sprintf(`任务：输出3-5个最能代表以下问题核心意图的搜索词。
-要求：
-- 保持原始意图，不要过度扩展
-- 专有名词、技术术语保持原样
-- 可以加1-2个近义词，必须语义高度相关
-- 用逗号分隔，只输出词列表
 
-示例：
-问题："beishan-core 怎么启动" → beishan-core,启动,boot,main.go
-问题："我们之前聊过本地模型吗" → 本地模型,local model,Ollama,推理
+/* ─── RetrievalResult 统一检索结果 ──────────────── */
 
-问题："%%s"`, query)
-	result, err := llm.ChatCompletion(sysP, userP, 15*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	var tokens []string
-	for _, t := range strings.Split(result, ",") {
-		t = strings.TrimSpace(t)
-		if t != "" {
-			tokens = append(tokens, t)
-		}
-	}
-	if len(tokens) == 0 {
-		return []string{query}, nil
-	}
-	return tokens, nil
+// RetrievalKind 检索结果来源
+type RetrievalKind string
+
+const (
+	KindDirect  RetrievalKind = "direct"  // L0 直接匹配
+	KindLinked  RetrievalKind = "linked"  // L0.5 图扩展
+	KindSemantic RetrievalKind = "semantic" // L2 语义回退
+)
+
+// RetrievalResult 统一检索结果（内部使用）
+type RetrievalResult struct {
+	Source        RetrievalKind `json:"source"`
+	Entry         *KnowledgeEntry `json:"entry"`
+	Score         int           `json:"score"`
+	LinkType      LinkType      `json:"link_type,omitempty"` // 仅 linked 来源
+	LinkFrom      string        `json:"link_from,omitempty"` // 从哪个条目链接过来
+	Contradictions []ContradictionAnnotation `json:"contradictions,omitempty"`
 }
 
-/* ─── SearchMemory 统一入口 ──────────────────── */
-
-// SearchMemory 统一记忆检索入口。
-// 试图顺序：
-//   1. embedding 在线 → 向量语义检索
-//   2. 降级 → LLM 关键词扩展 → 加权评分
-//   3. 均不可用 → 原文直接匹配
-// loadLinkedEntries 按 Links 字段加载关联条目。
-func loadLinkedEntries(id string) []*KnowledgeEntry {
+// loadLinkedEntries 按 Links 和 TypedLinks 字段加载关联条目。
+// 返回条目列表和对应的链接类型（用于加权）
+func loadLinkedEntries(id string) ([]*KnowledgeEntry, map[string]LinkType) {
 	entry := loadKnowledge(id)
-	if entry == nil || len(entry.Links) == 0 {
-		return nil
+	if entry == nil {
+		return nil, nil
 	}
+
+	linkTypes := make(map[string]LinkType)
 	var linked []*KnowledgeEntry
-	for _, linkedID := range entry.Links {
-		if le := loadKnowledge(linkedID); le != nil {
+	seen := make(map[string]bool)
+
+	// 先加载 TypedLinks（新格式）
+	for _, tl := range entry.TypedLinks {
+		if seen[tl.TargetID] {
+			continue
+		}
+		seen[tl.TargetID] = true
+		if le := loadKnowledge(tl.TargetID); le != nil {
 			linked = append(linked, le)
+			linkTypes[tl.TargetID] = tl.Type
 		}
 	}
-	return linked
+
+	// 再加载 Links（旧格式，标记为 related）
+	for _, linkedID := range entry.Links {
+		if seen[linkedID] {
+			continue
+		}
+		seen[linkedID] = true
+		if le := loadKnowledge(linkedID); le != nil {
+			linked = append(linked, le)
+			linkTypes[linkedID] = LinkRelated
+		}
+	}
+
+	return linked, linkTypes
 }
 
 // autoLinkEntry 为新条目自动建立双向关联链接。
-// 基于标签重叠和标题/摘要关键词匹配，阈值为 knowledge_suggest_links 的简化版。
+// 两层建链：
+//   1. 确定性建链：基于标签重叠和标题/摘要关键词匹配
+//   2. 语义建链：LLM 分析关系类型（写入时离线，不违反宪法）
 func autoLinkEntry(id, title, summary string, tags, topics []string) {
 	all := loadAllKnowledge()
 	titleWords := strings.ToLower(title)
@@ -589,11 +730,7 @@ func autoLinkEntry(id, title, summary string, tags, topics []string) {
 		}
 	}
 
-	if len(candidates) == 0 {
-		return
-	}
-
-	// 双向写入 Links
+	// 双向写入 Links（确定性建链）
 	entry := loadKnowledge(id)
 	if entry == nil {
 		return
@@ -609,7 +746,152 @@ func autoLinkEntry(id, title, summary string, tags, topics []string) {
 			saveKnowledge(le)
 		}
 	}
+
+	// 第二层：语义建链（LLM，写入时离线）
+	// 只对最近 50 条知识做对比，不是全量
+	recent := getRecentEntries(all, 50)
+	semanticLinks := findSemanticLinks(id, title, summary, recent)
+	if len(semanticLinks) > 0 {
+		entry.TypedLinks = mergeTypedLinks(entry.TypedLinks, semanticLinks)
+		// 反向写入
+		for _, link := range semanticLinks {
+			le := loadKnowledge(link.TargetID)
+			if le != nil {
+				reverseLink := TypedLink{
+					TargetID: id,
+					Type:     reverseLinkType(link.Type),
+					Reason:   "反向关联: " + link.Reason,
+				}
+				le.TypedLinks = mergeTypedLinks(le.TypedLinks, []TypedLink{reverseLink})
+				saveKnowledge(le)
+			}
+		}
+		fmt.Printf("[knowledge] 语义建链: %s → %d 条关联\n", id, len(semanticLinks))
+	}
+
 	saveKnowledge(entry)
+}
+
+// getRecentEntries 获取最近 N 条知识条目（按创建时间倒序）
+func getRecentEntries(all []*KnowledgeEntry, limit int) []*KnowledgeEntry {
+	sorted := make([]*KnowledgeEntry, len(all))
+	copy(sorted, all)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt > sorted[j].CreatedAt
+	})
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+	return sorted
+}
+
+// findSemanticLinks 使用 LLM 分析语义关系（写入时离线）
+func findSemanticLinks(id, title, summary string, candidates []*KnowledgeEntry) []TypedLink {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// 构建候选列表
+	var candidateStr strings.Builder
+	for i, c := range candidates {
+		candidateStr.WriteString(fmt.Sprintf("%d. ID: %s\n   标题: %s\n   摘要: %s\n", i+1, c.ID, c.Title, c.Summary))
+	}
+
+	prompt := fmt.Sprintf(`分析以下知识条目与候选条目的关系。
+
+当前条目：
+  标题: %s
+  摘要: %s
+
+候选条目：
+%s
+
+输出 JSON（只输出有明确关系的，不确定的不要输出）：
+{"links": [{"target_id": "...", "type": "related|contradicts|supersedes|supports", "reason": "为什么建这个链接"}]}
+
+关系类型说明：
+- related: 相关（同一主题或领域）
+- contradicts: 矛盾（结论相反或冲突）
+- supersedes: 替代/演进（新结论替代旧结论）
+- supports: 支持/佐证（相互印证）
+
+如果没有关系：{"links": []}`, title, summary, candidateStr.String())
+
+	// 使用 callStructuredLLM 的模式
+	result, err := callSemanticLinkLLM(prompt)
+	if err != nil {
+		fmt.Printf("[knowledge] 语义建链 LLM 调用失败: %v\n", err)
+		return nil
+	}
+
+	return result
+}
+
+// callSemanticLinkLLM 调用 LLM 进行语义建链
+func callSemanticLinkLLM(prompt string) ([]TypedLink, error) {
+	raw, err := llm.ChatCompletion(
+		"你是知识关联分析助手。严格按用户要求输出JSON，不要输出任何其他文本。",
+		prompt,
+		60*time.Second,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("LLM call failed: %w", err)
+	}
+
+	// 解析结果
+	var result struct {
+		Links []TypedLink `json:"links"`
+	}
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, fmt.Errorf("JSON parse failed: %w", err)
+	}
+
+	// 验证链接类型
+	var validLinks []TypedLink
+	for _, link := range result.Links {
+		if link.TargetID == "" || link.Type == "" {
+			continue
+		}
+		// 验证类型是否合法
+		switch link.Type {
+		case LinkRelated, LinkContradicts, LinkSupersedes, LinkSupports:
+			validLinks = append(validLinks, link)
+		default:
+			fmt.Printf("[knowledge] 忽略无效链接类型: %s\n", link.Type)
+		}
+	}
+
+	return validLinks, nil
+}
+
+// mergeTypedLinks 合并去重 TypedLink
+func mergeTypedLinks(existing, newLinks []TypedLink) []TypedLink {
+	seen := make(map[string]bool)
+	for _, link := range existing {
+		seen[link.TargetID+":"+string(link.Type)] = true
+	}
+	merged := make([]TypedLink, len(existing))
+	copy(merged, existing)
+	for _, link := range newLinks {
+		key := link.TargetID + ":" + string(link.Type)
+		if !seen[key] {
+			merged = append(merged, link)
+			seen[key] = true
+		}
+	}
+	return merged
+}
+
+// reverseLinkType 反转链接类型
+func reverseLinkType(t LinkType) LinkType {
+	switch t {
+	case LinkContradicts:
+		return LinkContradicts // 矛盾是双向的
+	case LinkSupersedes:
+		return LinkRelated // 被替代方标记为 related
+	default:
+		return t
+	}
 }
 
 func containsStr(slice []string, s string) bool {
@@ -628,98 +910,174 @@ func min(a, b int) int {
 	return b
 }
 
-func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry {
+const maxGraphExpand = 5 // 图扩展最多返回条数，防爆炸
+
+// followSupersedesChain 沿 supersedes 链追溯历史版本（最多 maxHops 跳）。
+// 纯确定性遍历，不调 LLM。
+func followSupersedesChain(startID string, seen map[string]bool, maxHops int) []*KnowledgeEntry {
+	var chain []*KnowledgeEntry
+	currentID := startID
+	for hop := 0; hop < maxHops; hop++ {
+		entry := loadKnowledge(currentID)
+		if entry == nil {
+			break
+		}
+		foundNext := false
+		for _, tl := range entry.TypedLinks {
+			if tl.Type == LinkSupersedes && !seen[tl.TargetID] {
+				target := loadKnowledge(tl.TargetID)
+				if target != nil {
+					seen[tl.TargetID] = true
+					chain = append(chain, target)
+					currentID = tl.TargetID
+					foundNext = true
+					break
+				}
+			}
+		}
+		if !foundNext {
+			break
+		}
+	}
+	return chain
+}
+
+// searchMemoryFull 内部统一检索入口，返回 []RetrievalResult。
+// 检索阶梯（宪法优先）：
+//   L0:   确定性关键词评分（不调 LLM）
+//   L0.5: 图扩展（沿 Links/TypedLinks 遍历）
+//   L2:   embedding 语义回退（仅当 L0 结果不足时）
+func searchMemoryFull(query string, limit int, trace *RetrievalTrace) []RetrievalResult {
 	if limit <= 0 {
 		limit = 3
 	}
-	var direct []ScoredEntry
 
-	// 路径1：embedding 向量检索
-	if embeddingEnabled() {
-		if emb, ok := tryEmbedding(query); ok {
-			direct = searchByEmbedding(emb, limit*2)
-			if trace != nil {
-				trace.Add(RetrievalStage{
-					Stage:  "embedding",
-					Method: "vector_search",
-					Input:  query,
-					Output: map[string]any{"candidates": len(direct)},
-					Reason: "embedding endpoint available",
-				})
-			}
+	// ── L0: 确定性关键词评分 ──────────────────────
+	directScored := SearchWithScore(query, limit*2)
+	var direct []RetrievalResult
+	for _, se := range directScored {
+		entry := loadKnowledge(se.ID)
+		if entry == nil {
+			continue
 		}
+		direct = append(direct, RetrievalResult{
+			Source:        KindDirect,
+			Entry:         entry,
+			Score:         se.Score,
+			Contradictions: se.Contradictions,
+		})
 	}
-	// 路径2：LLM 关键词扩展 + 加权评分
-	if len(direct) == 0 {
-		if expanded, err := expandKeywordsViaAPI(query); err == nil && len(expanded) > 0 {
-			direct = SearchWithScore(strings.Join(expanded, " "), limit*2)
-			if trace != nil {
-				trace.Add(RetrievalStage{
-					Stage:  "keyword_expand",
-					Method: "llm_expand+score",
-					Input:  query,
-					Output: map[string]any{"keywords": expanded, "candidates": len(direct)},
-					Reason: "embedding unavailable, fallback to keyword expansion",
-				})
-			}
-		}
-	}
-	// 路径3：原文直接匹配（兜底）
-	if len(direct) == 0 {
-		direct = SearchWithScore(query, limit*2)
-		if trace != nil {
-			trace.Add(RetrievalStage{
-				Stage:  "score",
-				Method: "direct_match",
-				Input:  query,
-				Output: map[string]any{"candidates": len(direct)},
-				Reason: "all other methods failed, fallback to direct match",
-			})
-		}
+	if trace != nil {
+		trace.Add(RetrievalStage{
+			Stage:  "L0_keyword",
+			Method: "deterministic_score",
+			Input:  query,
+			Output: map[string]any{"candidates": len(direct)},
+			Reason: "deterministic first, no LLM",
+		})
 	}
 
-	// 图扩展：沿 Links 找到关联条目，二跳降权
+	// ── L0.5: 图扩展（增强版：supersedes 链式跟踪 + 上限防爆）──
 	seen := make(map[string]bool)
-	for _, e := range direct {
-		seen[e.ID] = true
+	for _, r := range direct {
+		seen[r.Entry.ID] = true
 	}
-	var expanded []ScoredEntry
+	var expanded []RetrievalResult
+	expanded = append(expanded, direct...)
 	var graphLinked int
-	for _, e := range direct {
-		expanded = append(expanded, e)
-		linked := loadLinkedEntries(e.ID)
+	for _, r := range direct {
+		if graphLinked >= maxGraphExpand {
+			break
+		}
+		linked, linkTypes := loadLinkedEntries(r.Entry.ID)
 		for _, le := range linked {
-			if seen[le.ID] {
+			if seen[le.ID] || graphLinked >= maxGraphExpand {
 				continue
 			}
 			seen[le.ID] = true
 			graphLinked++
-			expanded = append(expanded, ScoredEntry{
-				ID:         le.ID,
-				Title:      le.Title,
-				Summary:    le.Summary,
-				Tags:       le.Tags,
-				SourceType: le.SourceType,
-				Score:      e.Score / 2,
+
+			lt := linkTypes[le.ID]
+			weight := linkTypeWeight(lt)
+			_, contradictions := computeStructuralBoost(le)
+			expanded = append(expanded, RetrievalResult{
+				Source:        KindLinked,
+				Entry:         le,
+				Score:         int(float64(r.Score) * weight),
+				LinkType:      lt,
+				LinkFrom:      r.Entry.ID,
+				Contradictions: contradictions,
 			})
+
+			// supersedes 链式跟踪：沿 supersedes 链往回追溯（最多 3 跳）
+			if lt == LinkSupersedes && graphLinked < maxGraphExpand {
+				chain := followSupersedesChain(le.ID, seen, 3)
+				for _, chainEntry := range chain {
+					if graphLinked >= maxGraphExpand {
+						break
+					}
+					graphLinked++
+					_, chainContradictions := computeStructuralBoost(chainEntry)
+					expanded = append(expanded, RetrievalResult{
+						Source:        KindLinked,
+						Entry:         chainEntry,
+						Score:         int(float64(r.Score) * 0.4),
+						LinkType:      LinkSupersedes,
+						LinkFrom:      le.ID,
+						Contradictions: chainContradictions,
+					})
+				}
+			}
 		}
 	}
 	if trace != nil && graphLinked > 0 {
 		trace.Add(RetrievalStage{
-			Stage:  "graph_expand",
+			Stage:  "L0.5_graph",
 			Method: "link_traversal",
 			Input:  fmt.Sprintf("direct=%d", len(direct)),
 			Output: map[string]any{"linked": graphLinked, "total": len(expanded)},
-			Score:  0.5,
-			Reason: "hop=1, decay=0.5",
+			Reason: "typed link traversal",
 		})
 	}
 
-	// 重排后取 top-N
+	// ── L2: embedding 语义回退（仅当 L0 结果不足）──
+	if len(expanded) < limit && embeddingEnabled() {
+		if emb, ok := tryEmbedding(query); ok {
+			embeddingResults := searchByEmbedding(emb, limit*2)
+			for _, se := range embeddingResults {
+				if seen[se.ID] {
+					continue
+				}
+				seen[se.ID] = true
+				entry := loadKnowledge(se.ID)
+				if entry == nil {
+					continue
+				}
+				_, contradictions := computeStructuralBoost(entry)
+				expanded = append(expanded, RetrievalResult{
+					Source:        KindSemantic,
+					Entry:         entry,
+					Score:         se.Score,
+					Contradictions: contradictions,
+				})
+			}
+			if trace != nil {
+				trace.Add(RetrievalStage{
+					Stage:  "L2_embedding",
+					Method: "vector_fallback",
+					Input:  query,
+					Output: map[string]any{"candidates": len(expanded)},
+					Reason: "L0 insufficient, embedding fallback",
+				})
+			}
+		}
+	}
+
+	// ── 排序 + 截断 ──────────────────────────────
 	sort.Slice(expanded, func(i, j int) bool {
 		if expanded[i].Score == expanded[j].Score {
-			im := expanded[i].SourceType == "memory"
-			jm := expanded[j].SourceType == "memory"
+			im := expanded[i].Entry.SourceType == "memory"
+			jm := expanded[j].Entry.SourceType == "memory"
 			if im != jm {
 				return im
 			}
@@ -739,6 +1097,149 @@ func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry 
 		})
 	}
 	return expanded
+}
+
+// linkTypeWeight 返回链接类型的权重系数
+func linkTypeWeight(lt LinkType) float64 {
+	switch lt {
+	case LinkContradicts:
+		return 0.8 // 矛盾优先展示（灵感来源）
+	case LinkSupersedes:
+		return 0.7 // 演进重要
+	case LinkSupports:
+		return 0.3 // 佐证降权
+	default:
+		return 0.5 // related 默认
+	}
+}
+
+// SearchMemory 统一记忆检索入口（对外接口，保持 []ScoredEntry 兼容）。
+// 内部委托 searchMemoryFull 执行确定性优先的检索阶梯。
+func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry {
+	results := searchMemoryFull(query, limit, trace)
+	var out []ScoredEntry
+	for _, r := range results {
+		out = append(out, ScoredEntry{
+			ID:             r.Entry.ID,
+			Title:          r.Entry.Title,
+			Summary:        r.Entry.Summary,
+			Tags:           r.Entry.Tags,
+			SourceType:     r.Entry.SourceType,
+			Score:          r.Score,
+			Contradictions: r.Contradictions,
+		})
+	}
+	return out
+}
+
+/* ─── Phase 3: 多跳检索导出接口 ──────────────── */
+
+// SearchMemoryFull 检索入口（导出版），返回 []RetrievalResult 供多跳使用。
+func SearchMemoryFull(query string, limit int, trace *RetrievalTrace) []RetrievalResult {
+	return searchMemoryFull(query, limit, trace)
+}
+
+// NeedsSecondHop 判断是否需要第二轮检索（纯代码，零 LLM）。
+// 三选一触发：稀疏结果 / 矛盾发现 / 演进链。
+func NeedsSecondHop(results []RetrievalResult) (bool, string) {
+	if len(results) == 0 {
+		return false, ""
+	}
+	// 条件 1：结果稀疏（只有 1 条直接命中）
+	directCount := 0
+	for _, r := range results {
+		if r.Source == KindDirect {
+			directCount++
+		}
+	}
+	if directCount == 1 {
+		return true, "sparse"
+	}
+	// 条件 2：发现矛盾
+	for _, r := range results {
+		if r.LinkType == LinkContradicts {
+			return true, "contradiction"
+		}
+	}
+	// 条件 3：发现演进链
+	for _, r := range results {
+		if r.LinkType == LinkSupersedes {
+			return true, "evolution"
+		}
+	}
+	return false, ""
+}
+
+// DeriveSecondQuery 从 round 1 结果中提取第二轮查询（纯代码，零 LLM）。
+func DeriveSecondQuery(results []RetrievalResult, reason string) string {
+	switch reason {
+	case "sparse":
+		// 用 round 1 结果的 tags 做展开
+		var tags []string
+		for _, r := range results {
+			tags = append(tags, r.Entry.Tags...)
+		}
+		return strings.Join(dedupStrings(tags, 3), " ")
+	case "contradiction":
+		// 用矛盾双方的标题关键词
+		var keywords []string
+		for _, r := range results {
+			if r.LinkType == LinkContradicts {
+				keywords = append(keywords, r.Entry.Title)
+			}
+		}
+		return strings.Join(keywords, " ")
+	case "evolution":
+		// 用被替代条目的标题
+		for _, r := range results {
+			if r.LinkType == LinkSupersedes {
+				return r.Entry.Title
+			}
+		}
+	}
+	return ""
+}
+
+// MergeResults 合并两轮检索结果，去重，总上限 5 条。
+func MergeResults(a, b []RetrievalResult) []RetrievalResult {
+	seen := make(map[string]bool)
+	var merged []RetrievalResult
+	for _, r := range a {
+		if !seen[r.Entry.ID] {
+			seen[r.Entry.ID] = true
+			merged = append(merged, r)
+		}
+	}
+	for _, r := range b {
+		if !seen[r.Entry.ID] {
+			seen[r.Entry.ID] = true
+			merged = append(merged, r)
+		}
+	}
+	// 按分数排序
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Score > merged[j].Score
+	})
+	if len(merged) > maxGraphExpand {
+		merged = merged[:maxGraphExpand]
+	}
+	return merged
+}
+
+// dedupStrings 去重取前 n 个
+func dedupStrings(ss []string, n int) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+			if len(result) >= n {
+				break
+			}
+		}
+	}
+	return result
 }
 
 /* ─── KnowledgeReindex 批量补全工具 ──────────── */

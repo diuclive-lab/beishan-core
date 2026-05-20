@@ -78,12 +78,15 @@ func ValidateParams(schema ToolSchema, payload json.RawMessage) error {
 
 	schemaObj := schema.Schema
 	props, _ := schemaObj["properties"].(map[string]interface{})
+	additionalProperties, _ := schemaObj["additionalProperties"].(bool)
 
-	// 规则 2：禁止额外字段
-	for key := range params {
-		if props != nil {
-			if _, ok := props[key]; !ok {
-				return fmt.Errorf("[schema] 未知字段: %s", key)
+	// 规则 2：禁止额外字段（除非 additionalProperties=true）
+	if !additionalProperties {
+		for key := range params {
+			if props != nil {
+				if _, ok := props[key]; !ok {
+					return fmt.Errorf("[schema] 未知字段: %s", key)
+				}
 			}
 		}
 	}

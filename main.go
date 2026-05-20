@@ -119,7 +119,7 @@ func main() {
 		Tags:        []string{"image", "generate"},
 		Types:       []string{"image_generate"},
 	})
-	k.Register("think_plugin", &plugins.ThinkPlugin{}, kernel.Meta{
+	k.Register("think_plugin", &plugins.ThinkPlugin{Kernel: k}, kernel.Meta{
 		Description: "推理、分析、判断、结构化输出JSON，适合：分析代码、提取字段、做决策、生成大纲。不适合：直接生成长文本",
 		Tags:        []string{"chat", "dialogue", "general"},
 		Types:       []string{"chat"},
