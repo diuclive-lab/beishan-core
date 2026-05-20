@@ -122,6 +122,11 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 	// 保存，但保持 CreatedAt 为首次创建时间
 	saveKnowledge(entry)
 
+	// 后台自动建链：不阻塞入库
+	if sourceType != "memory" && summary != "" {
+		go autoLinkEntry(entry.ID, title, summary, tags, topics)
+	}
+
 	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"知识已入库"}`, entry.ID, title))
 }
 
@@ -485,29 +490,165 @@ func expandKeywordsViaAPI(query string) ([]string, error) {
 //   1. embedding 在线 → 向量语义检索
 //   2. 降级 → LLM 关键词扩展 → 加权评分
 //   3. 均不可用 → 原文直接匹配
+// loadLinkedEntries 按 Links 字段加载关联条目。
+func loadLinkedEntries(id string) []*KnowledgeEntry {
+	entry := loadKnowledge(id)
+	if entry == nil || len(entry.Links) == 0 {
+		return nil
+	}
+	var linked []*KnowledgeEntry
+	for _, linkedID := range entry.Links {
+		if le := loadKnowledge(linkedID); le != nil {
+			linked = append(linked, le)
+		}
+	}
+	return linked
+}
+
+// autoLinkEntry 为新条目自动建立双向关联链接。
+// 基于标签重叠和标题/摘要关键词匹配，阈值为 knowledge_suggest_links 的简化版。
+func autoLinkEntry(id, title, summary string, tags, topics []string) {
+	all := loadAllKnowledge()
+	titleWords := strings.ToLower(title)
+
+	var candidates []string
+	for _, e := range all {
+		if e.ID == id || len(e.Title) == 0 {
+			continue
+		}
+		score := 0
+		// 标签重叠
+		for _, t := range tags {
+			for _, et := range e.Tags {
+				if strings.ToLower(t) == strings.ToLower(et) || (len(t) > 2 && strings.Contains(strings.ToLower(et), strings.ToLower(t))) {
+					score += 2
+					break
+				}
+			}
+		}
+		for _, tp := range topics {
+			for _, et := range e.Topics {
+				if strings.ToLower(tp) == strings.ToLower(et) {
+					score += 2
+					break
+				}
+			}
+		}
+		// 标题/摘要关键词匹配
+		et := strings.ToLower(e.Title)
+		if len(title) > 3 && (strings.Contains(et, strings.ToLower(title)) || strings.Contains(strings.ToLower(title), et[:min(len(et), 8)])) {
+			score += 1
+		}
+		if len(summary) > 5 && strings.Contains(titleWords, et[:min(len(et), 6)]) {
+			score += 1
+		}
+		if score >= 3 && !containsStr(candidates, e.ID) {
+			candidates = append(candidates, e.ID)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// 双向写入 Links
+	entry := loadKnowledge(id)
+	if entry == nil {
+		return
+	}
+	for _, cid := range candidates {
+		if !containsStr(entry.Links, cid) {
+			entry.Links = append(entry.Links, cid)
+		}
+		// 反向链接
+		le := loadKnowledge(cid)
+		if le != nil && !containsStr(le.Links, id) {
+			le.Links = append(le.Links, id)
+			saveKnowledge(le)
+		}
+	}
+	saveKnowledge(entry)
+}
+
+func containsStr(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func SearchMemory(query string, limit int) []ScoredEntry {
 	if limit <= 0 {
 		limit = 3
 	}
+	var direct []ScoredEntry
+
 	// 路径1：embedding 向量检索
 	if embeddingEnabled() {
 		if emb, ok := tryEmbedding(query); ok {
-			results := searchByEmbedding(emb, limit)
-			if len(results) > 0 {
-				return results
-			}
-			return nil
+			direct = searchByEmbedding(emb, limit*2)
 		}
 	}
 	// 路径2：LLM 关键词扩展 + 加权评分
-	if expanded, err := expandKeywordsViaAPI(query); err == nil && len(expanded) > 0 {
-		results := SearchWithScore(strings.Join(expanded, " "), limit)
-		if len(results) > 0 {
-			return results
+	if len(direct) == 0 {
+		if expanded, err := expandKeywordsViaAPI(query); err == nil && len(expanded) > 0 {
+			direct = SearchWithScore(strings.Join(expanded, " "), limit*2)
 		}
 	}
 	// 路径3：原文直接匹配（兜底）
-	return SearchWithScore(query, limit)
+	if len(direct) == 0 {
+		direct = SearchWithScore(query, limit*2)
+	}
+
+	// 图扩展：沿 Links 找到关联条目，二跳降权
+	seen := make(map[string]bool)
+	for _, e := range direct {
+		seen[e.ID] = true
+	}
+	var expanded []ScoredEntry
+	for _, e := range direct {
+		expanded = append(expanded, e)
+		linked := loadLinkedEntries(e.ID)
+		for _, le := range linked {
+			if seen[le.ID] {
+				continue
+			}
+			seen[le.ID] = true
+			expanded = append(expanded, ScoredEntry{
+				ID:         le.ID,
+				Title:      le.Title,
+				Summary:    le.Summary,
+				Tags:       le.Tags,
+				SourceType: le.SourceType,
+				Score:      e.Score / 2,
+			})
+		}
+	}
+
+	// 重排后取 top-N
+	sort.Slice(expanded, func(i, j int) bool {
+		if expanded[i].Score == expanded[j].Score {
+			im := expanded[i].SourceType == "memory"
+			jm := expanded[j].SourceType == "memory"
+			if im != jm {
+				return im
+			}
+		}
+		return expanded[i].Score > expanded[j].Score
+	})
+	if len(expanded) > limit {
+		expanded = expanded[:limit]
+	}
+	return expanded
 }
 
 /* ─── KnowledgeReindex 批量补全工具 ──────────── */
