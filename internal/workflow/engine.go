@@ -434,5 +434,18 @@ func resolveJSONValue(raw []byte) interface{} {
 	if err := json.Unmarshal(raw, &str); err == nil {
 		return resolveJSONValue([]byte(str))
 	}
+	// 尝试从文本中提取 JSON（LLM 可能在 JSON 前后添加说明文字）
+	if idx := strings.IndexAny(s, "{["); idx >= 0 {
+		closeChar := byte('}')
+		if s[idx] == '[' {
+			closeChar = ']'
+		}
+		if lastIdx := strings.LastIndex(s, string(closeChar)); lastIdx > idx {
+			candidate := s[idx : lastIdx+1]
+			if parsed := resolveJSONValue([]byte(candidate)); parsed != nil {
+				return parsed
+			}
+		}
+	}
 	return nil
 }
