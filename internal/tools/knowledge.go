@@ -344,11 +344,18 @@ func FormatForPrompt(entries []ScoredEntry) string {
 
 /* ─── embedding 引擎 ────────────────────────── */
 
-var embeddingEndpoint = os.Getenv("EMBEDDING_ENDPOINT")
-var embeddingModel = os.Getenv("EMBEDDING_MODEL")
+func embeddingEndpoint() string {
+	return os.Getenv("EMBEDDING_ENDPOINT")
+}
+func embeddingModel() string {
+	if m := os.Getenv("EMBEDDING_MODEL"); m != "" {
+		return m
+	}
+	return "nomic-embed-text"
+}
 
 func embeddingEnabled() bool {
-	return embeddingEndpoint != ""
+	return embeddingEndpoint() != ""
 }
 
 // tryEmbedding 调通用 embedding API 计算文本向量。
@@ -358,13 +365,13 @@ func tryEmbedding(text string) ([]float64, bool) {
 		return nil, false
 	}
 	body, err := json.Marshal(map[string]interface{}{
-		"model": embeddingModel,
+		"model": embeddingModel(),
 		"input": text,
 	})
 	if err != nil {
 		return nil, false
 	}
-	resp, err := http.Post(embeddingEndpoint, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(embeddingEndpoint(), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, false
 	}
