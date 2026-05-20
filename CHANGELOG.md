@@ -184,6 +184,50 @@ type KnowledgeEntry struct {
 | `internal/tools/knowledge.go` | +Ephemeral、ExpiresAt 字段；KnowledgeRemember 支持 expires_in_days；两处排序加 memory 优先；两处检索过滤过期条目 |
 | `web/index.html` | 侧栏新增"记忆"区域 + sendMemoryList 函数 |
 
+### 双链知识图谱
+
+知识库从扁平列表进化为关联网络。在此之前，知识之间没有连接，每次检索只能靠关键词碰运气。现在是：
+
+```
+检索"记忆层"
+  → 命中 kn_004（记忆层双轨检索）
+  → 沿 Links 找到 kn_001（路由机制也与记忆层相关）
+  → 沿 Links 找到 kn_003（workflow 引擎也是记忆消费者）
+  → 三条一起注入 think_plugin
+```
+
+**图遍历检索（SearchMemory 增强）**
+
+直接命中后，沿 KnowledgeEntry.Links 字段做一跳扩展，关联条目按直接命中分数降权 50% 后加入结果集，经重排取 top-3 注入。不改变调用接口，think_plugin 零改动。
+
+| 阶段 | 方式 | 数据 |
+|---|---|---|
+| 第一层 | 双轨语义检索 | 直接命中条目 |
+| 第二层 | Links 图扩展 | 关联条目（降权 50%） |
+| 输出 | 排序重排 | 混合 top-3 |
+
+**自动建链（autoLinkEntry）**
+
+KnowledgeAdd 入库后异步触发，不阻塞写入路径：
+
+| 条件 | 分值 |
+|---|---|
+| 共享标签 | +2/个 |
+| 共享主题 | +2/个 |
+| 标题/摘要关键词重叠 | +1 |
+
+阈值 ≥ 3 分自动双向写入 Links 字段。source_type=memory 跳过（记忆不自动建链，避免噪音）。
+
+**改动量极小**——仅 internal/tools/knowledge.go 一个文件，+151/-10 行。
+
+| 新增 | 行数 |
+|---|---|
+| loadLinkedEntries | 12 |
+| autoLinkEntry | 55 |
+| SearchMemory 图扩展阶段 | 40 |
+| containsStr / min 辅助 | 10 |
+| 已知知识间开始互相连接 | ∞ |
+
 ## 2026-05-19 远程合并：payload 修复 + knowledge_enrich 修复
 
 ### 多模型 API 适配（LLM_PROVIDER）
