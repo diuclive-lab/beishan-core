@@ -1,28 +1,19 @@
-# 通用内容审核 — 支持公众号/网页/小红书/抖音等任意来源
+# 通用内容审核 — 挖金子：评估→过滤→入库洞察
 #
-# 流程：
-#   1. fetch:        web_render 获取内容（统一入口）
-#   2. classify:     LLM 分类内容类型 + 来源类型
-#   3. web_verify:   全网搜索交叉验证
-#   4. kb_check:     知识库检索
-#   5. evaluate:     根据类型走不同评估标准
-#   6. report:       统一入库评估报告
+# 所有内容都会出完整评估报告，action 决定额外行为：
+#   discard: quality<3 → 出报告 + 标记已过滤（不入库不污染）
+#   report:  quality>=3但relevance<3 → 出报告（已评估，未入库）
+#   store:   quality>=3且relevance>=3 → 出报告 + 提炼洞察 + 确认后入库
 #
-# 触发方式:
+# 触发方式：
 #   POST /api/chat
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"content_review","input":"<URL>"}}
-#
-# 设计原则：
-#   - 单一入口，所有内容类型都走同一个工作流
-#   - LLM 负责分类（输入是非结构化内容）
-#   - evaluate 同一块 prompt 内处理不同类型
-#   - 新增内容类型只需加 evaluate 标准，不改代码
 
 id: content_review
 
 steps:
-  # ── Step 1: 统一获取内容（web_render 兼容所有页面） ──
+  # ── Step 1: 获取内容（web_render 通用入口） ──
   - id: fetch
     plugin: search_plugin
     type: web_render
@@ -32,7 +23,7 @@ steps:
       wait: 5
     next: classify
 
-  # ── Step 2: LLM 分类 ──
+  # ── Step 2: 内容分类 ──
   - id: classify
     plugin: think_plugin
     type: chat
@@ -40,38 +31,18 @@ steps:
     retry: 1
     inputs:
       message: >-
-        分析以下内容，输出 JSON。
+        分析内容输出 JSON。
 
-        {
-          "title": "标题",
-          "source": "来源域名",
-          "source_category": "knowledge|news|promotion|opinion|tutorial|video|other",
-          "content_type": "类型名称",
-          "core_idea": "核心内容",
-          "summary": "摘要",
-          "has_author": true,
-          "author_name": "作者或空串",
-          "publish_date": "日期或空串",
-          "has_data": true,
-          "has_sources": true,
-          "has_specifics": true,
-          "tags": ["标签"],
-          "search_queries": ["搜索词1", "搜索词2"]
-        }
+        source_category: knowledge|news|promotion|opinion|tutorial|video
 
-        source_category 说明：
-        - knowledge: 有持久价值的知识/教程/分析
-        - news: 高时效信息
-        - promotion: 推广/软文
-        - opinion: 个人观点
-        - video: 视频转录
+        { "title": "", "source": "", "source_category": "", "content_type": "",
+          "core_idea": "", "summary": "", "tags": [], "search_queries": [] }
 
-        内容：
-        ${steps.fetch.output}
-    next: web_verify
+        内容：${steps.fetch.output}
+    next: cross_check
 
-  # ── Step 3: 全网搜索交叉验证 ──
-  - id: web_verify
+  # ── Step 3: 全网交叉验证 ──
+  - id: cross_check
     plugin: search_plugin
     type: web_search
     timeout: 30
@@ -88,90 +59,90 @@ steps:
       keyword: "${steps.classify.output}"
     next: evaluate
 
-  # ── Step 5: 根据类型评估（单 prompt 覆盖所有类型） ──
+  # ── Step 5: 核心步骤 — 评估 + 洞察提炼 ──
   - id: evaluate
     plugin: think_plugin
     type: chat
-    timeout: 180
+    timeout: 300
     retry: 1
     inputs:
       message: >-
-        你是内容评估助手。根据内容类型应用不同标准，输出 JSON。
+        你是评估+提炼助手。评估内容质量和项目相关度，双评分 0-5。
 
+        quality_score（内容质量）：
+          0=纯噪音 1=低质 2=一般
+          3=有参考价值 4=高质量有洞见 5=顶级
+
+        relevance_score（项目相关度）：
+          0=无关 1=弱 2=一般
+          3=相关可参考 4=直接有借鉴 5=核心必须入库
+
+        action 取值：
+          discard: quality<3 → 出报告标记已过滤，不入库
+          report:  quality>=3但relevance<3 → 出报告已评估未入库
+          store:   quality>=3且relevance>=3 → 提炼洞察入库
+
+        store 时需提炼 actionable insights（文章对 beishan-core 可借鉴的工程思路）。
+        不是原文摘要，是可执行的知识。
+
+        输出 JSON：
         {
-          "title": "标题",
-          "summary": "摘要",
-          "tags": ["标签"],
-          "web_check": "全网验证结果",
-          "kb_check": "知识库相关信息",
-          "credibility": {
-            "score": 0,
-            "conclusion": "可信度结论",
-            "details": "各维度评估"
-          },
-          "timeliness": "high|medium|low",
-          "lasting_value": "high|medium|low",
-          "recommend": "recommend|suggest|skip",
-          "reason": "建议理由"
+          "quality_score": 0,
+          "quality_reason": "",
+          "relevance_score": 0,
+          "relevance_reason": "",
+          "action": "discard|report|store",
+          "action_reason": "",
+          "insight_title": "store时必填",
+          "insight_summary": "store时必填",
+          "insight_tags": [],
+          "report": {
+            "title": "",
+            "type": "",
+            "core_idea": "",
+            "quality": "",
+            "relevance": "",
+            "web_verify": "",
+            "kb_check": "",
+            "verdict": ""
+          }
         }
 
-        评估标准（根据 source_category 选用）：
-
-        类型 knowledge（教程/分析/知识）：
-          关注数据可靠性、独到见解、可操作性
-
-        类型 news（新闻/快讯）：
-          关注时效性、是否与已有知识重复
-
-        类型 promotion（推广/软文）：
-          关注是否有客观数据、过度营销否、标注广告否
-
-        类型 opinion（个人观点）：
-          关注论证逻辑、是否有事实支撑、反面思考
-
-        类型 video（视频转录）：
-          关注转录质量、可提取的知识点
-
-        === 证据 ===
-        标题：${steps.classify.output.title}
-        来源分类：${steps.classify.output.source_category}
-        核心内容：${steps.classify.output.core_idea}
-        作者：${steps.classify.output.author_name}
-        发布日期：${steps.classify.output.publish_date}
-        客观数据：${steps.classify.output.has_data}
-        引用来源：${steps.classify.output.has_sources}
-        具体细节：${steps.classify.output.has_specifics}
-        全网验证：${steps.web_verify.output}
+        内容分析：${steps.classify.output}
+        全网验证：${steps.cross_check.output}
         已有知识：${steps.kb_check.output}
     next: report
 
-  # ── Step 6: 统一报告 ──
+  # ── Step 6: 最终报告 ──
   - id: report
     plugin: think_plugin
     type: chat
     timeout: 60
     inputs:
       message: >-
-        生成入库评估报告。
+        根据评估生成最终报告。
 
-        标题：${steps.evaluate.output.title}
-        摘要：${steps.evaluate.output.summary}
-        来源分类：${steps.classify.output.source_category}
-        可信度评分：${steps.evaluate.output.credibility.score}
-        可信度结论：${steps.evaluate.output.credibility.conclusion}
-        时效性：${steps.evaluate.output.timeliness}
-        持久价值：${steps.evaluate.output.lasting_value}
-        建议：${steps.evaluate.output.recommend}
-        理由：${steps.evaluate.output.reason}
+        评估结果：${steps.evaluate.output}
 
         报告结构：
         1. 标题和来源
-        2. 核心内容
-        3. 内容类型
-        4. 可信度评估
-        5. 全网验证情况
-        6. 与已有知识的关系
-        7. 时效性和持久价值
-        8. 入库建议
+        2. 内容质量和类型
+        3. 项目相关度评估
+        4. 全网验证情况
+        5. 与已有知识的关系
+        6. 处理动作（discard/report/store）
+        7. 理由说明
 
-        纯文本输出，末尾询问用户是否入库。
+        action=store 时：
+          附加建议入库的洞察内容
+          询问用户是否确认入库
+
+        action=discard 时：
+          说明已标记为低质量
+          记录过滤原因供日后参考
+
+        action=report 时：
+          说明已评估但未入库的原因
+          可供日后重新评估
+
+        纯文本输出。
