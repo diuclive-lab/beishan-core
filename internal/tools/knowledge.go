@@ -122,6 +122,14 @@ func loadKnowledge(id string) *KnowledgeEntry {
 func saveKnowledge(entry *KnowledgeEntry) {
 	initKnowledgeDir()
 
+	// 入库门禁：自动补全（不拒绝，但修正）
+	if entry.SourceType == "" {
+		entry.SourceType = inferSourceType(entry)
+	}
+	if len(entry.Tags) == 0 {
+		entry.Tags = autoExtractTags(entry.Title, entry.Summary)
+	}
+
 	// 写入时顺带计算 embedding（失败不影响入库）
 	if embeddingEnabled() && len(entry.Embedding) == 0 {
 		text := entry.Title + " " + entry.Summary

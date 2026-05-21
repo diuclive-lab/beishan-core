@@ -24,6 +24,7 @@ type ThinkMode string
 const (
 	ModeChat          ThinkMode = "chat"
 	ModeReviewExtract ThinkMode = "review_extract"
+	ModeNoRetrieval   ThinkMode = "no_retrieval" // workflow 步骤：跳过检索，直接调 LLM
 )
 
 // extractMode 从 Payload 提取 mode（L4 语义，whitelist）
@@ -37,7 +38,7 @@ func extractMode(payload []byte) ThinkMode {
 	}
 
 	switch ThinkMode(obj.Mode) {
-	case ModeChat, ModeReviewExtract:
+	case ModeChat, ModeReviewExtract, ModeNoRetrieval:
 		return ThinkMode(obj.Mode)
 	default:
 		return ModeChat

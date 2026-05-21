@@ -137,6 +137,26 @@ func ValidateParams(schema ToolSchema, payload json.RawMessage) error {
 			}
 		}
 
+		// 类型修正：期望 string 但收到 array 时，取首个元素或 JSON 序列化
+		if expectedType == "string" {
+			if arr, ok := value.([]interface{}); ok {
+				if len(arr) > 0 {
+					if s, ok := arr[0].(string); ok {
+						params[key] = s
+						value = s
+					} else {
+						b, _ := json.Marshal(arr)
+						params[key] = string(b)
+						value = string(b)
+					}
+				} else {
+					// 空数组 → 空字符串
+					params[key] = ""
+					value = ""
+				}
+			}
+		}
+
 		if err := validateFieldType(key, value, expectedType); err != nil {
 			return err
 		}

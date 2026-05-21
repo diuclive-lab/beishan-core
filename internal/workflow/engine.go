@@ -241,7 +241,7 @@ var tmplRe = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 func buildPayload(inputs map[string]interface{}, ctx map[string]interface{}) json.RawMessage {
 	if len(inputs) == 0 {
-		if input, ok := ctx["input"]; ok {
+		if input, ok := ctx["input"]; ok && input != "" {
 			return json.RawMessage(fmt.Sprintf(`"%v"`, input))
 		}
 		return json.RawMessage(`{}`)
@@ -391,6 +391,15 @@ func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{},
 		}
 		if m, ok := current.(map[string]interface{}); ok {
 			current = m[fieldName]
+			// map 取值后立即应用数组索引（如 search_queries[0]）
+			if arrIdx >= 0 {
+				if arr, ok := current.([]interface{}); ok && arrIdx < len(arr) {
+					current = arr[arrIdx]
+				} else if arr, ok := current.([]interface{}); ok && arrIdx >= len(arr) {
+					// 索引越界或空数组 → 返回 nil
+					return nil, true
+				}
+			}
 		} else if arr, ok := current.([]interface{}); ok && arrIdx >= 0 && arrIdx < len(arr) {
 			current = arr[arrIdx]
 		} else {

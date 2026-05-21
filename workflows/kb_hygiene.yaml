@@ -1,0 +1,50 @@
+# 知识库卫生巡检 — 每周自动执行
+#
+# 三步流水线：审计 → 修复 → 报告
+# 触发方式：
+#   1. 手动：POST /api/chat
+#      {"recipient":"workflow_plugin","type":"workflow_run",
+#       "payload":{"workflow":"kb_hygiene"}}
+#   2. 自动：scheduler_plugin 每周日 03:00 触发
+
+id: kb_hygiene
+
+steps:
+  # ── Step 1: 全库审计 ──
+  - id: audit
+    plugin: memory_plugin
+    type: kb_audit
+    timeout: 60
+    inputs: {}
+    next: repair
+
+  # ── Step 2: 自动修复（dry_run=false） ──
+  - id: repair
+    plugin: memory_plugin
+    type: kb_repair
+    timeout: 120
+    inputs:
+      dry_run: false
+    next: report
+
+  # ── Step 3: 生成健康报告 ──
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        根据审计和修复结果，生成知识库健康报告。
+
+        审计结果：${steps.audit.output}
+        修复结果：${steps.repair.output}
+
+        报告结构：
+        1. 健康度评分（health_score）
+        2. 总条目数 / 问题条目数
+        3. 本轮修复了什么（source_type / tags / typed_links）
+        4. 剩余问题（embedding 缺失、重复条目等）
+        5. 下一步建议
+
+        纯文本输出，简洁明了。

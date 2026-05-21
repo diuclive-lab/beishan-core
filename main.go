@@ -124,10 +124,19 @@ func main() {
 		Tags:        []string{"chat", "dialogue", "general"},
 		Types:       []string{"chat"},
 	})
-	k.Register("scheduler_plugin", plugins.NewScheduler(k), kernel.Meta{
+	schedulerPlugin := plugins.NewScheduler(k)
+	k.Register("scheduler_plugin", schedulerPlugin, kernel.Meta{
 		Description: "多步任务编排，适用于需要多个插件协作的复杂任务",
 		Tags:        []string{"orchestration", "planning"},
 	})
+
+	// 注册默认定时任务
+	defaultSchedule, _ := json.Marshal(map[string]string{
+		"name":     "kb_hygiene_weekly",
+		"workflow": "kb_hygiene",
+		"cron":     "0 3 * * 0", // 每周日 03:00
+	})
+	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: defaultSchedule})
 	k.Register("codex_plugin", &plugins.CodexSessionPlugin{}, kernel.Meta{
 		Description: "Codex 对话导入：列出和提取本地 Codex 对话，用于知识库入库",
 		Tags:        []string{"codex", "import"},

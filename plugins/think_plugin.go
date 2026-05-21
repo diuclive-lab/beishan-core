@@ -43,6 +43,15 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	sessionID := extractSessionID(msg.Payload)
 	mode := extractMode(msg.Payload)
 
+	// Mode dispatch 优先（L4 语义，不污染 L1）
+	// no_retrieval 模式跳过所有自然语言检测，直接调 LLM
+	switch mode {
+	case ModeReviewExtract:
+		return p.handleReviewExtract(userText, sessionID)
+	case ModeNoRetrieval:
+		return p.handleChatNoRetrieval(userText)
+	}
+
 	// 清理过期的 pending remember（懒清理 review）
 	cleanupExpiredPending()
 
@@ -128,13 +137,26 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return p.handleSkipAll()
 	}
 
-	// Mode dispatch（L4 语义，不污染 L1）
-	switch mode {
-	case ModeReviewExtract:
-		return p.handleReviewExtract(userText, sessionID)
-	default:
-		return p.handleChat(userText, sessionID)
+	return p.handleChat(userText, sessionID)
+}
+
+// handleChatNoRetrieval 处理 workflow 步骤：跳过检索，直接调 LLM。
+// 用于需要精确 JSON 输出的步骤（如 classify/evaluate），避免检索上下文干扰。
+func (p *ThinkPlugin) handleChatNoRetrieval(userText string) (kernel.Message, error) {
+	reply, err := llm.ChatCompletion(systemPrompt, userText, 120*time.Second)
+	if err != nil {
+		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
+
+	reply = strings.TrimSpace(reply)
+	var respPayload json.RawMessage
+	if len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply)) {
+		respPayload = json.RawMessage(reply)
+	} else {
+		respPayload, _ = json.Marshal(reply)
+	}
+	fmt.Printf("[思考] %s\n", truncate(reply, 120))
+	return kernel.Message{Type: "chat.response", Payload: respPayload}, nil
 }
 
 // handleChat 处理普通聊天
