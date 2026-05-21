@@ -77,7 +77,7 @@ func main() {
 	k.Register("search_plugin", &plugins.SearchPlugin{}, kernel.Meta{
 		Description: "通用网络搜索，适用于查找资料、新闻、技术文档",
 		Tags:        []string{"search", "retrieval"},
-		Types:       []string{"web_search", "web_fetch", "web_extract"},
+		Types:       []string{"web_search", "web_fetch", "web_extract", "web_render"},
 	})
 	k.Register("write_plugin", &plugins.WritePlugin{}, kernel.Meta{
 		Description: "长文本生成、格式化写作、文件处理，适合：写文章、写报告、写代码、解析文件。不适合：输出JSON、做逻辑判断",

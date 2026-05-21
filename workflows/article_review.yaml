@@ -1,35 +1,31 @@
-# 公众号文章分析 — 抓取公众号文章，分析并与知识库比对，辅助决定是否入库
+# 公众号文章交叉验证 — 用 headless 浏览器渲染 → 分析 → 全网交叉验证 → 评估
 #
 # 流程：
-#   1. fetch_article:  web_fetch 获取文章正文
-#   2. analyze:        LLM 分析核心观点、论证结构、可信度
-#   3. search_knowledge: 知识库检索相关条目（做佐证/矛盾比对）
-#   4. evaluate:       LLM 综合评估：与已有知识的关系 + 入库建议
-#   5. 输出评估报告给用户，用户确认后自行入库
+#   1. fetch_article:  web_render（headless Chromium 渲染 JS 页面）
+#   2. analyze:        LLM 提取结构化摘要
+#   3. web_verify:     全网搜索佐证
+#   4. search_knowledge: 知识库检索
+#   5. evaluate:       综合评估 + 入库建议
 #
 # 触发方式:
 #   POST /api/chat
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"article_review","input":"<公众号文章URL>"}}
-#
-# 设计原则：
-#   - web_fetch 负责获取原文（确定性代码）
-#   - LLM 只做分析/对比（输入是非结构化文本，正确使用 LLM）
-#   - 入库决策权在用户，工作流只出报告和建议
 
 id: article_review
 
 steps:
-  # ── Step 1: 抓取文章 ──
+  # ── Step 1: headless 浏览器渲染提取正文 ──
   - id: fetch_article
     plugin: search_plugin
-    type: web_fetch
-    timeout: 30
+    type: web_render
+    timeout: 60
     inputs:
       url: "${input}"
+      wait: 8
     next: analyze
 
-  # ── Step 2: LLM 分析文章 ──
+  # ── Step 2: LLM 提取结构化信息 ──
   - id: analyze
     plugin: think_plugin
     type: chat
@@ -37,96 +33,79 @@ steps:
     retry: 1
     inputs:
       message: >-
-        你是一个知识分析助手。请分析以下文章内容，输出严格 JSON 格式（不加任何其他文字）：
+        分析以下文章，提取信息并输出 JSON。
 
         {
           "title": "文章标题",
-          "core_idea": "核心观点（一句话概括）",
-          "summary": "内容摘要（100字以内）",
-          "key_points": ["要点1", "要点2", "要点3"],
+          "core_idea": "核心观点",
+          "summary": "内容摘要",
           "argument_type": "fact|opinion|analysis|tutorial|news",
-          "tags": ["标签1", "标签2", "标签3"],
-          "credibility": "high|medium|low",
-          "credibility_reason": "可信度判断依据"
+          "tags": ["标签1", "标签2"]
         }
 
         文章内容：
         ${steps.fetch_article.output}
+    next: web_verify
+
+  # ── Step 3: 全网搜索交叉验证 ──
+  - id: web_verify
+    plugin: search_plugin
+    type: web_search
+    timeout: 30
+    inputs:
+      query: "${steps.analyze.output}"
     next: search_knowledge
 
-  # ── Step 3: 搜索知识库 ──
+  # ── Step 4: 知识库检索 ──
   - id: search_knowledge
     plugin: memory_plugin
     type: knowledge_search
     timeout: 15
     inputs:
-      keyword: "${steps.analyze.output.title}, ${steps.analyze.output.tags}"
+      keyword: "${steps.analyze.output}"
     next: evaluate
 
-  # ── Step 4: LLM 综合评估 ──
+  # ── Step 5: 综合评估 ──
   - id: evaluate
     plugin: think_plugin
     type: chat
-    timeout: 120
+    timeout: 180
     retry: 1
     inputs:
       message: >-
-        你是一个知识评估助手。请评估以下新文章与已有知识的关系，输出严格 JSON 格式：
+        你是知识评估助手。请综合以下三份证据，判断这篇文章的可信度和入库价值。
 
+        输出 JSON 格式：
         {
-          "recommendation": "recommend|suggest|skip",
-          "reason": "建议理由（一句话）",
-          "relationship_to_existing": "supports|contradicts|new_topic|expands",
-          "relationship_detail": "与哪条知识相关、如何相关",
-          "value_assessment": "high|medium|low",
-          "value_reason": "价值判断依据"
+          "title": "文章标题",
+          "core_idea": "核心观点",
+          "summary": "摘要",
+          "tags": ["标签"],
+          "web_check": "全网对这个话题的佐证情况",
+          "kb_check": "知识库中相关信息",
+          "credibility": {
+            "has_author": true/false,
+            "has_sources": true/false,
+            "has_data": true/false,
+            "has_specifics": true/false,
+            "score": 0,
+            "conclusion": "可信度结论"
+          },
+          "recommend": "recommend|suggest|skip",
+          "reason": "建议理由"
         }
 
-        推荐级别说明：
-        - recommend: 高质量内容，建议立即入库
-        - suggest: 有一定价值，可选入库
-        - skip: 不推荐入库（价值低/重复/不可靠）
+        客观评分标准（逐项检查，true 每项 +1 分）：
+        - has_author: 有明确作者
+        - has_sources: 引用了外部来源
+        - has_data: 有具体数据/日期
+        - has_specifics: 有具体细节或踩坑记录
 
-        新文章：
-        标题：${steps.analyze.output.title}
-        核心观点：${steps.analyze.output.core_idea}
-        摘要：${steps.analyze.output.summary}
-        关键要点：${steps.analyze.output.key_points}
-        类型：${steps.analyze.output.argument_type}
-        可信度：${steps.analyze.output.credibility}
+        证据 1 — 文章原文：
+        ${steps.fetch_article.output}
 
-        已有知识库相关条目：
+        证据 2 — 全网搜索结果：
+        ${steps.web_verify.output}
+
+        证据 3 — 知识库：
         ${steps.search_knowledge.output}
-    next: report
-
-  # ── Step 5: 生成报告 ──
-  - id: report
-    plugin: think_plugin
-    type: chat
-    timeout: 60
-    inputs:
-      message: >-
-        请根据以下信息生成一份简洁的中文评估报告，供用户决定是否将文章入库。
-
-        格式要求：
-        - 标题和来源
-        - 核心观点（一句话）
-        - 与已有知识的关系（支持/矛盾/新话题/补充）
-        - 可信度评估
-        - 入库建议及理由
-        - 推荐标签
-
-        文章分析结果：
-        - 标题：${steps.analyze.output.title}
-        - 摘要：${steps.analyze.output.summary}
-        - 关键要点：${steps.analyze.output.key_points}
-        - 类型：${steps.analyze.output.argument_type}
-        - 可信度：${steps.analyze.output.credibility}
-
-        评估结果：
-        - 推荐：${steps.evaluate.output.recommendation}
-        - 与已有知识关系：${steps.evaluate.output.relationship_to_existing}
-        - 详细说明：${steps.evaluate.output.relationship_detail}
-        - 价值评估：${steps.evaluate.output.value_assessment}
-
-        请输出纯文本报告，不需要 JSON。

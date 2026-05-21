@@ -1,10 +1,16 @@
 module beishan
 
-go 1.24.1
-
-toolchain go1.24.3
+go 1.26
 
 require (
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
+	github.com/playwright-community/playwright-go v0.5700.1
+	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
 )

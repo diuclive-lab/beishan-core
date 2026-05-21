@@ -20,8 +20,8 @@ func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 			Payload: json.RawMessage(`"` + jsonEscape(result.Output) + `"`),
 		}, nil
 
-	case "web_fetch":
-		result := tools.ValidateAndExecute("web_fetch", msg.Payload)
+	case "web_fetch", "web_extract", "web_render":
+		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[抓取] %s\n", result.Output)
 		return kernel.Message{
 			Type:    msg.Type + ".result",
