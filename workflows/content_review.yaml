@@ -47,7 +47,7 @@ steps:
     type: web_search
     timeout: 30
     inputs:
-      query: "${steps.classify.output}"
+      query: "${steps.classify.output.search_queries[0]}"
     next: kb_check
 
   # ── Step 4: 知识库检索 ──
@@ -56,7 +56,7 @@ steps:
     type: knowledge_search
     timeout: 15
     inputs:
-      keyword: "${steps.classify.output}"
+      keyword: "${steps.classify.output.core_idea}"
     next: evaluate
 
   # ── Step 5: 核心步骤 — 评估 + 洞察提炼 ──
@@ -108,7 +108,13 @@ steps:
           }
         }
 
-        内容分析：${steps.classify.output}
+        标题：${steps.classify.output.title}
+        来源：${steps.classify.output.source}
+        类型：${steps.classify.output.source_category} / ${steps.classify.output.content_type}
+        核心观点：${steps.classify.output.core_idea}
+        摘要：${steps.classify.output.summary}
+        标签：${steps.classify.output.tags}
+
         全网验证：${steps.cross_check.output}
         已有知识：${steps.kb_check.output}
     next: report
