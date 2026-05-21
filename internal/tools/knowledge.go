@@ -1996,6 +1996,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_search", "按关键词搜索知识条目（匹配 title/summary/content/tags/topics）。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"required": []string{"keyword"},
 			"properties": map[string]interface{}{
 				"keyword": stringParam("搜索关键词"),
@@ -2066,7 +2067,8 @@ func registerKnowledgeTools() {
 
 	Register("knowledge_delete", "删除指定知识条目。",
 		map[string]interface{}{
-			"type":     "object",
+			"type":                 "object",
+			"additionalProperties": true,
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
 				"id": stringParam("要删除的知识条目 ID"),
@@ -2080,6 +2082,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_update", "更新现有知识条目的字段（保留未提供的字段）。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
 				"id":          stringParam("要更新的知识条目 ID"),
@@ -2120,6 +2123,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_suggest_links", "为指定知识条目推荐关联条目（基于标签/主题/关键词匹配）。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
 				"id":          stringParam("知识条目 ID"),
@@ -2135,6 +2139,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_dedupe", "查找可能重复的知识条目（按 raw_ref/title/tags 匹配）。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{
 				"id":      stringParam("知识条目 ID（查找与此条目标题/标签相似的条目）"),
 				"raw_ref": stringParam("原始来源引用（查找同一来源的条目）"),
@@ -2148,6 +2153,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_merge", "合并两个知识条目（tags/topics/tasks/links/content 合并后删除源条目）。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"required": []string{"source_id", "target_id"},
 			"properties": map[string]interface{}{
 				"source_id": stringParam("源条目 ID（合并后将删除）"),
@@ -2161,6 +2167,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_confirm_links", "确认关联建议：将一个或多个目标条目 ID 写入源条目的 links 字段。",
 		map[string]interface{}{
 			"type":     "object",
+			"additionalProperties": true,
 			"required": []string{"id", "link_ids"},
 			"properties": map[string]interface{}{
 				"id":       stringParam("源知识条目 ID"),
@@ -2181,6 +2188,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_topic_map", "生成知识条目主题图谱（按 tag 聚类，显示关联子主题）。",
 		map[string]interface{}{
 			"type":       "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -2191,6 +2199,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_timeline", "按时间线查看知识条目（按 day/week/month 分组）。",
 		map[string]interface{}{
 			"type": "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{
 				"group_by": stringParam("分组方式: day | week | month，默认 day"),
 			},
@@ -2203,6 +2212,7 @@ func registerKnowledgeTools() {
 	Register("knowledge_reindex", "为所有无 embedding 的知识条目计算语义向量。需要配置 EMBEDDING_ENDPOINT。",
 		map[string]interface{}{
 			"type":       "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{},
 		},
 		func(args map[string]interface{}) *ToolResult {
