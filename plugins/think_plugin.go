@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -216,7 +217,22 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 	trace.Log()
 
-	reply, err := callDeepSeek(userText, background)
+	// 构建多轮对话 messages
+	userMsg := userText
+	if background != "" {
+		userMsg = "请参考以下背景知识回答：\n" + background + "\n\n用户问题：\n" + userText
+	}
+
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: systemPrompt},
+	}
+	// 加载最近 5 轮对话作为上下文
+	if history := loadRecentSessionMessages(sessionID, 5); len(history) > 0 {
+		messages = append(messages, history...)
+	}
+	messages = append(messages, llm.ChatMessage{Role: "user", Content: userMsg})
+
+	reply, err := llm.ChatCompletionMulti(messages, 60*time.Second)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
@@ -324,4 +340,59 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(runes[:n]) + "..."
+}
+
+// loadRecentSessionMessages 从会话文件加载最近 N 轮对话，用于多轮上下文。
+// role 映射：user → "user"，其他（插件响应）→ "assistant"。
+func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
+	if sessionID == "" || limit <= 0 {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".hermes", "memory", "sessions", sessionID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var session struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Type    string `json:"type"`
+			Payload string `json:"payload"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &session); err != nil {
+		return nil
+	}
+
+	// 取最后 2*limit 条消息（limit 轮 = limit 条 user + limit 条 assistant）
+	msgs := session.Messages
+	start := 0
+	if len(msgs) > 2*limit {
+		start = len(msgs) - 2*limit
+	}
+
+	var result []llm.ChatMessage
+	for _, m := range msgs[start:] {
+		// 跳过 session_add 等系统消息
+		if m.Type != "chat" && m.Type != "chat.response" {
+			continue
+		}
+		content := m.Payload
+		// user 消息的 payload 是 JSON {"message":"..."}，需要提取
+		if m.Role == "user" {
+			var obj map[string]interface{}
+			if json.Unmarshal([]byte(content), &obj) == nil {
+				if msg, ok := obj["message"].(string); ok {
+					content = msg
+				}
+			}
+		}
+		role := "assistant"
+		if m.Role == "user" {
+			role = "user"
+		}
+		result = append(result, llm.ChatMessage{Role: role, Content: content})
+	}
+	return result
 }

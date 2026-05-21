@@ -308,6 +308,9 @@ func main() {
 			}
 		}
 
+		// 确定性预路由：高频意图关键词匹配，跳过 LLM Router
+		preRoute(&msg)
+
 		saveToSession(sessionID, "user", msg.Type, msg.Payload)
 
 		w.Header().Set("Content-Type", "application/json")

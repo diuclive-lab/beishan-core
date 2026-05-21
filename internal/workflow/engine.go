@@ -351,6 +351,20 @@ func resolveNext(step *StepDef, ctx map[string]interface{}) string {
 }
 
 func evaluateCondition(expr string, ctx map[string]interface{}) bool {
+	// 支持 != 运算符
+	if idx := strings.Index(expr, "!="); idx > 0 {
+		ref := strings.TrimSpace(expr[:idx])
+		expected := strings.TrimSpace(expr[idx+2:])
+		expected = strings.Trim(expected, "'\"")
+		var actual string
+		if v, ok := ctx[ref]; ok {
+			actual = fmt.Sprintf("%v", v)
+		} else {
+			actual = extractJSONField(ctx, ref)
+		}
+		return actual != expected
+	}
+
 	parts := strings.SplitN(expr, "==", 2)
 	if len(parts) != 2 {
 		return false

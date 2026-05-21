@@ -14,17 +14,29 @@ import (
 // 返回响应文本，不注入任何额外上下文（纯文本补全）。
 // think_plugin（主回答）和 findSemanticLinks（写入时语义建链）共用此函数。
 func ChatCompletion(system, user string, timeout time.Duration) (string, error) {
+	return ChatCompletionMulti([]ChatMessage{
+		{Role: "system", Content: system},
+		{Role: "user", Content: user},
+	}, timeout)
+}
+
+// ChatMessage 表示多轮对话中的一条消息。
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatCompletionMulti 多轮对话 LLM 调用。
+// 接受完整 messages 数组（含 system + 历史 + 当前用户消息）。
+func ChatCompletionMulti(messages []ChatMessage, timeout time.Duration) (string, error) {
 	apiKey := APIKeyFor(ProviderName())
 	if apiKey == "" {
 		return "", fmt.Errorf("LLM_API_KEY 未设置")
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"model": Model(),
-		"messages": []map[string]string{
-			{"role": "system", "content": system},
-			{"role": "user", "content": user},
-		},
+		"model":    Model(),
+		"messages": messages,
 	})
 
 	req, err := http.NewRequest("POST", ChatEndpoint(), bytes.NewReader(body))
