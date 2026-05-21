@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"beishan/internal/llm"
 	"beishan/internal/tools"
 	"beishan/kernel"
 )
@@ -25,6 +24,7 @@ const (
 	ModeChat          ThinkMode = "chat"
 	ModeReviewExtract ThinkMode = "review_extract"
 	ModeNoRetrieval   ThinkMode = "no_retrieval" // workflow 步骤：跳过检索，直接调 LLM
+	ModeTrace         ThinkMode = "trace"        // 检索后返回结构化 trace
 )
 
 // extractMode 从 Payload 提取 mode（L4 语义，whitelist）
@@ -38,7 +38,7 @@ func extractMode(payload []byte) ThinkMode {
 	}
 
 	switch ThinkMode(obj.Mode) {
-	case ModeChat, ModeReviewExtract, ModeNoRetrieval:
+	case ModeChat, ModeReviewExtract, ModeNoRetrieval, ModeTrace:
 		return ThinkMode(obj.Mode)
 	default:
 		return ModeChat
@@ -99,21 +99,27 @@ func strengthenPrompt(basePrompt string, parseErr, validateErr error) string {
 	return basePrompt
 }
 
-// callStructuredLLM 调用 LLM 并强制输出结构化 JSON（retry loop 收敛）
-func callStructuredLLM(prompt string) (ReviewResult, error) {
+// callStructuredLLM 调用 LLM 并强制输出结构化 JSON（retry loop 收敛）。
+// 通过 handleChatNoRetrieval 走 think_plugin 的 LLM 路径，不直接调 llm 包。
+func (p *ThinkPlugin) callStructuredLLM(prompt string) (ReviewResult, error) {
 	const maxRetry = 1
 	basePrompt := prompt
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetry; attempt++ {
-		raw, err := llm.ChatCompletion(
-			"你是知识提取助手。严格按用户要求输出JSON，不要输出任何其他文本。",
-			prompt,
-			120*time.Second,
-		)
+		payload, _ := json.Marshal(map[string]string{
+			"message": prompt,
+			"system":  "你是知识提取助手。严格按用户要求输出JSON，不要输出任何其他文本。",
+		})
+		msg, err := p.handleChatNoRetrieval(payload)
 		if err != nil {
 			lastErr = fmt.Errorf("LLM call failed: %w", err)
 			continue
+		}
+
+		var raw string
+		if err := json.Unmarshal(msg.Payload, &raw); err != nil {
+			raw = string(msg.Payload)
 		}
 
 		var result ReviewResult
@@ -641,7 +647,7 @@ func (p *ThinkPlugin) handleSkipAll() (kernel.Message, error) {
 // handleReviewExtract 处理知识审查提取（Stage 3 Hardened）
 func (p *ThinkPlugin) handleReviewExtract(userText, sessionID string) (kernel.Message, error) {
 	// 调用 LLM 并强制输出结构化 JSON（schema contract + validation gate）
-	result, err := callStructuredLLM(userText)
+	result, err := p.callStructuredLLM(userText)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("review extract failed: %w", err)
 	}

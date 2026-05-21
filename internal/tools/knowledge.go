@@ -53,6 +53,10 @@ type KnowledgeEntry struct {
 	Embedding  []float64 `json:"embedding,omitempty"`     // 语义嵌入向量，用于语义检索
 	Ephemeral  bool      `json:"ephemeral,omitempty"`     // 临时记忆，到期不参与检索
 	ExpiresAt  int64     `json:"expires_at,omitempty"`   // 过期时间戳，0=永久
+	Status        string    `json:"status,omitempty"`         // active/archived/expired，空=active
+	LastAccessedAt int64     `json:"last_accessed_at,omitempty"` // 最后被检索/引用的时间戳
+	Verified      bool      `json:"verified,omitempty"`        // 是否经过事实核查
+	VerifiedAt    int64     `json:"verified_at,omitempty"`     // 核查时间
 }
 
 /* ─── Retrieval Trace ──────────────────────────── */
@@ -217,7 +221,7 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 		Topics:     topics,
 		Tasks:      tasks,
 		CreatedAt:  now,
-		Links:      links,
+		TypedLinks: linksToTypedLinks(links),
 		RawRef:     rawRef,
 		Content:    content,
 	}
@@ -333,6 +337,9 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 	q := strings.ToLower(query)
 
 	for _, entry := range all {
+		if entry.Status != "" && entry.Status != "active" {
+			continue
+		}
 		score := 0
 		title := strings.ToLower(entry.Title)
 		summary := strings.ToLower(entry.Summary)
@@ -361,6 +368,7 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 			// ── 结构化加权（L1 层） ──────────────────
 			structuralBoost, contradictions := computeStructuralBoost(entry)
 			score += structuralBoost
+			recordAccess(entry.ID)
 
 			scored = append(scored, ScoredEntry{
 				ID:             entry.ID,
@@ -396,6 +404,7 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 // 加权规则：
 //   - 决策类标签（决策/决定/架构/方案/结论/教训/放弃）: +1
 //   - 有 TypedLinks: +1
+//   - 经过事实核查（Verified）: +2（已验证的事实优先展示）
 //   - 有 contradicts 链接: +2 + 收集矛盾标注
 func computeStructuralBoost(entry *KnowledgeEntry) (int, []retrieval.ContradictionAnnotation) {
 	boost := 0
@@ -415,6 +424,11 @@ func computeStructuralBoost(entry *KnowledgeEntry) (int, []retrieval.Contradicti
 	// TypedLink 存在加权
 	if len(entry.TypedLinks) > 0 {
 		boost += 1
+	}
+
+	// 事实核查加权：已验证事实优先展示
+	if entry.Verified {
+		boost += 2
 	}
 
 	// 矛盾链接加权 + 收集标注
@@ -564,7 +578,10 @@ func searchByEmbedding(queryEmb []float64, limit int) []ScoredEntry {
 	var pending []*KnowledgeEntry
 
 	for _, entry := range all {
-		// 跳过过期条目
+		// 跳过过期和已归档条目
+		if entry.Status != "" && entry.Status != "active" {
+			continue
+		}
 		if entry.Ephemeral && entry.ExpiresAt > 0 && time.Now().Unix() > entry.ExpiresAt {
 			continue
 		}
@@ -643,6 +660,8 @@ func loadLinkedEntries(id string) ([]*KnowledgeEntry, map[string]LinkType) {
 	var linked []*KnowledgeEntry
 	seen := make(map[string]bool)
 
+	recordAccess(id)
+
 	// 先加载 TypedLinks（新格式）
 	for _, tl := range entry.TypedLinks {
 		if seen[tl.TargetID] {
@@ -652,6 +671,7 @@ func loadLinkedEntries(id string) ([]*KnowledgeEntry, map[string]LinkType) {
 		if le := loadKnowledge(tl.TargetID); le != nil {
 			linked = append(linked, le)
 			linkTypes[tl.TargetID] = tl.Type
+			recordAccess(tl.TargetID)
 		}
 	}
 
@@ -664,6 +684,7 @@ func loadLinkedEntries(id string) ([]*KnowledgeEntry, map[string]LinkType) {
 		if le := loadKnowledge(linkedID); le != nil {
 			linked = append(linked, le)
 			linkTypes[linkedID] = LinkRelated
+			recordAccess(linkedID)
 		}
 	}
 
@@ -909,6 +930,51 @@ func containsTypedLink(links []TypedLink, targetID string) bool {
 	return false
 }
 
+// typedLinksFromArgs 将 JSON 反序列化后的 typed_links 参数转换为 []TypedLink。
+func typedLinksFromArgs(raw interface{}) []TypedLink {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	var result []TypedLink
+	for _, item := range arr {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tl := TypedLink{
+			TargetID: strFromMap(m, "target_id"),
+			Type:     LinkType(strFromMap(m, "type")),
+			Reason:   strFromMap(m, "reason"),
+		}
+		if tl.TargetID != "" {
+			result = append(result, tl)
+		}
+	}
+	return result
+}
+
+func strFromMap(m map[string]interface{}, key string) string {
+	v, _ := m[key].(string)
+	return v
+}
+
+// linksToTypedLinks 将旧格式的 string ID 列表转换为 TypedLinks。
+func linksToTypedLinks(ids []string) []TypedLink {
+	var tls []TypedLink
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		tls = append(tls, TypedLink{
+			TargetID: id,
+			Type:     LinkRelated,
+			Reason:   "知识关联",
+		})
+	}
+	return tls
+}
+
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {
@@ -916,6 +982,17 @@ func containsStr(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// recordAccess 记录条目被检索/引用的时间。
+// 仅在检索命中时写入，不影响只读扫描。
+func recordAccess(id string) {
+	entry := loadKnowledge(id)
+	if entry == nil {
+		return
+	}
+	entry.LastAccessedAt = time.Now().Unix()
+	saveKnowledge(entry)
 }
 
 func min(a, b int) int {
@@ -1268,7 +1345,7 @@ func KnowledgeReindex() *ToolResult {
 			count++
 		}
 	}
-	return successResult(fmt.Sprintf(`{"message":"补全完成","count":%%d}`, count))
+	return successResult(fmt.Sprintf(`{"message":"补全完成","count":%d}`, count))
 }
 
 func KnowledgeList(sourceType string, days int) *ToolResult {
@@ -1366,6 +1443,12 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 	if v, ok := fields["links"].([]string); ok {
 		entry.Links = v
 		changed = true
+	}
+	if rawTL, ok := fields["typed_links"]; ok {
+		if tls := typedLinksFromArgs(rawTL); tls != nil {
+			entry.TypedLinks = tls
+			changed = true
+		}
 	}
 	if v, ok := fields["raw_ref"].(string); ok {
 		entry.RawRef = v
@@ -1541,8 +1624,14 @@ func KnowledgeMerge(sourceID, targetID string) *ToolResult {
 	target.Topics = unionStrings(target.Topics, source.Topics)
 	// 合并 tasks
 	target.Tasks = unionStrings(target.Tasks, source.Tasks)
-	// 合并 links
+	// 合并 links（旧格式，兼容）
 	target.Links = unionStrings(target.Links, source.Links)
+	// 合并 typed_links（去重）
+	for _, tl := range source.TypedLinks {
+		if !containsTypedLink(target.TypedLinks, tl.TargetID) {
+			target.TypedLinks = append(target.TypedLinks, tl)
+		}
+	}
 	// 合并 content: 如果 source 有额外内容
 	if source.Content != "" {
 		srcTrimmed := strings.TrimSpace(source.Content)
@@ -1603,27 +1692,24 @@ func KnowledgeConfirmLinks(id string, linkIDs []string) *ToolResult {
 		if lid == "" || lid == id {
 			continue
 		}
-		found := false
-		for _, existing := range entry.Links {
-			if existing == lid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			entry.Links = append(entry.Links, lid)
+		if !containsTypedLink(entry.TypedLinks, lid) {
+			entry.TypedLinks = append(entry.TypedLinks, TypedLink{
+				TargetID: lid,
+				Type:     LinkRelated,
+				Reason:   "用户确认关联",
+			})
 			added++
 		}
 	}
 
 	if added == 0 {
-		return successResult(fmt.Sprintf(`{"id":"%s","message":"所有链接已存在，无需添加","links_count":%d}`, id, len(entry.Links)))
+		return successResult(fmt.Sprintf(`{"id":"%s","message":"所有链接已存在，无需添加","typed_links_count":%d}`, id, len(entry.TypedLinks)))
 	}
 
 	saveKnowledge(entry)
 
 	b, _ := json.MarshalIndent(entry, "", "  ")
-	return successResult(fmt.Sprintf(`{"id":"%s","message":"已确认 %d 条关联","links_count":%d,"entry":%s}`, id, added, len(entry.Links), string(b)))
+	return successResult(fmt.Sprintf(`{"id":"%s","message":"已确认 %d 条关联","typed_links_count":%d,"entry":%s}`, id, added, len(entry.TypedLinks), string(b)))
 }
 
 /* ─── 关联建议 ──────────────────────────────────── */
@@ -1991,6 +2077,64 @@ func KnowledgeTimeline(groupBy string) *ToolResult {
 	b, _ := json.MarshalIndent(result, "", "  ")
 	return successResult(string(b))
 }
+
+/* ─── 知识图谱 ──────────────────────────────────── */
+
+type GraphNode struct {
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	SourceType string   `json:"source_type"`
+	Tags       []string `json:"tags"`
+}
+
+type GraphEdge struct {
+	Source   string `json:"source"`
+	Target   string `json:"target"`
+	Relation string `json:"relation"`
+}
+
+func KnowledgeGraph() *ToolResult {
+	all := loadAllKnowledge()
+	if len(all) == 0 {
+		return successResult(`{"nodes":[],"edges":[],"count":0}`)
+	}
+
+	nodes := make([]GraphNode, 0, len(all))
+	nodeSet := make(map[string]bool)
+	var edges []GraphEdge
+
+	for _, entry := range all {
+		nodes = append(nodes, GraphNode{
+			ID:         entry.ID,
+			Title:      entry.Title,
+			SourceType: entry.SourceType,
+			Tags:       entry.Tags,
+		})
+		nodeSet[entry.ID] = true
+
+		for _, tl := range entry.TypedLinks {
+			if nodeSet[tl.TargetID] {
+				continue // 反向边由对端 TypedLinks 生成
+			}
+			edges = append(edges, GraphEdge{
+				Source:   entry.ID,
+				Target:   tl.TargetID,
+				Relation: string(tl.Type),
+			})
+		}
+	}
+
+	result := map[string]interface{}{
+		"nodes":  nodes,
+		"edges":  edges,
+		"count":  len(nodes),
+		"links":  len(edges),
+		"message": fmt.Sprintf("%d 个节点，%d 条边", len(nodes), len(edges)),
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	return successResult(string(b))
+}
+
 func registerKnowledgeTools() {
 	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
 		map[string]interface{}{
@@ -2178,6 +2322,19 @@ func registerKnowledgeTools() {
 					"description": "关联 ID 列表",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"typed_links": map[string]interface{}{
+					"type":        "array",
+					"description": "有类型的关联链接（新格式）",
+					"items": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"target_id", "type"},
+						"properties": map[string]interface{}{
+							"target_id": stringParam("关联的目标条目 ID"),
+							"type":      stringParam("链接类型: related|contradicts|supersedes|supports"),
+							"reason":    stringParam("建链原因"),
+						},
+					},
+				},
 				"raw_ref": stringParam("原始来源引用"),
 				"content": stringParam("完整内容"),
 			},
@@ -2288,6 +2445,16 @@ func registerKnowledgeTools() {
 			return KnowledgeReindex()
 		},
 	)
+
+	Register("knowledge_graph", "生成知识图谱（nodes+edges JSON），用于前端 D3.js 可视化。",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeGraph()
+		},
+	)
 }
 
 func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
@@ -2307,6 +2474,9 @@ func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 			continue
 		}
 		fields[key] = strSliceArg(args, key)
+	}
+	if raw, ok := args["typed_links"]; ok && raw != nil {
+		fields["typed_links"] = raw
 	}
 	return fields
 }

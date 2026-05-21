@@ -1,12 +1,9 @@
 package plugins
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -195,50 +192,15 @@ Available plugins:
 
 User request: %s`, nameHint, pluginList, description)
 
-	apiKey := llm.APIKey()
-	if apiKey == "" {
-		return "", fmt.Errorf("LLM_API_KEY 未设置")
-	}
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"model": llm.Model(),
-		"messages": []map[string]string{
-			{
-				"role": "system",
-				"content": "You generate beishan-core workflow YAML files. Output ONLY valid YAML. No explanations, no markdown fences, no extra text.",
-			},
-			{"role": "user", "content": prompt},
-		},
-	})
-
-	req, _ := http.NewRequest("POST", llm.ChatEndpoint(),
-		bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 90 * time.Second}
-	resp, err := client.Do(req)
+	content, err := llm.ChatCompletion(
+		"You generate beishan-core workflow YAML files. Output ONLY valid YAML. No explanations, no markdown fences, no extra text.",
+		prompt,
+		90*time.Second,
+	)
 	if err != nil {
 		return "", fmt.Errorf("API 调用失败: %w", err)
 	}
-	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("解析响应失败: %w", err)
-	}
-	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("LLM 未返回结果")
-	}
-
-	content := result.Choices[0].Message.Content
 	// 清理可能的 markdown 标记
 	content = strings.TrimSpace(content)
 	content = strings.TrimPrefix(content, "```yaml")

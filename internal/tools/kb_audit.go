@@ -3,7 +3,10 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 /* ─── kb_audit 知识库质量审计 ────────────────────
@@ -126,6 +129,19 @@ func KBaudit() *AuditResult {
 				Severity: severity,
 			})
 		}
+
+		// 归档候选检测：90 天未被检索命中
+		now := time.Now().Unix()
+		archiveCutoff := now - 90*86400
+		if e.LastAccessedAt > 0 && e.LastAccessedAt < archiveCutoff && e.Status != "archived" {
+			result.Issues = append(result.Issues, AuditIssue{
+				EntryID:  e.ID,
+				Title:    e.Title,
+				Problems: []string{fmt.Sprintf("90天未访问，建议归档（最后访问: %s）",
+					time.Unix(e.LastAccessedAt, 0).Format("2006-01-02"))},
+				Severity: "info",
+			})
+		}
 	}
 
 	// 生成重复组
@@ -158,7 +174,7 @@ func KBaudit() *AuditResult {
 }
 
 func registerKBAuditTools() {
-	Register("kb_audit", "扫描知识库，生成数据质量报告（source_type/tags/links/embedding 完整性、重复检测、健康度评分）。",
+	Register("kb_audit", "扫描知识库，生成数据质量报告（source_type/tags/links/embedding 完整性、重复检测、健康度评分）。历史记录自动追加，输出含趋势对比。",
 		map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": true,
@@ -166,7 +182,39 @@ func registerKBAuditTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			result := KBaudit()
-			b, _ := json.MarshalIndent(result, "", "  ")
+
+			// 保存本次结果到历史
+			saveAuditHistory(result)
+
+			// 对比上一条历史记录
+			prev := loadLastAudit()
+			trend := ""
+			if prev != nil {
+				diff := result.HealthScore - prev.Score
+				switch {
+				case diff > 0:
+					trend = fmt.Sprintf("+%d", diff)
+				case diff < 0:
+					trend = fmt.Sprintf("%d", diff)
+				default:
+					trend = "持平"
+				}
+			}
+
+			output := map[string]interface{}{
+				"total":        result.Total,
+				"health_score": result.HealthScore,
+				"issues":       len(result.Issues),
+				"stats":        result.Stats,
+				"duplicates":   len(result.DuplicateGroups),
+				"issues_list":  result.Issues,
+				"trend":        trend,
+			}
+			if prev != nil {
+				output["prev_score"] = prev.Score
+				output["prev_date"] = time.Unix(prev.Timestamp, 0).Format("2006-01-02")
+			}
+			b, _ := json.MarshalIndent(output, "", "  ")
 			return successResult(string(b))
 		},
 	)
@@ -192,6 +240,62 @@ func registerKBAuditTools() {
 			return successResult(string(b))
 		},
 	)
+}
+
+/* ─── 审计历史追踪 ──────────────────────────── */
+
+// AuditHistoryEntry 单次审计的历史记录
+type AuditHistoryEntry struct {
+	Timestamp int64  `json:"timestamp"`
+	Score     int    `json:"score"`
+	Total     int    `json:"total"`
+	Issues    int    `json:"issues"`
+	Summary   string `json:"summary"`
+}
+
+func auditHistoryPath() string {
+	return filepath.Join(MemoryDir, "kb_audit_history.jsonl")
+}
+
+// saveAuditHistory 将本次审计结果追加到历史文件。
+func saveAuditHistory(result *AuditResult) {
+	entry := AuditHistoryEntry{
+		Timestamp: time.Now().Unix(),
+		Score:     result.HealthScore,
+		Total:     result.Total,
+		Issues:    len(result.Issues),
+		Summary:   fmt.Sprintf("score=%d total=%d issues=%d", result.HealthScore, result.Total, len(result.Issues)),
+	}
+	data, _ := json.Marshal(entry)
+	os.MkdirAll(MemoryDir, 0755)
+	f, err := os.OpenFile(auditHistoryPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(data)
+	f.WriteString("\n")
+}
+
+// loadLastAudit 读取上一条历史记录。
+func loadLastAudit() *AuditHistoryEntry {
+	data, err := os.ReadFile(auditHistoryPath())
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		return nil
+	}
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if last == "" {
+		return nil
+	}
+	var entry AuditHistoryEntry
+	if err := json.Unmarshal([]byte(last), &entry); err != nil {
+		return nil
+	}
+	return &entry
 }
 
 /* ─── kb_repair 知识库修复 ──────────────────────── */

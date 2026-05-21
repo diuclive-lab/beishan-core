@@ -169,6 +169,7 @@ var episodicKeywords = []string{
 	"之前", "上次", "讨论过", "聊过", "历史", "记得",
 	"什么时候", "几月", "当时", "那次", "曾经", "过去",
 	"还记得", "说过", "提到过", "刚才",
+	"以前", "过往", "做过", "决定过", "那时候",
 }
 
 // semanticKeywords 语义知识触发词（decision/conclusion oriented）
@@ -230,7 +231,7 @@ func classifyIntent(text string) QueryIntent {
 // RunEpisodicRetrieval 情景记忆检索管道
 // 搜索会话历史，按时间倒序 + recency 加权
 func RunEpisodicRetrieval(query string, limit int, trace *tools.RetrievalTrace) []retrieval.RetrievalResult {
-	matches := tools.SessionSearchStructured(query, limit*2)
+	matches := tools.SessionSearchStructured(query, limit*2, 30)
 
 	if len(matches) == 0 {
 		return nil

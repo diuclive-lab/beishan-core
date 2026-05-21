@@ -74,30 +74,35 @@ func main() {
 
 	// ─── 注册 Go 插件 ─────────────────────────────
 
-	k.Register("search_plugin", &plugins.SearchPlugin{}, kernel.Meta{
+	k.Register("search_plugin", &plugins.SearchPlugin{Kernel: k}, kernel.Meta{
 		Description: "通用网络搜索，适用于查找资料、新闻、技术文档",
 		Tags:        []string{"search", "retrieval"},
 		Types:       []string{"web_search", "web_fetch", "web_extract", "web_render"},
+		Example:     `type="web_search" payload={"query":"Go语言热门项目2026"}`,
 	})
 	k.Register("write_plugin", &plugins.WritePlugin{}, kernel.Meta{
 		Description: "长文本生成、格式化写作、文件处理，适合：写文章、写报告、写代码、解析文件。不适合：输出JSON、做逻辑判断",
 		Tags:        []string{"file", "filesystem"},
 		Types:       []string{"write_file", "read_file", "search_files", "patch", "file_parse"},
+		Example:     `type="write_file" payload={"path":"test.md","content":"hello"}`,
 	})
 	k.Register("memory_plugin", &plugins.MemoryPlugin{}, kernel.Meta{
 		Description: "会话记忆管理，存储和召回跨轮上下文信息",
 		Tags:        []string{"memory", "session"},
 		Types:       []string{"session_add", "session_get", "session_search", "session_list", "session_delete", "session_cleanup", "evidence_add", "evidence_search", "knowledge_add", "knowledge_search", "knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline", "system_info"},
+		Example:     `type="knowledge_add" payload={"source_type":"web","title":"标题","summary":"摘要"} 或 type="knowledge_search" payload={"keyword":"Go语言"} 或 type="knowledge_remember" payload={"title":"事实","summary":"内容"}`,
 	})
 	k.Register("terminal_plugin", &plugins.TerminalPlugin{}, kernel.Meta{
 		Description: "本地终端命令执行，执行 shell 命令和管理后台进程",
 		Tags:        []string{"terminal", "shell"},
 		Types:       []string{"terminal_exec", "terminal_list", "terminal_poll", "terminal_kill"},
+		Example:     `type="terminal_exec" payload={"command":"ls -la"}`,
 	})
 	k.Register("browser_plugin", &plugins.BrowserPlugin{}, kernel.Meta{
 		Description: "浏览器自动化，导航、点击、滚动、提取网页内容",
 		Tags:        []string{"browser", "web"},
 		Types:       []string{"browser_navigate", "browser_snapshot", "browser_click", "browser_scroll", "browser_back"},
+		Example:     `type="browser_navigate" payload={"url":"https://example.com"}`,
 	})
 	k.Register("session_search_plugin", &plugins.SessionSearchPlugin{}, kernel.Meta{
 		Description: "历史会话搜索，按关键词搜索所有存储的对话记录",
@@ -108,6 +113,7 @@ func main() {
 		Description: "待办事项管理，添加、列出、标记完成、清除任务",
 		Tags:        []string{"todo", "task"},
 		Types:       []string{"todo_list", "todo_add", "todo_done", "todo_clear", "todo_by_source"},
+		Example:     `type="todo_list" 或 type="todo_add" payload={"todos":["买牛奶"]} 或 type="todo_done" payload={"id":1}`,
 	})
 	k.Register("tts_plugin", &plugins.TTSPlugin{}, kernel.Meta{
 		Description: "文本转语音（TTS），使用系统引擎把文字转为音频文件",
@@ -123,6 +129,7 @@ func main() {
 		Description: "推理、分析、判断、结构化输出JSON，适合：分析代码、提取字段、做决策、生成大纲。不适合：直接生成长文本",
 		Tags:        []string{"chat", "dialogue", "general"},
 		Types:       []string{"chat"},
+		Example:     `type="chat" payload={"message":"你好"}`,
 	})
 	schedulerPlugin := plugins.NewScheduler(k)
 	k.Register("scheduler_plugin", schedulerPlugin, kernel.Meta{
@@ -270,10 +277,11 @@ func main() {
 		msg := kernel.Message{Sender: "user"}
 		async := false
 
-		if txt, ok := raw["message"].(string); ok {
+		msg.SessionID = sessionID
+
+	if txt, ok := raw["message"].(string); ok {
 			msg.Type = "chat"
-			// session_id 放入 Payload（L4 plugin 层负责），不污染 L1 kernel.Message
-			payloadObj := map[string]string{"message": txt, "session_id": sessionID}
+			payloadObj := map[string]string{"message": txt}
 			pb, _ := json.Marshal(payloadObj)
 			msg.Payload = pb
 			if a, ok := raw["async"].(bool); ok {
@@ -290,10 +298,6 @@ func main() {
 				msg.Recipient = rcp
 			}
 			if p, ok := raw["payload"]; ok {
-				// 注入 session_id 到 payload（L4 层负责）
-				if obj, ok := p.(map[string]interface{}); ok {
-					obj["session_id"] = sessionID
-				}
 				pb, _ := json.Marshal(p)
 				msg.Payload = pb
 			}
@@ -381,6 +385,7 @@ func main() {
 		defer cancel()
 		srv.Shutdown(ctx)
 		gl.Shutdown()
+		tools.CloseBrowser()
 		close(idleConnsClosed)
 	}()
 

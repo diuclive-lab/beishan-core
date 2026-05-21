@@ -20,11 +20,13 @@ import (
    - Description：一句话描述，直接注入路由 prompt
    - Tags：分类标签，备用
    - Types：该插件支持的消息类型列表，供 skill_factory 生成和校验用
+   - Example：示例调用，注入 Router prompt 帮 DeepSeek 理解精确的 type 名和参数
 */
 type Meta struct {
 	Description string
 	Tags        []string
 	Types       []string
+	Example     string
 }
 
 /* Plugin 是所有插件必须实现的接口。 */
@@ -76,7 +78,7 @@ func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	}
 	k.metas[name] = m
 
-	k.Router.AddKnownPlugin(name, m.Description)
+	k.Router.AddKnownPlugin(name, m.Description, m.Example)
 
 	log.Printf("[Kernel] 插件注册: %s", name)
 }
@@ -149,7 +151,7 @@ func (k *Kernel) Send(msg Message) error {
 
 	response, err := plugin.OnMessage(msg)
 
-	if err == nil && msg.CorrelationID != "" && response.Sender == "" {
+	if err == nil && msg.CorrelationID != "" {
 		response.Sender = msg.Recipient
 		response.Recipient = msg.Sender
 		response.CorrelationID = msg.CorrelationID
@@ -157,7 +159,7 @@ func (k *Kernel) Send(msg Message) error {
 	}
 
 	if err == nil && msg.ReplyTo != "" {
-		k.deliverReply(msg)
+		k.deliverReply(response)
 	}
 
 	return err

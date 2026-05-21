@@ -46,6 +46,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: evaluate
     inputs:
       query: "${steps.classify.output.search_queries[0]}"
     next: kb_check
@@ -55,6 +56,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_search
     timeout: 15
+    on_error: evaluate
     inputs:
       keyword: "${steps.classify.output.core_idea}"
     next: evaluate

@@ -40,7 +40,10 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	}
 
 	userText := extractPrompt(msg.Payload)
-	sessionID := extractSessionID(msg.Payload)
+	sessionID := msg.SessionID
+	if sessionID == "" {
+		sessionID = extractSessionID(msg.Payload) // 兼容旧 payload 格式
+	}
 	mode := extractMode(msg.Payload)
 
 	// Mode dispatch 优先（L4 语义，不污染 L1）
@@ -49,7 +52,7 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	case ModeReviewExtract:
 		return p.handleReviewExtract(userText, sessionID)
 	case ModeNoRetrieval:
-		return p.handleChatNoRetrieval(userText)
+		return p.handleChatNoRetrieval(msg.Payload)
 	}
 
 	// 清理过期的 pending remember（懒清理 review）
@@ -110,8 +113,24 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	if isConfirmReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
+			// 事实核查：检测可验证的客观事实
+			var fcResult *tools.FactCheckResult
+			if tools.ContainsVerifiableClaim(pr.Summary) {
+				r := tools.FactCheck(pr.Summary)
+				fcResult = &r
+				if r.Status == "contradicted" {
+					reply := fmt.Sprintf("⚠️ 事实核查不通过：%s\n\n实际值：%s\n\n仍需记录？回复「是的，强制记录」", r.Reason, r.Actual)
+					replyJSON, _ := json.Marshal(reply)
+					return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+				}
+			}
+
 			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
-			reply := fmt.Sprintf("已记录：%s\n%s", pr.Title, result.Output)
+			label := ""
+			if fcResult != nil && fcResult.Status == "verified" {
+				label = " ✅ 已核查"
+			}
+			reply := fmt.Sprintf("已记录%s：%s\n%s", label, pr.Title, result.Output)
 			replyJSON, _ := json.Marshal(reply)
 			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
 		}
@@ -137,13 +156,31 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return p.handleSkipAll()
 	}
 
-	return p.handleChat(userText, sessionID)
+	return p.handleChat(userText, sessionID, mode == ModeTrace)
 }
 
 // handleChatNoRetrieval 处理 workflow 步骤：跳过检索，直接调 LLM。
 // 用于需要精确 JSON 输出的步骤（如 classify/evaluate），避免检索上下文干扰。
-func (p *ThinkPlugin) handleChatNoRetrieval(userText string) (kernel.Message, error) {
-	reply, err := llm.ChatCompletion(systemPrompt, userText, 120*time.Second)
+// Payload 支持 JSON 对象格式：{"message": "...", "system": "..."}，
+// 也兼容旧格式纯字符串。
+func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte) (kernel.Message, error) {
+	var req struct {
+		Message string `json:"message"`
+		System  string `json:"system,omitempty"`
+	}
+	if len(raw) > 0 && raw[0] == '{' {
+		json.Unmarshal(raw, &req)
+	}
+	if req.Message == "" {
+		req.Message = strings.Trim(string(raw), `"`)
+	}
+
+	sysPrompt := systemPrompt
+	if req.System != "" {
+		sysPrompt = req.System
+	}
+
+	reply, err := llm.ChatCompletion(sysPrompt, req.Message, 120*time.Second)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
@@ -160,7 +197,8 @@ func (p *ThinkPlugin) handleChatNoRetrieval(userText string) (kernel.Message, er
 }
 
 // handleChat 处理普通聊天
-func (p *ThinkPlugin) handleChat(userText, sessionID string) (kernel.Message, error) {
+// wantTrace 为 true 时，response payload 包含结构化 retrieval_trace 字段。
+func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (kernel.Message, error) {
 	background := ""
 
 	// 项目路径（从环境变量或固定配置）
@@ -191,6 +229,16 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string) (kernel.Message, er
 			reply += fmt.Sprintf("\n\n---\n是否将此结论加入知识库？回复「确认」即可。")
 			fmt.Printf("[思考] 检测到值得记住的结论: %s (session=%s, pending=%s)\n", title, sessionID, pr.ID)
 		}
+	}
+
+	// 结构化 trace 模式：跳过文本 trace，返回结构化数据
+	if wantTrace && trace != nil && len(trace.Stages) > 0 {
+		tracePayload, _ := json.Marshal(map[string]interface{}{
+			"reply":           reply,
+			"retrieval_trace": trace,
+		})
+		fmt.Printf("[思考] %s\n", truncate(reply, 120))
+		return kernel.Message{Type: "chat.response", Payload: tracePayload}, nil
 	}
 
 	// 检索过程可视化（仅非纯 JSON 回答，如 workflow 步骤不追加）

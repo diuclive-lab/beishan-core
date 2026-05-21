@@ -1,0 +1,53 @@
+# 检索意图分类冒烟测试
+# 覆盖 classifyIntent 的边界场景：空输入、标点、混中英、多意图冲突、代码/情景路由
+# 每个测试：通过 think_plugin/chat 发送消息，验证意图分流不崩溃
+---
+plugin: retrieval_smoke
+cases:
+  - id: retrieval_empty
+    desc: 空输入 — classifyIntent 返回 mixed 不崩溃
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":""}'
+
+  - id: retrieval_punctuation
+    desc: 纯标点符号 — 无关键词命中，回退 mixed
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"？！，，。、；："}'
+
+  - id: retrieval_mixed_lang
+    desc: 混合中英文 — 同时包含中文和英文触发词
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"之前讨论过的那个 code implementation 方案是什么"}'
+
+  - id: retrieval_episodic_semantic_conflict
+    desc: 同时命中 episodic 和 semantic — 之前+决策，episodic 优先（同分回退 mixed）
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"之前讨论的架构决策还记得吗"}'
+
+  - id: retrieval_code_query
+    desc: 代码相关查询 — 应路由到 code 意图
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"看看这个函数是怎么实现的"}'
+
+  - id: retrieval_why_abandoned
+    desc: 为什么放弃 — 命中 semantic（"为什么放弃"关键词）和 episodic（"为什么"的上下文）
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"为什么之前决定放弃本地模型"}'
+
+  - id: retrieval_semantic_dominant
+    desc: 强语义查询 — semantic 关键词明显多于其他
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"架构决策和最终方案是什么，当时的标准和规则"}'
+
+  - id: retrieval_mixed_fallback
+    desc: 无明确意图 — 普通查询回退 mixed
+    recipient: think_plugin
+    type: chat
+    payload: '{"message":"你好，今天天气怎么样"}'

@@ -93,10 +93,15 @@ type SessionMatch struct {
 
 // SessionSearchStructured 结构化会话搜索，返回按时间倒序排列的匹配结果。
 // 供 retrieval pipe 的 Episodic 管道调用。
-func SessionSearchStructured(keyword string, limit int) []SessionMatch {
+// maxAgeDays: 只检索最近 N 天的会话，<=0 时默认 30。
+func SessionSearchStructured(keyword string, limit int, maxAgeDays int) []SessionMatch {
 	if limit <= 0 {
 		limit = 10
 	}
+	if maxAgeDays <= 0 {
+		maxAgeDays = 30
+	}
+	cutoff := time.Now().Add(-time.Duration(maxAgeDays) * 24 * time.Hour)
 
 	keywords := strings.Fields(strings.ToLower(keyword))
 	sessionDir := filepath.Join(MemoryDir, "sessions")
@@ -107,6 +112,13 @@ func SessionSearchStructured(keyword string, limit int) []SessionMatch {
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			continue // 跳过过期会话
 		}
 		sid := strings.TrimSuffix(e.Name(), ".json")
 		data, _ := os.ReadFile(filepath.Join(sessionDir, e.Name()))

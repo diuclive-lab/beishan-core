@@ -28,4 +28,5 @@ type Message struct {
 	CorrelationID string          `json:"correlation_id,omitempty"`
 	ReplyTo       string          `json:"reply_to,omitempty"`
 	Provider      string          `json:"provider,omitempty"` // 可选，指定 LLM provider（local/deepseek/xiaomi/openai）
+	SessionID     string          `json:"session_id,omitempty"` // 会话 ID，由 HTTP handler 设置，L4 插件读取
 }

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>beishan-core</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <style>
 :root {
   --bg: #1a1a2e;
@@ -161,6 +162,10 @@ body {
       <div class="name">&#128279; 关联建议</div>
       <div class="desc">推荐与当前条目相关的其他知识</div>
     </li>
+    <li class="workflow-item" onclick="showKnowledgeGraph()">
+      <div class="name">&#128200; 知识图谱</div>
+      <div class="desc">D3 力导向图可视化条目关联</div>
+    </li>
   </ul>
 </div>
 
@@ -184,6 +189,19 @@ body {
     <div class="actions">
       <button class="cancel" onclick="hideKnowledgeModal()">取消</button>
       <button class="submit" id="knowledge-submit" onclick="doKnowledgeIngest()">入库</button>
+    </div>
+  </div>
+</div>
+
+<!-- 知识图谱模态框 -->
+<div class="modal-overlay" id="graph-modal">
+  <div class="modal" style="width:800px;max-width:95vw;height:80vh;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h3>知识图谱</h3>
+      <button class="cancel" onclick="hideKnowledgeGraph()" style="background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer;">&times;</button>
+    </div>
+    <div id="graph-container" style="flex:1;min-height:0;background:var(--bg);border-radius:var(--radius);overflow:hidden;position:relative;">
+      <p id="graph-loading" style="color:var(--text-dim);text-align:center;padding:40px;">加载中...</p>
     </div>
   </div>
 </div>
@@ -520,6 +538,158 @@ async function send() {
     btn.disabled = false;
     document.getElementById('input').focus();
   }
+}
+
+// ─── 知识图谱 ────────────────────────────────────
+function showKnowledgeGraph() {
+  document.getElementById('graph-modal').classList.add('show');
+  loadGraphData();
+}
+
+function hideKnowledgeGraph() {
+  document.getElementById('graph-modal').classList.remove('show');
+}
+
+async function loadGraphData() {
+  const container = document.getElementById('graph-container');
+  const loading = document.getElementById('graph-loading');
+  loading.style.display = 'block';
+
+  try {
+    const r = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({recipient:'memory_plugin',type:'knowledge_graph',payload:{}})
+    });
+    const d = await r.json();
+    let data;
+    if (typeof d.payload === 'object' && d.payload.nodes) {
+      data = d.payload;
+    } else if (typeof d.payload === 'string') {
+      data = JSON.parse(d.payload);
+    } else {
+      throw new Error('unexpected response');
+    }
+
+    if (!data.nodes || data.nodes.length === 0) {
+      loading.textContent = '暂无数据';
+      return;
+    }
+
+    loading.style.display = 'none';
+    renderGraph(container, data);
+  } catch (err) {
+    loading.textContent = '加载失败: ' + err.message;
+  }
+}
+
+function renderGraph(container, data) {
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (width === 0 || height === 0) return;
+
+  // 清理旧内容
+  container.innerHTML = '';
+
+  // 创建 SVG
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .style('background', 'transparent');
+
+  const g = svg.append('g');
+
+  // 缩放
+  svg.call(d3.zoom().on('zoom', (e) => {
+    g.attr('transform', e.transform);
+  }));
+
+  const nodes = data.nodes.map(n => ({...n}));
+  const edges = data.edges.map(e => ({source: e.source, target: e.target, relation: e.relation}));
+
+  // 颜色映射
+  const color = d3.scaleOrdinal()
+    .domain([...new Set(nodes.map(n => n.source_type || 'unknown'))])
+    .range(d3.schemeSet2);
+
+  // 力模拟
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(120))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide(40));
+
+  // 边
+  const link = g.append('g')
+    .selectAll('line')
+    .data(edges)
+    .join('line')
+    .attr('stroke', '#444')
+    .attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.6);
+
+  // 节点
+  const node = g.append('g')
+    .selectAll('circle')
+    .data(nodes)
+    .join('circle')
+    .attr('r', 8)
+    .attr('fill', d => color(d.source_type || 'unknown'))
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 1.5)
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => {
+        if (!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on('drag', (e, d) => {
+        d.fx = e.x;
+        d.fy = e.y;
+      })
+      .on('end', (e, d) => {
+        if (!e.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      })
+    );
+
+  // 节点标签
+  const label = g.append('g')
+    .selectAll('text')
+    .data(nodes)
+    .join('text')
+    .text(d => d.title ? d.title.substring(0, 16) : d.id.substring(0, 8))
+    .attr('font-size', 10)
+    .attr('dx', 12)
+    .attr('dy', 4)
+    .attr('fill', '#ccc')
+    .style('pointer-events', 'none');
+
+  // 节点点击 → 显示详情
+  node.on('click', (e, d) => {
+    const msg = '详情: ' + d.id + '\n标题: ' + (d.title || '-') + '\n类型: ' + (d.source_type || '-') + '\n标签: ' + (d.tags || []).join(', ');
+    document.getElementById('input').value = '帮我查一下 ' + d.id;
+    addMsg('system', msg);
+    hideKnowledgeGraph();
+  });
+
+  // Tick
+  simulation.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+    node
+      .attr('cx', d => d.x)
+      .attr('cy', d => d.y);
+    label
+      .attr('x', d => d.x)
+      .attr('y', d => d.y);
+  });
 }
 </script>
 </body>

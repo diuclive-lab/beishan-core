@@ -29,6 +29,7 @@ type Decision struct {
 type pluginEntry struct {
 	name        string
 	description string
+	example     string
 }
 
 /* Router 封装 DeepSeek API 调用。
@@ -47,13 +48,13 @@ type Router struct {
 	workflowSummary string
 }
 
-/* AddKnownPlugin 添加插件名和描述到路由列表。
+/* AddKnownPlugin 添加插件名、描述和示例调用到路由列表。
 
    由 Kernel.Register 自动调用，外部勿调。
-   替代原 AddKnownName。
+   description 和 example 合并后注入 Router prompt，帮 DeepSeek 理解用法。
 */
-func (r *Router) AddKnownPlugin(name, description string) {
-	r.knownPlugins = append(r.knownPlugins, pluginEntry{name, description})
+func (r *Router) AddKnownPlugin(name, description, example string) {
+	r.knownPlugins = append(r.knownPlugins, pluginEntry{name, description, example})
 }
 
 /* SetWorkflowSummary 注入可用 workflow 列表，Router 会追加到插件列表之后。
@@ -80,11 +81,11 @@ func NewRouter(apiKey string) *Router {
 func (r *Router) buildPluginList() string {
 	var sb strings.Builder
 	for _, e := range r.knownPlugins {
-		if e.description != "" {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", e.name, e.description))
-		} else {
-			sb.WriteString(fmt.Sprintf("- %s\n", e.name))
+		sb.WriteString(fmt.Sprintf("- %s: %s", e.name, e.description))
+		if e.example != "" {
+			sb.WriteString(fmt.Sprintf("\n  示例: %s", e.example))
 		}
+		sb.WriteString("\n")
 	}
 	if r.workflowSummary != "" {
 		sb.WriteString("\nAvailable workflows (via workflow_plugin):\n")
