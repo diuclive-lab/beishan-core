@@ -292,6 +292,28 @@ KnowledgeAdd 入库后异步触发，不阻塞写入路径：
 | main.go | +system_info Meta.Types |
 
 
+### 数据污染治理 + schema 批量修复
+
+知识库与智能体记忆体合一的架构下，数据质量是重中之重。当天发现并修复三个污染源：
+
+**硬件前缀重复追加**
+
+`saveKnowledge` 每次写入时检查 `strings.Contains(summary, "硬件：")` 判断是否已添加硬件快照。但实际前缀格式为 `【darwin/arm64...】`，检测条件不匹配，导致每次写入都重复追加（最多 6 次）。
+
+修复：改为 `strings.HasPrefix(summary, "【d")`，匹配实际前缀格式。
+
+**TypedLinks contradicts 噪音**
+
+`findSemanticLinks` 的逻辑：只要一条有否定词而另一条没有，就标 `contradicts`。但跨主题条目（如"Lavern 三层验证架构"和"本地模型方案已放弃"）被错误关联为矛盾关系。
+
+修复：加 `hasSharedTagOrTopic(entry, candidate)` 过滤，只有共享标签或主题的条目才可能标矛盾。
+
+**knowledge_* schema 全部缺 additionalProperties**
+
+HTTP handler 注入 `session_id` 到 payload，9 个 knowledge 工具缺少 `additionalProperties: true`，导致硬化层返回"未知字段: session_id"。所有通过 API 调用的知识工具（list/get/delete/update 等）全部静默失效。
+
+修复：批量补全 9 个 schema。
+
 ## 2026-05-19 远程合并：payload 修复 + knowledge_enrich 修复
 
 ### 多模型 API 适配（LLM_PROVIDER）
