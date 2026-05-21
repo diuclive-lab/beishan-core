@@ -231,7 +231,18 @@ func KBrepair(dryRun bool) *RepairResult {
 			}
 		}
 
-		// 3. 补 typed_links
+		// 3. 补 embedding（仅端点可用时自动填充）
+		if len(e.Embedding) == 0 && embeddingEnabled() {
+			text := e.Title + " " + e.Summary
+			if emb, ok := tryEmbedding(text); ok {
+				e.Embedding = emb
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s: embedding +%d dims", e.ID, len(emb)))
+				modified = true
+			}
+		}
+
+		// 4. 补 typed_links
 		if len(e.TypedLinks) == 0 && len(e.Tags) > 0 {
 			autoLinkEntry(e.ID, e.Title, e.Summary, e.Tags, e.Topics)
 			// 重新加载以获取链接结果

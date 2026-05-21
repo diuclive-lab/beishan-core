@@ -119,9 +119,21 @@ steps:
 
         全网验证：${steps.cross_check.output}
         已有知识：${steps.kb_check.output}
+    next: auto_store
+
+  # ── Step 6: 自动入库（仅 action=store 时执行） ──
+  - id: auto_store
+    plugin: memory_plugin
+    type: knowledge_remember
+    timeout: 15
+    skip_if: "steps.evaluate.output.action != 'store'"
+    inputs:
+      title: "${steps.evaluate.output.insight_title}"
+      summary: "${steps.evaluate.output.insight_summary}"
+      tags: "${steps.evaluate.output.insight_tags}"
     next: report
 
-  # ── Step 6: 最终报告 ──
+  # ── Step 7: 最终报告 ──
   - id: report
     plugin: think_plugin
     type: chat
@@ -143,8 +155,9 @@ steps:
         7. 理由说明
 
         action=store 时：
-          附加建议入库的洞察内容
-          询问用户是否确认入库
+          说明洞察已自动入库
+          附上入库的条目标题和摘要
+          不再询问确认
 
         action=discard 时：
           说明已标记为低质量
