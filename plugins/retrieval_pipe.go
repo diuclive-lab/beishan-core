@@ -104,6 +104,7 @@ func RunFullRetrieval(query string, projectPath string) ([]retrieval.RetrievalRe
 var codeQuestionKeywords = []string{
 	"代码", "函数", "实现", "源码", "调用", "定义在哪",
 	"怎么实现", "code", "func", "implementation", "where",
+	"怎么写的", "在哪", "什么方法",
 }
 
 // looksLikeCodeQuestion 确定性检测是否是代码问题
@@ -167,13 +168,14 @@ const (
 var episodicKeywords = []string{
 	"之前", "上次", "讨论过", "聊过", "历史", "记得",
 	"什么时候", "几月", "当时", "那次", "曾经", "过去",
-	"还记得", "说过", "提到过",
+	"还记得", "说过", "提到过", "刚才",
 }
 
 // semanticKeywords 语义知识触发词（decision/conclusion oriented）
 var semanticKeywords = []string{
 	"决策", "决定", "结论", "方案", "教训", "原则",
-	"为什么放弃", "最终", "确定", "选择了",
+	"为什么放弃", "最终", "确定", "选择了", "机制",
+	"架构", "流程", "设计", "放弃", "为什么", "标准", "规则",
 }
 
 // classifyIntent 确定性意图分类
