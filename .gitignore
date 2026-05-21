@@ -3,3 +3,11 @@
 .gocache/
 imports/
 .github/workflows/
+
+# Build artifacts
+beishan
+
+# Backup directories
+claude_memory_backup/
+codex_backup/
+hermes_memory_backup/
