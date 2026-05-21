@@ -26,6 +26,7 @@ func registerWebTools() {
 	RegisterWithCheck("web_search", "Search the web. Returns structured results: {success, data: {web: [{title, url, description, position}]}}.",
 		map[string]interface{}{
 			"type": "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{
 				"query": stringParam("Search query"),
 				"limit": intParam("Number of results (default: 5, max: 10)"),
@@ -478,6 +479,50 @@ func containsSecret(u string) bool {
 }
 
 // ─── HTML utilities ───────────────────────────────────────────────────────
+
+// extractArticleText 从 HTML 中提取正文内容。
+// 先移除 script/style/noscript 块，再剥离标签和空白。
+func extractArticleText(html string) string {
+	// 移除 <script>...</script> 块
+	for {
+		start := strings.Index(html, "<script")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(html[start:], "</script>")
+		if end < 0 {
+			break
+		}
+		html = html[:start] + " " + html[start+end+9:]
+	}
+	// 移除 <style>...</style> 块
+	for {
+		start := strings.Index(html, "<style")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(html[start:], "</style>")
+		if end < 0 {
+			break
+		}
+		html = html[:start] + " " + html[start+end+8:]
+	}
+	// 移除 <noscript>...</noscript> 块
+	for {
+		start := strings.Index(html, "<noscript")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(html[start:], "</noscript>")
+		if end < 0 {
+			break
+		}
+		html = html[:start] + " " + html[start+end+11:]
+	}
+	// 剥离剩余标签 + 空白整理
+	raw := stripTags(html)
+	return collapseWhitespace(raw)
+}
 
 func stripTags(s string) string {
 	var result strings.Builder
