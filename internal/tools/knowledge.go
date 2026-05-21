@@ -1919,7 +1919,8 @@ func KnowledgeTimeline(groupBy string) *ToolResult {
 func registerKnowledgeTools() {
 	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
 		map[string]interface{}{
-			"type":     "object",
+			"type":                 "object",
+			"additionalProperties": true,
 			"required": []string{"source_type", "title", "summary"},
 			"properties": map[string]interface{}{
 				"source_type": stringParam("来源类型: chat|article|idea|web|file|note|codex|claude_memory"),
