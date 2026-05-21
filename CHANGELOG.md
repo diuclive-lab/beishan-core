@@ -242,6 +242,56 @@ KnowledgeAdd 入库后异步触发，不阻塞写入路径：
 
 **涉及文件**：`internal/tools/knowledge.go`（+12/-5 行）
 
+## 2026-05-21 远程合并审计 + findSemanticLinks 硬化 + system_info 环境感知
+
+### 远程 8 commit 架构审计
+
+另台电脑推送 8 个 commit（+4127 行），经逐条审计：
+
+| 结论 | 内容 |
+|---|---|
+|  合规 | 三柱记忆架构（Episodic/Semantic/External），classifyIntent 关键词分流，纯代码 |
+|  合规 | retrieval_pipe.go 检索管道，确定性编排，零 LLM |
+|  合规 | code_search.go ripgrep 代码检索 |
+|  合规 | review_handler.go 审查流程 + callStructuredLLM schema 校验 |
+|  合规 | 内核冻结（kernel/ 未改动）、强制 AI 路由未变 |
+|  修复 | findSemanticLinks 用 LLM 判断关系类型 → 改为代码判断 |
+
+### findSemanticLinks 修复（硬化层原则）
+
+**问题**：autoLinkEntry 中第二层建链调 llm.ChatCompletion 判断 contradicts/supersedes/supports。每次入库消耗约 500 tokens，结果不可复现。
+
+**修复**：改为代码判断：
+
+| 关系 | 判断逻辑 |
+|---|---|
+| contradicts | 同标签 + 一个有否定词一个没有 |
+| supersedes | 同标签 + 否定旧条目 + 时间更新 |
+| supports | 同标签 + 双方肯定词 |
+| related | 默认（已由 autoLinkEntry 覆盖） |
+
+**效果**：零 LLM 调用，结果确定可复现，每次入库节约约 500 tokens。
+
+### system_info L3 工具
+
+新工具 system_info（internal/tools/system_info.go）：
+
+- 采集 CPU 型号/核心数、内存大小、OS/架构、Metal 支持
+- saveKnowledge 写入时自动附加硬件快照到 summary
+- 换电脑后旧知识自动标注原环境，支持硬件比对
+- 确定性代码，不调 LLM
+
+### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| internal/tools/knowledge.go | findSemanticLinks LLM→代码；saveKnowledge 自动附加硬件快照 |
+| internal/tools/system_info.go | 新建：L3 系统信息工具 |
+| internal/tools/tools.go | Init() 追加 registerSystemInfoTools |
+| plugins/memory_plugin.go | +system_info 路由 |
+| main.go | +system_info Meta.Types |
+
+
 ## 2026-05-19 远程合并：payload 修复 + knowledge_enrich 修复
 
 ### 多模型 API 适配（LLM_PROVIDER）
