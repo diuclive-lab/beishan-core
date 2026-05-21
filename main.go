@@ -293,7 +293,11 @@ func main() {
 
 	if txt, ok := raw["message"].(string); ok {
 			msg.Type = "chat"
-			payloadObj := map[string]string{"message": txt}
+			payloadObj := map[string]interface{}{"message": txt}
+			// 透传 mode 字段（trace/no_retrieval 等）
+			if m, ok := raw["mode"].(string); ok && m != "" {
+				payloadObj["mode"] = m
+			}
 			pb, _ := json.Marshal(payloadObj)
 			msg.Payload = pb
 			if a, ok := raw["async"].(bool); ok {

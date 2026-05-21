@@ -99,6 +99,35 @@ body {
 .modal .actions .cancel { background: transparent; color: var(--text-dim); }
 .modal .actions .submit { background: var(--accent); color: #000; }
 .modal .actions .submit:disabled { opacity: .4; cursor: not-allowed; }
+/* ─── 检索瀑布流 ─── */
+.trace-waterfall {
+  margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgba(0,0,0,.2); font-size: 12px; overflow: hidden;
+}
+.trace-header {
+  padding: 6px 10px; background: rgba(79,195,247,.1);
+  font-weight: 600; color: var(--accent); font-size: 11px; letter-spacing: .5px;
+}
+.trace-stage {
+  padding: 6px 10px; border-top: 1px solid rgba(255,255,255,.05);
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.trace-stage:hover { background: rgba(255,255,255,.03); }
+.trace-badge {
+  flex-shrink: 0; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 600; color: #fff; min-width: 60px; text-align: center;
+}
+.trace-badge.intent { background: #7e57c2; }
+.trace-badge.L0 { background: #26a69a; }
+.trace-badge.L0_5 { background: #42a5f5; }
+.trace-badge.L1 { background: #ffa726; }
+.trace-badge.L2 { background: #ef5350; }
+.trace-badge.ranking { background: #78909c; }
+.trace-body { flex: 1; min-width: 0; }
+.trace-method { color: var(--accent); font-weight: 500; }
+.trace-detail { color: var(--text-dim); font-size: 11px; margin-top: 2px; word-break: break-all; }
+.trace-score { color: var(--success); font-weight: 500; }
+
 /* ─── 滚动 ─── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -111,6 +140,9 @@ body {
   <h2>beishan-core</h2>
   <span class="status" id="status">&#9679; 检查连接中...</span>
   <button class="btn-accent" onclick="showKnowledgeModal()">+ 入库新内容</button>
+  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);margin-top:4px;cursor:pointer">
+    <input type="checkbox" id="trace-toggle" style="accent-color:var(--accent)"> 检索追踪
+  </label>
   <div style="margin-top:4px"><h2>工作流</h2></div>
   <ul class="workflows" id="workflow-list">
     <li style="color:var(--text-dim);font-size:13px;padding:8px">加载中...</li>
@@ -419,7 +451,7 @@ function sendClaudeImport() {
 }
 
 // ─── 聊天 ───
-function addMsg(role, content, raw) {
+function addMsg(role, content, raw, traceData) {
   const chat = document.getElementById('chat');
   const div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -428,11 +460,35 @@ function addMsg(role, content, raw) {
   } else {
     let html = '';
     if (content) html += '<div>' + escapeHtml(content) + '</div>';
+    if (traceData && traceData.stages && traceData.stages.length > 0) {
+      html += renderTraceWaterfall(traceData);
+    }
     if (raw) html += '<div class="raw">' + escapeHtml(JSON.stringify(raw, null, 2)) + '</div>';
     div.innerHTML = html;
   }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
+}
+
+function renderTraceWaterfall(trace) {
+  let html = '<div class="trace-waterfall">';
+  html += '<div class="trace-header">检索过程 — ' + escapeHtml(trace.query || '') + '</div>';
+  for (const s of trace.stages) {
+    const stageClass = s.stage.includes('L0') ? 'L0' : s.stage.includes('L0.5') ? 'L0_5' : s.stage.includes('L1') ? 'L1' : s.stage.includes('L2') ? 'L2' : s.stage === 'intent' ? 'intent' : 'ranking';
+    const score = s.score > 0 ? ' <span class="trace-score">' + s.score.toFixed(2) + '</span>' : '';
+    const output = s.output ? (typeof s.output === 'object' ? JSON.stringify(s.output) : String(s.output)) : '';
+    const outputShort = output.length > 120 ? output.substring(0, 120) + '...' : output;
+    html += '<div class="trace-stage">';
+    html += '<span class="trace-badge ' + stageClass + '">' + escapeHtml(s.stage) + '</span>';
+    html += '<div class="trace-body">';
+    html += '<div><span class="trace-method">' + escapeHtml(s.method || '') + '</span>' + score + '</div>';
+    if (s.input) html += '<div class="trace-detail">输入: ' + escapeHtml(s.input.substring(0, 80)) + '</div>';
+    if (outputShort) html += '<div class="trace-detail">输出: ' + escapeHtml(outputShort) + '</div>';
+    if (s.reason) html += '<div class="trace-detail">原因: ' + escapeHtml(s.reason) + '</div>';
+    html += '</div></div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function escapeHtml(s) {
@@ -500,6 +556,10 @@ async function send() {
     if (lastSessionId) {
       payload.session_id = lastSessionId;
     }
+    // 检索追踪模式
+    if (document.getElementById('trace-toggle').checked) {
+      payload.mode = 'trace';
+    }
   }
 
   try {
@@ -516,12 +576,19 @@ async function send() {
     }
 
     let reply = '';
+    let traceData = null;
     if (d.type === 'workflow.result') {
       const wf = d.payload;
       reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '&#10003; 成功' : '&#10007; 失败'}\n`;
       reply += `共 ${wf.Steps.length} 步`;
     } else if (d.type === 'chat.response') {
-      reply = d.payload || '(空响应)';
+      // 检测 trace 模式响应
+      if (d.payload && typeof d.payload === 'object' && d.payload.retrieval_trace) {
+        reply = d.payload.reply || '(空响应)';
+        traceData = d.payload.retrieval_trace;
+      } else {
+        reply = d.payload || '(空响应)';
+      }
     } else if (d.type === 'skill.result' && d.payload) {
       reply = d.payload.note || '操作完成';
       loadWorkflows();
@@ -531,7 +598,7 @@ async function send() {
       reply = d.note || JSON.stringify(d);
     }
 
-    addMsg('system', reply, d);
+    addMsg('system', reply, d, traceData);
   } catch (err) {
     addMsg('system', '请求失败: ' + err.message);
   } finally {
