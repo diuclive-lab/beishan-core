@@ -27,7 +27,11 @@ func (p *NotifyPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		} else {
 			respPayload, _ = json.Marshal(output)
 		}
-		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
+		respType := msg.Type + ".result"
+		if result.Error != "" {
+			respType = msg.Type + ".error"
+		}
+		return kernel.Message{Type: respType, Payload: respPayload}, nil
 
 	default:
 		return kernel.Message{}, fmt.Errorf("notify_plugin: 未知消息类型 %s", msg.Type)

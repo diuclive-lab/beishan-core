@@ -106,7 +106,12 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			}, time.Duration(timeout)*time.Second)
 
 			if callErr == nil {
-				break
+				// 检查插件返回的响应类型是否包含 ".error"（如 notify_send.error）
+				if resp.Type != "" && strings.HasSuffix(resp.Type, ".error") {
+					callErr = fmt.Errorf("%s", string(resp.Payload))
+				} else {
+					break
+				}
 			}
 			if attempt < maxRetry {
 				wait := time.Duration(retryDelay*(1<<uint(attempt))) * time.Second
@@ -142,10 +147,10 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 	}
 
 	finalOutput := ""
-	if len(results) > 0 {
-		last := results[len(results)-1]
-		if last.Error == "" {
-			finalOutput = last.Output
+	for i := len(results) - 1; i >= 0; i-- {
+		if results[i].Error == "" && results[i].Output != "" {
+			finalOutput = results[i].Output
+			break
 		}
 	}
 	return buildResult(workflowID, results, currentStep, true, "", finalOutput), nil

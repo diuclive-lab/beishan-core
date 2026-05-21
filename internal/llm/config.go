@@ -81,7 +81,9 @@ Routing rules with payload formats:
 - "搜索"/"搜一下"/"查找资料" (web) → recipient:search_plugin, msg_type:web_search, payload:{"query":"user input"}
 - "列出知识"/"知识列表" → recipient:memory_plugin, msg_type:knowledge_list, payload:{}
 - "添加知识"/"记录一下" → recipient:memory_plugin, msg_type:knowledge_add, payload:{"title":"...","summary":"..."}
-- workflow → recipient:workflow_plugin, msg_type:workflow_run, payload:{"workflow":"name"}
+- "创建工作流"/"新建工作流"/"生成工作流" → recipient:skill_factory_plugin, msg_type:skill_create, payload:{}
+- "记住"/"记录" (memory requests like "记住我叫X") → recipient:think_plugin, msg_type:chat, payload:{}
+- workflow (execute existing workflow) → recipient:workflow_plugin, msg_type:workflow_run, payload:{"workflow":"name"}
 - ALL other queries (including questions about past discussions, decisions, code, etc.) → recipient:think_plugin, msg_type:chat, payload:{}
 - think_plugin handles its own retrieval (knowledge + code + session history). Do NOT route conversational queries to memory_plugin.
 - ONLY output the JSON, no markdown, no explanations
@@ -101,11 +103,14 @@ Input: %s`,
 			"- terminal_plugin: terminal_exec\n" +
 			"- todo_plugin: todo_add, todo_list, todo_done\n" +
 			"- think_plugin: chat (payload:{})\n" +
+			"- skill_factory_plugin: skill_create (payload:{})\n" +
 			"- workflow_plugin: workflow_run (payload:{\"workflow\":\"<name>\"})\n" +
 			"\nRules:\n" +
 			"- chat/greetings -> recipient think_plugin, msg_type chat, payload {}\n" +
 			"- 知识库搜索 -> recipient memory_plugin, msg_type knowledge_search, payload keyword:\"user input\"\n" +
 			"- web search -> recipient search_plugin, msg_type web_search, payload query:\"user input\"\n" +
+			"- 创建工作流/新建工作流/生成工作流 -> recipient skill_factory_plugin, msg_type skill_create, payload {}\n" +
+			"- 记住/记录 (memory requests like \"记住我叫X\") -> recipient think_plugin, msg_type chat, payload {}\n" +
 			"- workflow -> recipient workflow_plugin, msg_type workflow_run, payload workflow:\"name\"\n" +
 			"- ALWAYS include payload as JSON object matching the msg_type format\n" +
 			"- ONLY output the JSON, no markdown, no explanations\n" +

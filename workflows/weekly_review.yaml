@@ -20,8 +20,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_list
     timeout: 15
-    inputs:
-      days: "${input}"
+    inputs: {}
     next: list_todos
 
   - id: list_todos
