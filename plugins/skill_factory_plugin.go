@@ -152,8 +152,234 @@ func (p *SkillFactoryPlugin) handlePreview(msg kernel.Message) (kernel.Message, 
 // generateWorkflow 构造 DeepSeek 提示词，生成合法 YAML 工作流。
 
 
+// ─── 工作流模板系统 ──────────────────────────────────────
+
+type WorkflowTemplate struct {
+	ID          string // 模板标识
+	Name        string // 显示名
+	Description string // 适用场景描述
+	Steps       string // YAML 步骤模板，用 {{.Name}} {{.Step1Prompt}} 等变量填充
+}
+
+var workflowTemplates = []WorkflowTemplate{
+	{
+		ID:          "review",
+		Name:        "内容审核模板",
+		Description: "获取内容 → 分类/分析 → 评估 → 报告。适用于 URL 审核、文档审查、内容评估。",
+		Steps: `steps:
+  - id: fetch
+    plugin: search_plugin
+    type: web_render
+    timeout: 60
+    inputs:
+      url: "${input}"
+      wait: 5
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        {{.Step2Prompt}}
+        内容：${steps.fetch.output}
+    next: evaluate
+
+  - id: evaluate
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        {{.Step3Prompt}}
+        分析结果：${steps.analyze.output}
+    # next 省略 → 自动结束`,
+	},
+	{
+		ID:          "search_summarize",
+		Name:        "搜索汇总模板",
+		Description: "搜索 → 分析 → 汇总。适用于信息搜索、资料调研、竞品分析。",
+		Steps: `steps:
+  - id: search
+    plugin: search_plugin
+    type: web_search
+    timeout: 30
+    inputs:
+      query: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        {{.Step2Prompt}}
+        搜索结果：${steps.search.output}
+    # next 省略 → 自动结束`,
+	},
+	{
+		ID:          "ingest",
+		Name:        "内容入库模板",
+		Description: "获取/解析内容 → 提炼知识 → 入库。适用于文章导入、文档入库、笔记整理。",
+		Steps: `steps:
+  - id: fetch
+    plugin: search_plugin
+    type: web_render
+    timeout: 60
+    inputs:
+      url: "${input}"
+      wait: 5
+    next: extract
+
+  - id: extract
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        {{.Step2Prompt}}
+        内容：${steps.fetch.output}
+
+        输出 JSON：{"title":"...","summary":"...","tags":["..."],"insights":["..."]}
+    next: store
+
+  - id: store
+    plugin: memory_plugin
+    type: knowledge_remember
+    inputs:
+      title: "${steps.extract.output.title}"
+      summary: "${steps.extract.output.summary}"
+    # next 省略 → 自动结束`,
+	},
+	{
+		ID:          "multi_source",
+		Name:        "多源汇总模板",
+		Description: "并行搜索多个来源 → 汇总分析。适用于多维度调研、对比分析。",
+		Steps: `steps:
+  - id: search
+    plugin: search_plugin
+    type: web_search
+    timeout: 30
+    inputs:
+      query: "${input}"
+    next: kb_check
+
+  - id: kb_check
+    plugin: memory_plugin
+    type: knowledge_search
+    timeout: 10
+    inputs:
+      keyword: "${input}"
+    next: analyze
+
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        {{.Step2Prompt}}
+        网络搜索：${steps.search.output}
+        知识库：${steps.kb_check.output}
+    # next 省略 → 自动结束`,
+	},
+}
+
+// classifyTemplate 用 LLM 选择最匹配的模板，返回模板 ID 和变量填充。
+func (p *SkillFactoryPlugin) classifyTemplate(description string) (string, map[string]string, error) {
+	var templateDescs []string
+	for i, t := range workflowTemplates {
+		templateDescs = append(templateDescs, fmt.Sprintf("%d. [%s] %s — %s", i+1, t.ID, t.Name, t.Description))
+	}
+
+	prompt := fmt.Sprintf(`根据用户描述，选择最合适的工作流模板并填充变量。
+
+可用模板：
+%s
+
+用户描述：%s
+
+输出 JSON（不要其他文字）：
+{
+  "template": "模板ID",
+  "name": "工作流名称（英文短横线分隔）",
+  "variables": {
+    "Step2Prompt": "第二步的提示词",
+    "Step3Prompt": "第三步的提示词（如模板需要）"
+  }
+}`, strings.Join(templateDescs, "\n"), description)
+
+	content, err := llm.ChatCompletion(
+		"你是工作流模板分类器。只输出 JSON，不要其他文字。",
+		prompt,
+		30*time.Second,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var result struct {
+		Template  string            `json:"template"`
+		Name      string            `json:"name"`
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return "", nil, fmt.Errorf("模板分类结果解析失败: %w", err)
+	}
+	return result.Template, result.Variables, nil
+}
+
+// applyTemplate 用变量填充模板生成 YAML。
+func (p *SkillFactoryPlugin) applyTemplate(tmplID, name string, vars map[string]string) (string, error) {
+	for _, t := range workflowTemplates {
+		if t.ID == tmplID {
+			yaml := t.Steps
+			// 简单变量替换
+			for k, v := range vars {
+				yaml = strings.ReplaceAll(yaml, "{{."+k+"}}", v)
+			}
+			// 加 id 头
+			return fmt.Sprintf("id: %s\n\n%s", name, yaml), nil
+		}
+	}
+	return "", fmt.Errorf("模板 %s 未找到", tmplID)
+}
+
 func (p *SkillFactoryPlugin) generateWorkflow(description, preferredName string) (string, error) {
 
+	// 1. 尝试模板匹配
+	tmplID, vars, err := p.classifyTemplate(description)
+	if err == nil && tmplID != "" {
+		name := preferredName
+		if name == "" {
+			if n, ok := vars["name"]; ok {
+				name = n
+			}
+		}
+		if name == "" {
+			name = "generated_workflow"
+		}
+		yaml, err := p.applyTemplate(tmplID, name, vars)
+		if err == nil && yaml != "" {
+			fmt.Printf("[技能工场] 使用模板 %s 生成工作流 %s\n", tmplID, name)
+			return yaml, nil
+		}
+	}
+
+	// 2. 降级：从零生成
 	pluginList := p.buildPluginList()
 
 	nameHint := ""
