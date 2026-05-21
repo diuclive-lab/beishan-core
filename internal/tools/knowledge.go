@@ -90,6 +90,37 @@ func (t *RetrievalTrace) Log() {
 	}
 }
 
+// FormatTrace 将检索过程格式化为可读文本，追加到回答末尾。
+func FormatTrace(trace *RetrievalTrace) string {
+	if trace == nil || len(trace.Stages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n---\n")
+	sb.WriteString("*检索过程*\n\n")
+	for _, s := range trace.Stages {
+		stageName := s.Stage
+		sb.WriteString(fmt.Sprintf("**%s**", stageName))
+		if s.Method != "" {
+			sb.WriteString(fmt.Sprintf(" (%s)", s.Method))
+		}
+		sb.WriteString("\n")
+		if s.Reason != "" {
+			sb.WriteString(fmt.Sprintf("> %s\n", s.Reason))
+		}
+		if total, ok := s.Output["total"]; ok {
+			if f, isFloat := total.(float64); isFloat {
+				sb.WriteString(fmt.Sprintf("  命中: %d 条\n", int(f)))
+			}
+		}
+		if intent, ok := s.Output["intent"]; ok {
+			sb.WriteString(fmt.Sprintf("  分流: %s\n", intent))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 /* ─── 存储引擎 ─────────────────────────────────── */
 
 var (

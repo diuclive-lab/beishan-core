@@ -193,9 +193,16 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string) (kernel.Message, er
 		}
 	}
 
+	// 检索过程可视化（仅非纯 JSON 回答，如 workflow 步骤不追加）
+	isJSON := len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply))
+	if !isJSON {
+		traceText := tools.FormatTrace(trace)
+		reply += traceText
+	}
+
 	reply = strings.TrimSpace(reply)
 	var respPayload json.RawMessage
-	if len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply)) {
+	if isJSON {
 		respPayload = json.RawMessage(reply)
 	} else {
 		respPayload, _ = json.Marshal(reply)
