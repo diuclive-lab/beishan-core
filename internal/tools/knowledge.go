@@ -714,19 +714,27 @@ func autoLinkEntry(id, title, summary string, tags, topics []string) {
 		}
 	}
 
-	// 双向写入 Links（确定性建链）
+	// 双向写入 TypedLinks（确定性建链，替代旧的 Links 写入）
 	entry := loadKnowledge(id)
 	if entry == nil {
 		return
 	}
 	for _, cid := range candidates {
-		if !containsStr(entry.Links, cid) {
-			entry.Links = append(entry.Links, cid)
+		if !containsTypedLink(entry.TypedLinks, cid) {
+			entry.TypedLinks = append(entry.TypedLinks, TypedLink{
+				TargetID: cid,
+				Type:     LinkRelated,
+				Reason:   "标签/主题/关键词匹配",
+			})
 		}
 		// 反向链接
 		le := loadKnowledge(cid)
-		if le != nil && !containsStr(le.Links, id) {
-			le.Links = append(le.Links, id)
+		if le != nil && !containsTypedLink(le.TypedLinks, id) {
+			le.TypedLinks = append(le.TypedLinks, TypedLink{
+				TargetID: id,
+				Type:     LinkRelated,
+				Reason:   "反向关联: 标签/主题/关键词匹配",
+			})
 			saveKnowledge(le)
 		}
 	}
@@ -890,6 +898,15 @@ func reverseLinkType(t LinkType) LinkType {
 	default:
 		return t
 	}
+}
+
+func containsTypedLink(links []TypedLink, targetID string) bool {
+	for _, l := range links {
+		if l.TargetID == targetID {
+			return true
+		}
+	}
+	return false
 }
 
 func containsStr(slice []string, s string) bool {
@@ -2001,8 +2018,21 @@ func registerKnowledgeTools() {
 				},
 				"links": map[string]interface{}{
 					"type":        "array",
-					"description": "关联的 memory/知识 ID 列表",
+					"description": "关联的 memory/知识 ID 列表（旧格式）",
 					"items":       map[string]interface{}{"type": "string"},
+				},
+				"typed_links": map[string]interface{}{
+					"type":        "array",
+					"description": "有类型的关联链接（新格式）",
+					"items": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"target_id", "type"},
+						"properties": map[string]interface{}{
+							"target_id": stringParam("关联的目标条目 ID"),
+							"type": stringParam("链接类型: related|contradicts|supersedes|supports"),
+							"reason": stringParam("建链原因"),
+						},
+					},
 				},
 				"raw_ref": stringParam("原始来源引用，如 URL 或文件路径"),
 				"content": map[string]interface{}{
