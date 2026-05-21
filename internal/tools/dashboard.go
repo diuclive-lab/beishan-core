@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"beishan/internal/llm"
@@ -17,6 +18,10 @@ func KnowledgeStats() map[string]interface{} {
 	byStatus := make(map[string]int)
 	withLinks := 0
 	withEmbedding := 0
+	withBow := 0
+
+	home, _ := os.UserHomeDir()
+	kbDir := filepath.Join(home, ".hermes", "memory", "knowledge")
 
 	for _, e := range all {
 		byType[e.SourceType]++
@@ -31,14 +36,20 @@ func KnowledgeStats() map[string]interface{} {
 		if len(e.Embedding) > 0 {
 			withEmbedding++
 		}
+		// 检查 BOW 向量文件
+		bowPath := filepath.Join(kbDir, e.ID+".embed.json")
+		if _, err := os.Stat(bowPath); err == nil {
+			withBow++
+		}
 	}
 
 	return map[string]interface{}{
-		"total":          total,
-		"by_type":        byType,
-		"by_status":      byStatus,
-		"with_links":     withLinks,
-		"with_embedding": withEmbedding,
+		"total":            total,
+		"by_type":          byType,
+		"by_status":        byStatus,
+		"with_links":       withLinks,
+		"with_embedding":   withEmbedding,
+		"with_bow":         withBow,
 	}
 }
 
@@ -51,7 +62,11 @@ func loadAllKnowledgePtr() []*KnowledgeEntry {
 		if e.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".embed.json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}

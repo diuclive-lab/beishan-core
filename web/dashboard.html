@@ -63,7 +63,8 @@ function render(d) {
     ${barChart('状态', kb.by_status || {}, kb.total)}
     <div style="margin-top:8px">
       <span class="tag">有链接: ${kb.with_links || 0}</span>
-      <span class="tag">有嵌入: ${kb.with_embedding || 0}</span>
+      <span class="tag">BOW向量: ${kb.with_bow || 0}</span>
+      <span class="tag">API嵌入: ${kb.with_embedding || 0}</span>
     </div>
   `);
 
