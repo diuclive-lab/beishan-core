@@ -224,6 +224,8 @@ func Init() {
 	registerClarifyTools()
 	registerVisionTool()
 	registerImageGenTool()
+	registerImageEditTool()
+	registerPromptTools()
 	registerTTSTool()
 	registerKnowledgeTools()
 	registerFileParseTools()
