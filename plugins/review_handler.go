@@ -467,7 +467,7 @@ func clearPendingReview(sessionID string) {
 // reviewTriggers 审查触发关键词
 var reviewTriggers = []string{
 	"审查一下", "知识审查", "审查对话", "审查最近",
-	"review", "knowledge review",
+	"knowledge review",
 }
 
 // listReviewTriggers 查看报告触发关键词
