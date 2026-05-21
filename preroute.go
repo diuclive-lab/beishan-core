@@ -14,44 +14,32 @@ type preroutePattern struct {
 	extract   func(userText string) json.RawMessage // nil = keep original payload
 }
 
+// 匹配顺序：长关键词在前，避免短关键词截胡。
+// 例："搜索知识库" 必须在 "搜索" 之前匹配。
 var preroutePatterns = []preroutePattern{
-	// 搜索意图：提取关键词作为 query
+	// 知识库搜索
 	{
-		keywords:  []string{"搜索", "搜一下", "查找资料", "帮我搜"},
-		recipient: "search_plugin",
-		msgType:   "web_search",
+		keywords:  []string{"搜索知识库", "查知识", "我的笔记"},
+		recipient: "memory_plugin",
+		msgType:   "knowledge_search",
 		extract: func(text string) json.RawMessage {
-			q := text
-			for _, kw := range []string{"帮我搜索", "帮我搜一下", "搜索一下", "搜一下", "查找资料", "搜索", "帮我搜"} {
-				q = strings.TrimPrefix(q, kw)
+			kw := text
+			for _, prefix := range []string{"搜索知识库", "查知识", "我的笔记"} {
+				kw = strings.TrimPrefix(kw, prefix)
 			}
-			q = strings.TrimSpace(q)
-			if q == "" {
+			kw = strings.TrimSpace(kw)
+			if kw == "" {
 				return nil
 			}
-			b, _ := json.Marshal(map[string]string{"query": q})
+			b, _ := json.Marshal(map[string]string{"keyword": kw})
 			return b
 		},
-	},
-	// 记住意图：保持原始消息给 think_plugin
-	{
-		keywords:  []string{"记住", "记录一下"},
-		recipient: "think_plugin",
-		msgType:   "chat",
-		extract:   nil, // keep original payload
 	},
 	// 创建工作流
 	{
 		keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
 		recipient: "skill_factory_plugin",
 		msgType:   "skill_create",
-		extract:   func(text string) json.RawMessage { return json.RawMessage(`{}`) },
-	},
-	// 待办列表
-	{
-		keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
-		recipient: "todo_plugin",
-		msgType:   "todo_list",
 		extract:   func(text string) json.RawMessage { return json.RawMessage(`{}`) },
 	},
 	// 添加待办
@@ -72,23 +60,37 @@ var preroutePatterns = []preroutePattern{
 			return b
 		},
 	},
-	// 知识库搜索
+	// 待办列表
 	{
-		keywords:  []string{"搜索知识库", "查知识", "我的笔记"},
-		recipient: "memory_plugin",
-		msgType:   "knowledge_search",
+		keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
+		recipient: "todo_plugin",
+		msgType:   "todo_list",
+		extract:   func(text string) json.RawMessage { return json.RawMessage(`{}`) },
+	},
+	// 搜索意图（放后面，避免截胡"搜索知识库"等长关键词）
+	{
+		keywords:  []string{"搜一下", "查找资料", "帮我搜", "搜索"},
+		recipient: "search_plugin",
+		msgType:   "web_search",
 		extract: func(text string) json.RawMessage {
-			kw := text
-			for _, prefix := range []string{"搜索知识库", "查知识", "我的笔记"} {
-				kw = strings.TrimPrefix(kw, prefix)
+			q := text
+			for _, kw := range []string{"帮我搜索", "帮我搜一下", "搜索一下", "搜一下", "查找资料", "搜索", "帮我搜"} {
+				q = strings.TrimPrefix(q, kw)
 			}
-			kw = strings.TrimSpace(kw)
-			if kw == "" {
+			q = strings.TrimSpace(q)
+			if q == "" {
 				return nil
 			}
-			b, _ := json.Marshal(map[string]string{"keyword": kw})
+			b, _ := json.Marshal(map[string]string{"query": q})
 			return b
 		},
+	},
+	// 记住意图
+	{
+		keywords:  []string{"记住", "记录一下"},
+		recipient: "think_plugin",
+		msgType:   "chat",
+		extract:   nil, // keep original payload
 	},
 }
 

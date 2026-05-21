@@ -347,6 +347,17 @@ func truncate(s string, n int) string {
 	return string(runes[:n]) + "..."
 }
 
+// stripRetrievalTrace 去掉 assistant 回复中的检索过程后缀。
+// 标记：\n\n---\n 或 \n\n*检索过程* 或 \n\n**L0_
+func stripRetrievalTrace(s string) string {
+	for _, marker := range []string{"\n\n---\n", "\n\n*检索过程*", "\n\n**L0_"} {
+		if idx := strings.Index(s, marker); idx > 0 {
+			return s[:idx]
+		}
+	}
+	return s
+}
+
 // loadRecentSessionMessages 从会话文件加载最近 N 轮对话，用于多轮上下文。
 // role 映射：user → "user"，其他（插件响应）→ "assistant"。
 func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
@@ -396,6 +407,10 @@ func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 		role := "assistant"
 		if m.Role == "user" {
 			role = "user"
+		}
+		// assistant 消息去掉 retrieval trace 后缀，减少上下文 token 消耗
+		if role == "assistant" {
+			content = stripRetrievalTrace(content)
 		}
 		result = append(result, llm.ChatMessage{Role: role, Content: content})
 	}
