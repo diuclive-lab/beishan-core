@@ -234,6 +234,7 @@ func Init() {
 	registerSkillEvalTools()
 	registerSystemInfoTools()
 	registerWebRenderTool()
+	registerStockTools()
 	registerKBAuditTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))

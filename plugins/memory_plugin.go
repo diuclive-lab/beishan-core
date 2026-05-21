@@ -43,7 +43,8 @@ func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 
 	case "knowledge_add", "knowledge_search",
 		"knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "system_info", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline",
-		"kb_audit", "kb_repair":
+		"kb_audit", "kb_repair",
+		"stock_quote", "stock_multi_quote":
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[知识] %s: %s\n", msg.Type, result.Output)
 		// 如果输出是 JSON 对象/数组则原样传递，否则封装为 JSON 字符串
