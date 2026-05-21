@@ -27,6 +27,9 @@ import (
 
 //go:embed web/index.html
 var IndexHTML string
+
+//go:embed web/dashboard.html
+var DashboardHTML string
 func init() {
 	_ = IndexHTML
 	if f, err := os.Open(".env"); err == nil {
@@ -58,6 +61,8 @@ func jsonEscape(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
 }
+
+var startTime = time.Now()
 
 func main() {
 	apiKey := os.Getenv("LLM_API_KEY")
@@ -241,6 +246,11 @@ func main() {
 		w.Write([]byte(IndexHTML))
 	})
 
+	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(DashboardHTML))
+	})
+
 	saveToSession := func(sessionID, role, msgType string, payload []byte) {
 		s := string(payload)
 		s = strings.Trim(s, `"`)
@@ -372,6 +382,58 @@ func main() {
 
 		sessionResults.Delete(sessionID)
 		json.NewEncoder(w).Encode(val)
+	})
+
+	// ── 仪表盘 API ──
+	mux.HandleFunc("/api/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		type dashData struct {
+			Knowledge    interface{}            `json:"knowledge"`
+			Sessions     interface{}            `json:"sessions"`
+			Usage        map[string]interface{} `json:"usage"`
+			Workflows    []string               `json:"workflows"`
+			Plugins      []string               `json:"plugins"`
+			Tools        int                    `json:"tools"`
+			Health       string                 `json:"health"`
+			Uptime       string                 `json:"uptime"`
+		}
+
+		// 知识库统计
+		kbStats := tools.KnowledgeStats()
+
+		// 会话统计
+		sessStats := tools.SessionStats()
+
+		// LLM 使用统计
+		usageToday := tools.UsageToday()
+
+		// 工作流列表
+		var wfList []string
+		entries, _ := os.ReadDir(workflowDir)
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
+				wfList = append(wfList, strings.TrimSuffix(e.Name(), ".yaml"))
+			}
+		}
+
+		// 插件列表
+		pluginList := k.KnownPlugins()
+
+		// 工具数
+		toolCount := len(tools.Registry)
+
+		data := dashData{
+			Knowledge: kbStats,
+			Sessions:  sessStats,
+			Usage:     usageToday,
+			Workflows: wfList,
+			Plugins:   pluginList,
+			Tools:     toolCount,
+			Health:    "ok",
+			Uptime:    time.Since(startTime).Round(time.Second).String(),
+		}
+		json.NewEncoder(w).Encode(data)
 	})
 
 	addr := ":8013"

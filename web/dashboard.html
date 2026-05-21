@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>beishan-core 仪表盘</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif; background:#0d1117; color:#c9d1d9; padding:20px; }
+h1 { font-size:24px; margin-bottom:20px; color:#58a6ff; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+.card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:20px; }
+.card h2 { font-size:14px; color:#8b949e; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px; }
+.stat { font-size:36px; font-weight:700; color:#f0f6fc; }
+.stat-sm { font-size:14px; color:#8b949e; margin-top:4px; }
+.bar-row { display:flex; align-items:center; margin:6px 0; }
+.bar-label { width:100px; font-size:12px; color:#8b949e; text-align:right; margin-right:10px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar-track { flex:1; height:20px; background:#21262d; border-radius:4px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:4px; transition:width 0.5s; }
+.bar-value { width:60px; font-size:12px; color:#8b949e; margin-left:8px; text-align:right; flex-shrink:0; }
+.tag { display:inline-block; background:#21262d; border:1px solid #30363d; border-radius:12px; padding:2px 10px; font-size:12px; color:#8b949e; margin:2px; }
+.healthy { color:#3fb950; }
+.warn { color:#d29922; }
+.error { color:#f85149; }
+#status { font-size:12px; color:#8b949e; margin-bottom:16px; }
+.refresh-btn { background:#21262d; border:1px solid #30363d; color:#c9d1d9; padding:6px 16px; border-radius:6px; cursor:pointer; font-size:13px; }
+.refresh-btn:hover { background:#30363d; }
+.header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>beishan-core 仪表盘</h1>
+  <button class="refresh-btn" onclick="load()">刷新</button>
+</div>
+<div id="status">加载中...</div>
+<div class="grid" id="grid"></div>
+
+<script>
+async function load() {
+  const st = document.getElementById('status');
+  st.textContent = '加载中...';
+  try {
+    const r = await fetch('/api/dashboard');
+    const d = await r.json();
+    st.textContent = `健康: ${d.health} | 运行: ${d.uptime} | 更新: ${new Date().toLocaleTimeString()}`;
+    render(d);
+  } catch(e) {
+    st.textContent = '加载失败: ' + e.message;
+  }
+}
+
+function render(d) {
+  const g = document.getElementById('grid');
+  g.innerHTML = '';
+
+  // 知识库
+  const kb = d.knowledge || {};
+  g.innerHTML += card('知识库', `
+    <div class="stat">${kb.total || 0}</div>
+    <div class="stat-sm">条目总数</div>
+    ${barChart('类型分布', kb.by_type || {}, kb.total)}
+    ${barChart('状态', kb.by_status || {}, kb.total)}
+    <div style="margin-top:8px">
+      <span class="tag">有链接: ${kb.with_links || 0}</span>
+      <span class="tag">有嵌入: ${kb.with_embedding || 0}</span>
+    </div>
+  `);
+
+  // 会话
+  const sess = d.sessions || {};
+  g.innerHTML += card('会话', `
+    <div class="stat">${sess.total || 0}</div>
+    <div class="stat-sm">总会话数</div>
+    <div style="margin-top:12px">
+      <span class="stat" style="font-size:24px">${sess.today || 0}</span>
+      <span class="stat-sm">今日新增</span>
+    </div>
+  `);
+
+  // LLM 使用
+  const u = d.usage || {};
+  g.innerHTML += card('LLM 使用（今日）', `
+    <div class="stat">${u.total_calls || 0}</div>
+    <div class="stat-sm">调用次数</div>
+    <div style="margin-top:8px">
+      <span class="stat" style="font-size:24px">${fmtTokens(u.total_tokens || 0)}</span>
+      <span class="stat-sm">tokens</span>
+    </div>
+    ${u.by_caller ? barChart('按调用方', u.by_caller, u.total_tokens) : ''}
+    ${u.by_model ? barChart('按模型', u.by_model, u.total_tokens) : ''}
+  `);
+
+  // 系统
+  g.innerHTML += card('系统', `
+    <div class="stat">${d.tools || 0}</div>
+    <div class="stat-sm">L3 工具</div>
+    <div style="margin-top:12px">
+      <span class="stat" style="font-size:24px">${(d.plugins || []).length}</span>
+      <span class="stat-sm">插件</span>
+    </div>
+    <div style="margin-top:12px">
+      <span class="stat" style="font-size:24px">${(d.workflows || []).length}</span>
+      <span class="stat-sm">工作流</span>
+    </div>
+  `);
+
+  // 工作流列表
+  const wfs = d.workflows || [];
+  g.innerHTML += card('工作流', wfs.map(w => `<span class="tag">${w}</span>`).join(''));
+
+  // 插件列表
+  const plugs = d.plugins || [];
+  g.innerHTML += card('插件', plugs.map(p => `<span class="tag">${p}</span>`).join(''));
+}
+
+function card(title, body) {
+  return `<div class="card"><h2>${title}</h2>${body}</div>`;
+}
+
+function barChart(label, data, total) {
+  if (!data || Object.keys(data).length === 0) return '';
+  let html = `<div style="margin-top:8px"><div style="font-size:11px;color:#8b949e;margin-bottom:4px">${label}</div>`;
+  const sorted = Object.entries(data).sort((a,b) => b[1]-a[1]);
+  const max = sorted[0][1] || 1;
+  for (const [k, v] of sorted) {
+    const pct = total > 0 ? (v/total*100).toFixed(1) : 0;
+    const w = (v/max*100).toFixed(0);
+    const color = k.includes('error') ? '#f85149' : k.includes('think') ? '#58a6ff' : '#3fb950';
+    html += `<div class="bar-row">
+      <div class="bar-label" title="${k}">${k}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${color}"></div></div>
+      <div class="bar-value">${fmtTokens(v)}</div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function fmtTokens(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

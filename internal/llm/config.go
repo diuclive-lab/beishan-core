@@ -26,22 +26,37 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// Usage 记录单次 LLM 调用的 token 消耗。
+type Usage struct {
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	Model            string `json:"model"`
+}
+
 // ChatCompletionMulti 多轮对话 LLM 调用。
 // 接受完整 messages 数组（含 system + 历史 + 当前用户消息）。
 func ChatCompletionMulti(messages []ChatMessage, timeout time.Duration) (string, error) {
+	reply, _, err := ChatCompletionWithUsage(messages, timeout)
+	return reply, err
+}
+
+// ChatCompletionWithUsage 多轮对话 LLM 调用，返回 token 使用量。
+func ChatCompletionWithUsage(messages []ChatMessage, timeout time.Duration) (string, *Usage, error) {
 	apiKey := APIKeyFor(ProviderName())
 	if apiKey == "" {
-		return "", fmt.Errorf("LLM_API_KEY 未设置")
+		return "", nil, fmt.Errorf("LLM_API_KEY 未设置")
 	}
 
+	model := Model()
 	body, _ := json.Marshal(map[string]interface{}{
-		"model":    Model(),
+		"model":    model,
 		"messages": messages,
 	})
 
 	req, err := http.NewRequest("POST", ChatEndpoint(), bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %w", err)
+		return "", nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -49,7 +64,7 @@ func ChatCompletionMulti(messages []ChatMessage, timeout time.Duration) (string,
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("API 调用失败: %w", err)
+		return "", nil, fmt.Errorf("API 调用失败: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -60,14 +75,31 @@ func ChatCompletionMulti(messages []ChatMessage, timeout time.Duration) (string,
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("解析响应失败: %w", err)
+		return "", nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("LLM 未返回结果")
+		return "", nil, fmt.Errorf("LLM 未返回结果")
 	}
-	return result.Choices[0].Message.Content, nil
+
+	usage := &Usage{
+		PromptTokens:     result.Usage.PromptTokens,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+		Model:            model,
+	}
+	// 某些 API 不返回 usage 字段，用 0 标记
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+
+	return result.Choices[0].Message.Content, usage, nil
 }
 
 type Provider struct {

@@ -2337,6 +2337,7 @@ func registerKnowledgeTools() {
 				},
 				"raw_ref": stringParam("原始来源引用"),
 				"content": stringParam("完整内容"),
+				"status":  stringParam("条目状态: active|archived|expired，空=active"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -2459,7 +2460,7 @@ func registerKnowledgeTools() {
 
 func knowledgeUpdateFields(args map[string]interface{}) map[string]interface{} {
 	fields := make(map[string]interface{})
-	for _, key := range []string{"source_type", "title", "summary", "raw_ref", "content"} {
+	for _, key := range []string{"source_type", "title", "summary", "raw_ref", "content", "status"} {
 		raw, ok := args[key]
 		if !ok || raw == nil {
 			continue

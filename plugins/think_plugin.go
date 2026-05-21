@@ -181,7 +181,11 @@ func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte) (kernel.Message, error) 
 		sysPrompt = req.System
 	}
 
-	reply, err := llm.ChatCompletion(sysPrompt, req.Message, 120*time.Second)
+	reply, usage, err := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+		{Role: "system", Content: sysPrompt},
+		{Role: "user", Content: req.Message},
+	}, 120*time.Second)
+	llm.RecordUsage("think_no_retrieval", usage)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
@@ -232,7 +236,8 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 	messages = append(messages, llm.ChatMessage{Role: "user", Content: userMsg})
 
-	reply, err := llm.ChatCompletionMulti(messages, 60*time.Second)
+	reply, usage, err := llm.ChatCompletionWithUsage(messages, 60*time.Second)
+	llm.RecordUsage("think", usage)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
