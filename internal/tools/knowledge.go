@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"beishan/internal/llm"
 	"beishan/internal/retrieval"
 )
 
@@ -128,6 +127,14 @@ func saveKnowledge(entry *KnowledgeEntry) {
 		text := entry.Title + " " + entry.Summary
 		if emb, ok := tryEmbedding(text); ok {
 			entry.Embedding = emb
+		}
+	}
+
+	// 写入时附加系统环境快照（新条目或 summary 未含硬件信息时）
+	if entry.SourceType != "memory" && !strings.Contains(entry.Summary, "硬件：") {
+		hw := HardwareSummary()
+		if hw != "" {
+			entry.Summary = "【" + hw + "】" + entry.Summary
 		}
 	}
 
@@ -685,7 +692,7 @@ func autoLinkEntry(id, title, summary string, tags, topics []string) {
 		}
 	}
 
-	// 第二层：语义建链（LLM，写入时离线）
+	// 第二层：语义建链（代码判断，写入时离线）
 	// 只对最近 50 条知识做对比，不是全量
 	recent := getRecentEntries(all, 50)
 	semanticLinks := findSemanticLinks(id, title, summary, recent)
@@ -723,83 +730,78 @@ func getRecentEntries(all []*KnowledgeEntry, limit int) []*KnowledgeEntry {
 	return sorted
 }
 
-// findSemanticLinks 使用 LLM 分析语义关系（写入时离线）
+// findSemanticLinks 用代码判断语义关系（写入时离线，零 LLM）。
+// 基于关键词反义检测 + 时间戳，完全确定性。
 func findSemanticLinks(id, title, summary string, candidates []*KnowledgeEntry) []TypedLink {
 	if len(candidates) == 0 {
 		return nil
 	}
-
-	// 构建候选列表
-	var candidateStr strings.Builder
-	for i, c := range candidates {
-		candidateStr.WriteString(fmt.Sprintf("%d. ID: %s\n   标题: %s\n   摘要: %s\n", i+1, c.ID, c.Title, c.Summary))
-	}
-
-	prompt := fmt.Sprintf(`分析以下知识条目与候选条目的关系。
-
-当前条目：
-  标题: %s
-  摘要: %s
-
-候选条目：
-%s
-
-输出 JSON（只输出有明确关系的，不确定的不要输出）：
-{"links": [{"target_id": "...", "type": "related|contradicts|supersedes|supports", "reason": "为什么建这个链接"}]}
-
-关系类型说明：
-- related: 相关（同一主题或领域）
-- contradicts: 矛盾（结论相反或冲突）
-- supersedes: 替代/演进（新结论替代旧结论）
-- supports: 支持/佐证（相互印证）
-
-如果没有关系：{"links": []}`, title, summary, candidateStr.String())
-
-	// 使用 callStructuredLLM 的模式
-	result, err := callSemanticLinkLLM(prompt)
-	if err != nil {
-		fmt.Printf("[knowledge] 语义建链 LLM 调用失败: %v\n", err)
+	entry := loadKnowledge(id)
+	if entry == nil {
 		return nil
 	}
+	lower := strings.ToLower
 
-	return result
-}
-
-// callSemanticLinkLLM 调用 LLM 进行语义建链
-func callSemanticLinkLLM(prompt string) ([]TypedLink, error) {
-	raw, err := llm.ChatCompletion(
-		"你是知识关联分析助手。严格按用户要求输出JSON，不要输出任何其他文本。",
-		prompt,
-		60*time.Second,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("LLM call failed: %w", err)
-	}
-
-	// 解析结果
-	var result struct {
-		Links []TypedLink `json:"links"`
-	}
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, fmt.Errorf("JSON parse failed: %w", err)
-	}
-
-	// 验证链接类型
-	var validLinks []TypedLink
-	for _, link := range result.Links {
-		if link.TargetID == "" || link.Type == "" {
+	var links []TypedLink
+	for _, c := range candidates {
+		if c.ID == id {
 			continue
 		}
-		// 验证类型是否合法
-		switch link.Type {
-		case LinkRelated, LinkContradicts, LinkSupersedes, LinkSupports:
-			validLinks = append(validLinks, link)
-		default:
-			fmt.Printf("[knowledge] 忽略无效链接类型: %s\n", link.Type)
+		// 判断关系类型
+		linkType := LinkRelated
+		reason := "相关条目"
+
+		t1 := lower(title + " " + summary)
+		t2 := lower(c.Title + " " + c.Summary)
+
+		// contradicts：一个有否定词、一个没有（结论方向相反）
+		hasNeg1 := hasNegKeyword(t1)
+		hasNeg2 := hasNegKeyword(t2)
+		if hasNeg1 != hasNeg2 {
+			linkType = LinkContradicts
+			reason = "结论方向相反"
+		} else if hasNeg1 && hasNeg2 && entry.CreatedAt > c.CreatedAt {
+			// supersedes：同主题 + 新条目否定旧条目的肯定方向
+			if hasPosKeyword(t2) {
+				linkType = LinkSupersedes
+				reason = "新结论替代旧结论"
+			}
+		} else if !hasNeg1 && !hasNeg2 && hasPosKeyword(t1) && hasPosKeyword(t2) {
+			linkType = LinkSupports
+			reason = "结论相互印证"
+		}
+
+		links = append(links, TypedLink{
+			TargetID: c.ID,
+			Type:     linkType,
+			Reason:   reason,
+		})
+	}
+	return links
+}
+
+// hasNegKeyword 检查文本是否包含否定/放弃类关键词。
+func hasNegKeyword(text string) bool {
+	neg := []string{"放弃", "不可", "不行", "禁止", "避免", "停止", "错误", "失败",
+		"不用", "不能", "不要", "不推荐", "有问题", "复杂性", "瓶颈", "不实用", "太慢"}
+	for _, kw := range neg {
+		if strings.Contains(text, kw) {
+			return true
 		}
 	}
+	return false
+}
 
-	return validLinks, nil
+// hasPosKeyword 检查文本是否包含肯定/推荐类关键词。
+func hasPosKeyword(text string) bool {
+	pos := []string{"采用", "使用", "支持", "可用", "推荐", "可以", "成功",
+		"正确", "适配", "实现", "集成", "打通", "接入", "完成", "支持"}
+	for _, kw := range pos {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeTypedLinks 合并去重 TypedLink

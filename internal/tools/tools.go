@@ -232,6 +232,7 @@ func Init() {
 	registerClaudeTools()
 	registerEmbedTools()
 	registerSkillEvalTools()
+	registerSystemInfoTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 }
