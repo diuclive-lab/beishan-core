@@ -131,7 +131,7 @@ func saveKnowledge(entry *KnowledgeEntry) {
 	}
 
 	// 写入时附加系统环境快照（仅在首次写入时，检查前缀标记）
-	if entry.SourceType != "memory" && !strings.HasPrefix(entry.Summary, "【d") {
+	if entry.SourceType != "memory" && !strings.HasPrefix(entry.Summary, "【") {
 		hw := HardwareSummary()
 		if hw != "" {
 			entry.Summary = "【" + hw + "】" + entry.Summary

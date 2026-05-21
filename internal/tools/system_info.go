@@ -87,8 +87,9 @@ func execCmd(name string, args ...string) (string, error) {
 func registerSystemInfoTools() {
 	Register("system_info", "获取当前系统硬件信息（CPU/内存/GPU/OS），用于知识条目的环境感知。",
 		map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties":           map[string]interface{}{},
 		},
 		func(args map[string]interface{}) *ToolResult {
 			return GetSystemInfo()
