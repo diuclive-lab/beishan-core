@@ -86,6 +86,15 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		if timeout <= 0 {
 			timeout = 120
 		}
+
+		// 批量循环步骤：对 foreach 数组中的每个元素执行当前步骤
+		if step.Batch != nil {
+			result := e.runBatch(step, ctx, timeout)
+			results = append(results, result)
+			currentStep = resolveNext(step, ctx)
+			continue
+		}
+
 		maxRetry := step.Retry
 		if maxRetry < 0 {
 			maxRetry = 0
@@ -222,6 +231,70 @@ func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResu
 		result.Output = strings.Join(outputs, "\n")
 		ctx["steps."+step.ID+".output"] = result.Output
 	}
+	return result
+}
+
+// runBatch 批量循环执行：对 foreach 数组中的每个元素调用 step 的 plugin:type。
+// 当前元素存入 ctx["item"]，索引存入 ctx["item_index"]。
+func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int) StepResult {
+	result := StepResult{ID: step.ID}
+
+	// 求值 foreach 表达式，得到数组
+	foreachRef := strings.TrimPrefix(strings.TrimSuffix(step.Batch.Foreach, "}"), "${")
+	var items []interface{}
+	if v, ok := resolveRef(ctx, foreachRef); ok {
+		switch arr := v.(type) {
+		case []interface{}:
+			items = arr
+		case string:
+			// 尝试解析 JSON 数组字符串
+			json.Unmarshal([]byte(arr), &items)
+		}
+	}
+	if len(items) == 0 {
+		result.Output = "[]"
+		ctx["steps."+step.ID+".output"] = "[]"
+		return result
+	}
+
+	var outputs []string
+	var errs []string
+	for i, item := range items {
+		ctx["item"] = item
+		ctx["item_index"] = i
+
+		payload := buildPayload(step.Inputs, ctx)
+		resp, callErr := e.Kernel.Call(kernel.Message{
+			Recipient: step.Plugin,
+			Type:      step.Type,
+			Payload:   payload,
+			Provider:  step.Provider,
+		}, time.Duration(timeout)*time.Second)
+
+		if callErr != nil {
+			errs = append(errs, fmt.Sprintf("[%d]: %v", i, callErr))
+			continue
+		}
+		if resp.Type != "" && strings.HasSuffix(resp.Type, ".error") {
+			errs = append(errs, fmt.Sprintf("[%d]: %s", i, string(resp.Payload)))
+			continue
+		}
+		outputs = append(outputs, string(resp.Payload))
+		fmt.Printf("[工作流] batch %s [%d/%d] 完成\n", step.ID, i+1, len(items))
+	}
+
+	// 清理临时上下文
+	delete(ctx, "item")
+	delete(ctx, "item_index")
+
+	if len(errs) > 0 {
+		result.Error = fmt.Sprintf("批量执行 %d/%d 失败: %s", len(errs), len(items), strings.Join(errs, "; "))
+	}
+	outputJSON, _ := json.Marshal(outputs)
+	result.Output = string(outputJSON)
+	ctx["steps."+step.ID+".output"] = result.Output
+	ctx["steps."+step.ID+".count"] = len(outputs)
+	ctx["steps."+step.ID+".errors"] = len(errs)
 	return result
 }
 

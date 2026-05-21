@@ -41,8 +41,15 @@ type StepDef struct {
 	RetryDelay    int                    `yaml:"retry_delay,omitempty"`    // 重试间隔秒数，默认 1
 	OnError       string                 `yaml:"on_error,omitempty"`       // 失败后继续到指定步骤
 	SkipIf        string                 `yaml:"skip_if,omitempty"`        // 条件表达式，成立时跳过本步骤
+	Batch         *BatchDef              `yaml:"batch,omitempty"`          // 批量循环执行
 	ParallelSteps []StepDef              `yaml:"steps,omitempty"`          // 并行子步骤
 	Next          NextList               `yaml:"next,omitempty"`
+}
+
+// BatchDef 批量循环定义。对 foreach 数组中的每个元素，执行 step 中的 plugin:action。
+// 当前元素可通过 ctx["item"] 访问。
+type BatchDef struct {
+	Foreach string `yaml:"foreach"`          // 表达式，求值为数组（如 "${input}"）
 }
 
 /* NextList 支持 next 字段的字符串和列表两种格式。 */

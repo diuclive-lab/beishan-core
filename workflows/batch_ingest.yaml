@@ -1,0 +1,36 @@
+# 批量内容导入 — 接受 URL 列表，逐个执行 content_review，汇总报告
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"batch_ingest","input":["url1","url2","url3"]}}
+
+id: batch_ingest
+
+steps:
+  # ── Step 1: 批量审核 ──
+  - id: review
+    plugin: workflow_plugin
+    type: workflow_run
+    timeout: 300
+    batch:
+      foreach: "${input}"
+    inputs:
+      workflow: "content_review"
+      input: "${item}"
+    next: summary
+
+  # ── Step 2: 汇总报告 ──
+  - id: summary
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      mode: "no_retrieval"
+      message: |
+        以下是批量导入的结果，请生成汇总报告：
+        - 总数：${steps.review.count} 条
+        - 失败：${steps.review.errors} 条
+        - 逐条结果：${steps.review.output}
+
+        请用表格形式汇总每条的 action（store/report/discard）和关键信息。

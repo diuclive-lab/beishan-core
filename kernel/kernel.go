@@ -159,6 +159,7 @@ func (k *Kernel) Send(msg Message) error {
 	}
 
 	if err == nil && msg.ReplyTo != "" {
+		response.ReplyTo = msg.ReplyTo
 		k.deliverReply(response)
 	}
 
