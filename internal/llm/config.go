@@ -14,7 +14,7 @@ import (
 // 返回响应文本，不注入任何额外上下文（纯文本补全）。
 // think_plugin（主回答）和 findSemanticLinks（写入时语义建链）共用此函数。
 func ChatCompletion(system, user string, timeout time.Duration) (string, error) {
-	apiKey := APIKey()
+	apiKey := APIKeyFor(ProviderName())
 	if apiKey == "" {
 		return "", fmt.Errorf("LLM_API_KEY 未设置")
 	}

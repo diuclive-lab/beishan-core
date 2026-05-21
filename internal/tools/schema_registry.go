@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 /* ToolSchema 定义一个工具的完整参数契约。
@@ -121,6 +122,19 @@ func ValidateParams(schema ToolSchema, payload json.RawMessage) error {
 		expectedType, _ := prop["type"].(string)
 		if expectedType == "" {
 			continue
+		}
+
+		// 类型修正：期望 array 但收到 string 时，按逗号拆分为数组
+		if expectedType == "array" {
+			if s, ok := value.(string); ok {
+				parts := strings.Split(s, ",")
+				arr := make([]interface{}, len(parts))
+				for i, p := range parts {
+					arr[i] = strings.TrimSpace(p)
+				}
+				params[key] = arr
+				value = arr
+			}
 		}
 
 		if err := validateFieldType(key, value, expectedType); err != nil {
