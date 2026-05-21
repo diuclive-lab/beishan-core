@@ -35,11 +35,18 @@ type MemoryPlugin struct{}
 func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	switch msg.Type {
 	case "session_add", "session_get", "session_search",
-		"session_list", "session_delete", "session_cleanup",
+		"session_list", "session_delete", "session_cleanup", "session_summarize",
 		"evidence_add", "evidence_search":
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[记忆] %s: %s\n", msg.Type, result.Output)
-		return kernel.Message{}, nil
+		var respPayload json.RawMessage
+		output := result.Output
+		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
+			respPayload = json.RawMessage(output)
+		} else {
+			respPayload, _ = json.Marshal(output)
+		}
+		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
 
 	case "knowledge_add", "knowledge_search",
 		"knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "system_info", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline",
