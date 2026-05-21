@@ -35,7 +35,7 @@ type MemoryPlugin struct{}
 func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	switch msg.Type {
 	case "session_add", "session_get", "session_search",
-		"session_list", "session_delete",
+		"session_list", "session_delete", "session_cleanup",
 		"evidence_add", "evidence_search":
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[记忆] %s: %s\n", msg.Type, result.Output)

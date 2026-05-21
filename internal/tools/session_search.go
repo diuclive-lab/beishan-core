@@ -10,6 +10,31 @@ import (
 	"time"
 )
 
+// SessionCleanup 清理超过 maxAge 天的旧会话文件。
+func SessionCleanup(maxAgeDays int) *ToolResult {
+	sessionDir := filepath.Join(MemoryDir, "sessions")
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return successResult(fmt.Sprintf(`{"deleted":0,"message":"%s"}`, err))
+	}
+	cutoff := time.Now().Add(-time.Duration(maxAgeDays) * 24 * time.Hour)
+	var deleted int
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(sessionDir, e.Name()))
+			deleted++
+		}
+	}
+	return successResult(fmt.Sprintf(`{"deleted":%d,"max_age_days":%d}`, deleted, maxAgeDays))
+}
+
 func registerSessionSearchTools() {
 	Register("session_search", "Search messages across all stored sessions by keyword.",
 		map[string]interface{}{
@@ -23,6 +48,26 @@ func registerSessionSearchTools() {
 			},
 		},
 		sessionSearchHandler,
+	)
+
+	Register("session_cleanup", "清理超过指定天数的旧会话记录。减少磁盘占用和检索噪音。默认 max_age_days=30。",
+		map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]interface{}{
+				"max_age_days": map[string]interface{}{
+					"type":        "integer",
+					"description": "保留最近 N 天的会话，超过的删除（默认 30）",
+				},
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			days := 30
+			if d, ok := args["max_age_days"].(float64); ok && d > 0 {
+				days = int(d)
+			}
+			return SessionCleanup(days)
+		},
 	)
 
 	Register("session_list", "List all stored sessions sorted by last update time.",
