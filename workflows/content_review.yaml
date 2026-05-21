@@ -30,7 +30,6 @@ steps:
     timeout: 120
     retry: 1
     inputs:
-      mode: "no_retrieval"
       message: >-
         分析内容输出 JSON。
 
@@ -67,7 +66,6 @@ steps:
     timeout: 300
     retry: 1
     inputs:
-      mode: "no_retrieval"
       message: >-
         你是评估+提炼助手。评估内容质量和项目相关度，双评分 0-5。
 
@@ -139,7 +137,6 @@ steps:
     type: chat
     timeout: 60
     inputs:
-      mode: "no_retrieval"
       message: >-
         根据评估生成最终报告。
 

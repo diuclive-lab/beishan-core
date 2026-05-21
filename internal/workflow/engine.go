@@ -63,6 +63,17 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 
 		payload := buildPayload(step.Inputs, ctx)
 
+		// 自动注入 no_retrieval 模式（think_plugin 步骤默认跳过检索，避免干扰 JSON 输出）
+		if step.Plugin == "think_plugin" {
+			var pm map[string]interface{}
+			if json.Unmarshal(payload, &pm) == nil {
+				if _, exists := pm["mode"]; !exists {
+					pm["mode"] = "no_retrieval"
+					payload, _ = json.Marshal(pm)
+				}
+			}
+		}
+
 		// 并行步骤：goroutine + WaitGroup 并发执行子步骤
 		if len(step.ParallelSteps) > 0 {
 			result := e.runParallel(step, ctx)

@@ -33,7 +33,6 @@ steps:
     type: chat
     timeout: 120
     inputs:
-      mode: "no_retrieval"
       message: >-
         根据审计和修复结果，生成知识库健康报告。
 
