@@ -171,9 +171,15 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string) (kernel.Message, er
 		}
 	}
 
-	replyJSON, _ := json.Marshal(reply)
+	reply = strings.TrimSpace(reply)
+	var respPayload json.RawMessage
+	if len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply)) {
+		respPayload = json.RawMessage(reply)
+	} else {
+		respPayload, _ = json.Marshal(reply)
+	}
 	fmt.Printf("[思考] %s\n", truncate(reply, 120))
-	return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+	return kernel.Message{Type: "chat.response", Payload: respPayload}, nil
 }
 
 var systemPrompt = `你是 beishan-core 智能助手。你所在的系统提供以下能力：
