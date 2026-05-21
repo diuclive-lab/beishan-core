@@ -130,8 +130,8 @@ func saveKnowledge(entry *KnowledgeEntry) {
 		}
 	}
 
-	// 写入时附加系统环境快照（新条目或 summary 未含硬件信息时）
-	if entry.SourceType != "memory" && !strings.Contains(entry.Summary, "硬件：") {
+	// 写入时附加系统环境快照（仅在首次写入时，检查前缀标记）
+	if entry.SourceType != "memory" && !strings.HasPrefix(entry.Summary, "【d") {
 		hw := HardwareSummary()
 		if hw != "" {
 			entry.Summary = "【" + hw + "】" + entry.Summary
@@ -754,10 +754,10 @@ func findSemanticLinks(id, title, summary string, candidates []*KnowledgeEntry) 
 		t1 := lower(title + " " + summary)
 		t2 := lower(c.Title + " " + c.Summary)
 
-		// contradicts：一个有否定词、一个没有（结论方向相反）
+		// contradicts：同主题 + 一个有否定词一个没有（结论方向相反）
 		hasNeg1 := hasNegKeyword(t1)
 		hasNeg2 := hasNegKeyword(t2)
-		if hasNeg1 != hasNeg2 {
+		if hasNeg1 != hasNeg2 && hasSharedTagOrTopic(entry, c) {
 			linkType = LinkContradicts
 			reason = "结论方向相反"
 		} else if hasNeg1 && hasNeg2 && entry.CreatedAt > c.CreatedAt {
@@ -820,6 +820,25 @@ func mergeTypedLinks(existing, newLinks []TypedLink) []TypedLink {
 		}
 	}
 	return merged
+}
+
+// hasSharedTagOrTopic 检查两条知识是否有共享的标签或主题
+func hasSharedTagOrTopic(a, b *KnowledgeEntry) bool {
+	for _, ta := range a.Tags {
+		for _, tb := range b.Tags {
+			if strings.ToLower(ta) == strings.ToLower(tb) {
+				return true
+			}
+		}
+	}
+	for _, ta := range a.Topics {
+		for _, tb := range b.Topics {
+			if strings.ToLower(ta) == strings.ToLower(tb) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // reverseLinkType 反转链接类型
@@ -2018,7 +2037,8 @@ func registerKnowledgeTools() {
 
 	Register("knowledge_list", "列出所有知识条目，可按来源类型和天数过滤。",
 		map[string]interface{}{
-			"type": "object",
+			"type":                 "object",
+			"additionalProperties": true,
 			"properties": map[string]interface{}{
 				"source_type": stringParam("可选的来源类型过滤"),
 				"days":        intParam("最近 N 天（0=全部）"),
@@ -2032,7 +2052,8 @@ func registerKnowledgeTools() {
 
 	Register("knowledge_get", "获取指定知识条目的完整内容。",
 		map[string]interface{}{
-			"type":     "object",
+			"type":                 "object",
+			"additionalProperties": true,
 			"required": []string{"id"},
 			"properties": map[string]interface{}{
 				"id": stringParam("知识条目 ID"),
