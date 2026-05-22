@@ -246,6 +246,7 @@ func Init() {
 	registerRSSTools()
 	registerProfileTools()
 	registerGitHubTools()
+	registerCodeSecurityTools()
 	registerSyncTools()
 	registerKBAuditTools()
 	registerUsageTools()
