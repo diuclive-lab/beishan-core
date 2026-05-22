@@ -111,7 +111,7 @@ func (p *ThinkPlugin) callStructuredLLM(prompt string) (ReviewResult, error) {
 			"message": prompt,
 			"system":  "你是知识提取助手。严格按用户要求输出JSON，不要输出任何其他文本。",
 		})
-		msg, err := p.handleChatNoRetrieval(payload)
+		msg, err := p.handleChatNoRetrieval(payload, "")
 		if err != nil {
 			lastErr = fmt.Errorf("LLM call failed: %w", err)
 			continue

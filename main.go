@@ -463,6 +463,9 @@ func main() {
 	})
 
 	addr := ":8013"
+	if p := os.Getenv("PORT"); p != "" {
+		addr = ":" + p
+	}
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: mux,

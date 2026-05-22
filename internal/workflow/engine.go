@@ -299,20 +299,21 @@ func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int
 				defer func() { <-sem }()
 			}
 
-			savedItem, savedIdx := ctx["item"], ctx["item_index"]
-			ctx["item"] = it
-			ctx["item_index"] = idx
+			// 并发安全：为每个 goroutine 创建独立的 ctx 副本
+			localCtx := make(map[string]interface{}, len(ctx)+2)
+			for k, v := range ctx {
+				localCtx[k] = v
+			}
+			localCtx["item"] = it
+			localCtx["item_index"] = idx
 
-			payload := buildPayload(step.Inputs, ctx)
+			payload := buildPayload(step.Inputs, localCtx)
 			resp, callErr := e.Kernel.Call(kernel.Message{
 				Recipient: step.Plugin,
 				Type:      step.Type,
 				Payload:   payload,
 				Provider:  step.Provider,
 			}, time.Duration(timeout)*time.Second)
-
-			// 恢复原始上下文
-			ctx["item"], ctx["item_index"] = savedItem, savedIdx
 
 			if callErr != nil {
 				errsMu.Lock()
@@ -529,31 +530,37 @@ func extractJSONField(ctx map[string]interface{}, ref string) string {
 }
 
 func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{}, bool) {
-	idx := strings.Index(ref, ".output")
-	if idx < 0 {
-		return nil, false
+	// 尝试从 ctx 中找到 ref 的最长前缀 key，剩余部分作为字段路径
+	// 例如 ref="item.path" → ctx["item"] 是 map → 取 path 字段
+	// 例如 ref="steps.xxx.output.field" → ctx["steps.xxx.output"] 是 string → JSON 解析后取 field
+	parts := strings.Split(ref, ".")
+	for i := len(parts) - 1; i >= 1; i-- {
+		ctxKey := strings.Join(parts[:i], ".")
+		fieldPath := strings.Join(parts[i:], ".")
+		if v, ok := ctx[ctxKey]; ok {
+			return extractFieldFromValue(v, fieldPath)
+		}
 	}
-	ctxKey := ref[:idx+7]
-	fieldPath := strings.TrimPrefix(ref[idx+8:], ".")
+	return nil, false
+}
 
-	raw, ok := ctx[ctxKey]
-	if !ok {
-		return nil, false
-	}
-	rawStr, ok := raw.(string)
-	if !ok {
+// extractFieldFromValue 从值中提取嵌套字段，支持 map 和 JSON 字符串
+func extractFieldFromValue(v interface{}, fieldPath string) (interface{}, bool) {
+	var current interface{}
+	switch val := v.(type) {
+	case map[string]interface{}:
+		current = val
+	case string:
+		parsed := resolveJSONValue([]byte(val))
+		if parsed == nil {
+			return nil, false
+		}
+		current = parsed
+	default:
 		return nil, false
 	}
 
-	// 处理 JSON 嵌套编码：先尝试解包最外层字符串
-	parsed := resolveJSONValue([]byte(rawStr))
-	if parsed == nil {
-		return nil, false
-	}
-
-	current := parsed
 	for _, part := range strings.Split(fieldPath, ".") {
-		// 数组索引: field[0] → field, 0
 		fieldName := part
 		arrIdx := -1
 		if braceStart := strings.Index(part, "["); braceStart > 0 && strings.HasSuffix(part, "]") {
@@ -562,12 +569,10 @@ func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{},
 		}
 		if m, ok := current.(map[string]interface{}); ok {
 			current = m[fieldName]
-			// map 取值后立即应用数组索引（如 search_queries[0]）
 			if arrIdx >= 0 {
 				if arr, ok := current.([]interface{}); ok && arrIdx < len(arr) {
 					current = arr[arrIdx]
 				} else if arr, ok := current.([]interface{}); ok && arrIdx >= len(arr) {
-					// 索引越界或空数组 → 返回 nil
 					return nil, true
 				}
 			}
@@ -579,7 +584,6 @@ func extractJSONFieldValue(ctx map[string]interface{}, ref string) (interface{},
 		if current == nil {
 			return nil, true
 		}
-		// 如果取到的是数组元素且后续还有路径，继续在元素内部查找
 	}
 	return current, true
 }

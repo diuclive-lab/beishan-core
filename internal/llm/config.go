@@ -49,10 +49,14 @@ func ChatCompletionWithUsage(messages []ChatMessage, timeout time.Duration) (str
 	}
 
 	model := Model()
-	body, _ := json.Marshal(map[string]interface{}{
+	reqBody := map[string]interface{}{
 		"model":    model,
 		"messages": messages,
-	})
+	}
+	if ProviderName() == "local" {
+		reqBody["max_tokens"] = 4096
+	}
+	body, _ := json.Marshal(reqBody)
 
 	req, err := http.NewRequest("POST", ChatEndpoint(), bytes.NewReader(body))
 	if err != nil {
@@ -255,4 +259,73 @@ func ModelFor(provider string) string {
 		return p.Model
 	}
 	return Model()
+}
+
+/* ─── ChatCompletionWithProvider: 指定 provider 的 LLM 调用 ───
+   用于 workflow per-step provider override，如 DeepSeek 做路由、Qwen3.6 做苦力。 */
+
+func ChatCompletionWithProvider(provider string, messages []ChatMessage, timeout time.Duration) (string, *Usage, error) {
+	apiKey := APIKeyFor(provider)
+	if apiKey == "" {
+		return "", nil, fmt.Errorf("LLM_API_KEY 未设置 (provider=%s)", provider)
+	}
+
+	model := ModelFor(provider)
+	endpoint := ChatEndpointFor(provider)
+
+	reqBody := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+	}
+	// 本地模型需要显式指定 max_tokens，否则 llama-server 默认值太小
+	if provider == "local" {
+		reqBody["max_tokens"] = 4096
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("API 调用失败 (provider=%s): %w", provider, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", nil, fmt.Errorf("解析响应失败 (provider=%s): %w", provider, err)
+	}
+	if len(result.Choices) == 0 {
+		return "", nil, fmt.Errorf("LLM 未返回结果 (provider=%s)", provider)
+	}
+
+	usage := &Usage{
+		PromptTokens:     result.Usage.PromptTokens,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+		Model:            model,
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+
+	return result.Choices[0].Message.Content, usage, nil
 }

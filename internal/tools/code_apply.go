@@ -66,6 +66,7 @@ func CodeApplyHandler(args map[string]interface{}) *ToolResult {
 		"internal/tools/validate.go", "internal/tools/schema_registry.go",
 		"internal/tools/code_security.go", "internal/tools/code_apply.go",
 		"internal/tools/web.go", "internal/tools/fact_check.go",
+		"internal/tools/code_analysis_tools.go",
 		// 工作流引擎
 		"internal/workflow/engine.go", "internal/workflow/types.go",
 		// 胶水层

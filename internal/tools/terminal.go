@@ -76,6 +76,7 @@ func terminalExecHandler(args map[string]interface{}) *ToolResult {
 	if cmdStr == "" {
 		return errorResult("command is required")
 	}
+	// log.Printf("[terminal] EXEC CMD_LEN=%d CMD=%s", len(cmdStr), cmdStr[:min(len(cmdStr), 200)])
 	timeout := 180
 	if t, ok := args["timeout"].(float64); ok {
 		timeout = int(t)

@@ -53,7 +53,7 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	case ModeReviewExtract:
 		return p.handleReviewExtract(userText, sessionID)
 	case ModeNoRetrieval:
-		return p.handleChatNoRetrieval(msg.Payload)
+		return p.handleChatNoRetrieval(msg.Payload, msg.Provider)
 	}
 
 	// 清理过期的 pending remember（懒清理 review）
@@ -212,14 +212,14 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return p.handleSkipAll()
 	}
 
-	return p.handleChat(userText, sessionID, mode == ModeTrace)
+	return p.handleChat(userText, sessionID, mode == ModeTrace, msg.Provider)
 }
 
 // handleChatNoRetrieval 处理 workflow 步骤：跳过检索，直接调 LLM。
 // 用于需要精确 JSON 输出的步骤（如 classify/evaluate），避免检索上下文干扰。
 // Payload 支持 JSON 对象格式：{"message": "...", "system": "..."}，
 // 也兼容旧格式纯字符串。
-func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte) (kernel.Message, error) {
+func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte, provider string) (kernel.Message, error) {
 	var req struct {
 		Message string `json:"message"`
 		System  string `json:"system,omitempty"`
@@ -236,10 +236,24 @@ func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte) (kernel.Message, error) 
 		sysPrompt = req.System
 	}
 
-	reply, usage, err := llm.ChatCompletionWithUsage([]llm.ChatMessage{
-		{Role: "system", Content: sysPrompt},
-		{Role: "user", Content: req.Message},
-	}, 120*time.Second)
+	var reply string
+	var usage *llm.Usage
+	var err error
+	llmTimeout := 120 * time.Second
+	if provider == "local" {
+		llmTimeout = 600 * time.Second
+	}
+	if provider != "" {
+		reply, usage, err = llm.ChatCompletionWithProvider(provider, []llm.ChatMessage{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: req.Message},
+		}, llmTimeout)
+	} else {
+		reply, usage, err = llm.ChatCompletionWithUsage([]llm.ChatMessage{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: req.Message},
+		}, llmTimeout)
+	}
 	llm.RecordUsage("think_no_retrieval", usage)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
@@ -258,7 +272,7 @@ func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte) (kernel.Message, error) 
 
 // handleChat 处理普通聊天
 // wantTrace 为 true 时，response payload 包含结构化 retrieval_trace 字段。
-func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (kernel.Message, error) {
+func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, provider string) (kernel.Message, error) {
 	background := ""
 
 	// 项目路径（从环境变量或固定配置）
@@ -316,7 +330,19 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 	messages = append(messages, llm.ChatMessage{Role: "user", Content: userMsg})
 
-	reply, usage, err := llm.ChatCompletionWithUsage(messages, 60*time.Second)
+	var reply string
+	var usage *llm.Usage
+	var err error
+	// 本地模型需要更长超时（大上下文推理慢）
+	llmTimeout := 60 * time.Second
+	if provider == "local" {
+		llmTimeout = 300 * time.Second
+	}
+	if provider != "" {
+		reply, usage, err = llm.ChatCompletionWithProvider(provider, messages, llmTimeout)
+	} else {
+		reply, usage, err = llm.ChatCompletionWithUsage(messages, llmTimeout)
+	}
 	llm.RecordUsage("think", usage)
 	if err != nil {
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)

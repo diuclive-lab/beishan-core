@@ -1,0 +1,401 @@
+# 代码深度分析 v2 — 移植外科医生（静态度量 + 合并方案）
+#
+# 设计原则：
+#   - 静态度量优先：用终端工具产出精确数据，让 AI 从"猜测"变为"测量"
+#   - 全 API 调用：DeepSeek 统一处理分析与战略，减少本地依赖，速度更快
+#   - 合并导向：每步分析都直指合并到 beishan-core 的具体冲突和适配点
+#   - 硬化层感知：在逐文件阶段主动评估安全风险，产出硬化层增强点建议
+#   - 闭环落地：分析结果 → 知识库 → 待办事项，不只是报告
+#
+# 重要约束（L3 边界）：
+#   - code_read 只能读 beishan-core 项目内部文件
+#   - 外部项目文件通过 terminal_plugin + cat 读取（L3 以外）
+#   - batch 并发分析时 cat 天然支持任意绝对路径
+#
+# 流程：
+#   1. scan_tree:       扫描 .go/.py 文件树（终端，零 LLM）
+#   2. static_metrics:  并行收集 3 类静态度量（行数/导出符号/依赖图，终端，零 LLM）
+#   3. select_files:    DeepSeek 选出 10-15 个核心文件（约 ¥0.02）
+#   4. analyze_files:   DeepSeek 逐文件深读+分析（API，concurrency=3）
+#   5. synthesize:      DeepSeek 综合架构全景 + 输出手术方案（约 ¥0.05）
+#   6. save_knowledge:  知识入库 → 触发 insight_followup 待办闭环
+#
+# 总成本估算：
+#   DeepSeek：3 次，约 10000 tokens ≈ ¥0.08
+#   终端：确定性命令，零 AI 成本
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"code_deep_analyze","input":"/绝对路径/到/项目目录"}}
+
+id: code_deep_analyze
+
+steps:
+
+  # ════════════════════════════════════════════════════════
+  # 阶段一：静态扫描（零 LLM，产出精确原材料）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 1: 扫描文件树 ──────────────────────────────────
+  # 输出：所有源码文件的有序列表（Go + Python，排除 vendor/test/生成代码）
+  - id: scan_tree
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 20
+    inputs:
+      command: >-
+        echo "=== GO FILES ===" && /usr/bin/find ${input} -name '*.go' -not -path '*/vendor/*' -not -name '*_test.go' -not -path '*/.git/*' -not -path '*/generated/*' | sort | head -100 && echo "=== PYTHON FILES ===" && /usr/bin/find ${input} -name '*.py' -not -path '*/vendor/*' -not -name 'test_*' -not -path '*/__pycache__/*' -not -path '*/.git/*' | sort | head -50 && echo "=== GO MOD ===" && cat ${input}/go.mod 2>/dev/null | head -30 || cat ${input}/requirements.txt 2>/dev/null | head -30 || echo "(no mod file)"
+    next: static_metrics
+
+  # ── Step 2: 并行静态度量（3 路同时跑，零 LLM）────────────
+  # 各子步骤产出精确数值数据，为后续 AI 分析提供"测量依据"
+  - id: static_metrics
+    type: parallel
+    timeout: 45
+    steps:
+
+      # 度量 A: 文件行数与体量分布
+      # 暴露哪些文件"最重"（行数多=逻辑密度高=最值得分析）
+      - id: lines
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            /usr/bin/find ${input} -name '*.go' -not -path '*/vendor/*' -not -name '*_test.go' | xargs wc -l 2>/dev/null | sort -rn | head -30
+
+      # 度量 B: 导出符号统计（interface + struct + func）
+      # 暴露项目的"公开表面积"，识别核心接口和工具注册点
+      - id: exports
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            grep -rn --include='*.go' -E '^(type [A-Z][a-zA-Z]+ (struct|interface)|func [A-Z][a-zA-Z]+)' ${input} | grep -v '_test.go' | grep -v vendor | head -80
+
+      # 度量 C: 内部包依赖关系（import 图谱近似）
+      # 暴露哪些包被最多文件 import（高度 = 核心枢纽）
+      - id: imports
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            grep -rh --include='*.go' -E '^\s+"[^"]+/[^"]+/"' ${input} | grep -v vendor | sort | uniq -c | sort -rn | head -40
+
+    next: select_files
+
+  # ════════════════════════════════════════════════════════
+  # 阶段二：战略选文件（DeepSeek，小成本，数据驱动）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 3: DeepSeek 选出核心文件 ──────────────────────
+  # 输入：文件树 + 行数分布 + 导出符号 + 依赖图
+  # 输出：10-15 个精选文件，含绝对路径和优先级
+  - id: select_files
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    retry: 1
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你是一位 Go/Python 项目架构师，正在评估一个开源项目，准备将其部分模块合并到
+        beishan-core（一个微内核 + 硬化层 + 工作流编排的 AI 代理框架）。
+
+        根据以下静态度量数据，选出最值得深度分析的 10-15 个核心文件。
+        必须输出严格 JSON（不加任何其他文字、不加 markdown 代码块）：
+
+        {
+          "project_name": "项目名（从文件路径推断）",
+          "project_type": "agent框架/工具库/Web服务/CLI/混合",
+          "primary_language": "Go/Python/混合",
+          "architecture_guess": "基于度量数据的初步架构判断（60字内）",
+          "dependency_conflicts": "与 beishan-core 可能冲突的依赖（从 go.mod 观察）",
+          "core_files": [
+            {
+              "path": "文件的完整绝对路径（必须与文件树中完全一致）",
+              "role": "架构角色（10字内，如：决策引擎/工具注册表/IPC层/数据模型）",
+              "reason": "为什么值得分析，与 beishan-core 的关联（一句话）",
+              "priority": 1,
+              "estimated_lines": 0
+            }
+          ],
+          "skip_reason": "跳过了哪类文件（测试/生成代码/样例）"
+        }
+
+        选择优先级：
+        1. P1：入口/初始化（main.go/cmd//__init__.py）
+        2. P1：核心接口定义（interface/abstract class）
+        3. P2：路由/注册/分发逻辑
+        4. P2：数据模型/存储结构
+        5. P3：最重的业务实现（按行数度量）
+
+        ── 项目路径 ──
+        ${input}
+
+        ── 文件树 ──
+        ${steps.scan_tree.output}
+
+        ── 行数分布（最重的文件）──
+        ${steps.static_metrics.output.lines}
+
+        ── 导出符号（接口与类型边界）──
+        ${steps.static_metrics.output.exports}
+
+        ── 包依赖频率（高频=核心枢纽）──
+        ${steps.static_metrics.output.imports}
+    next: read_files
+
+  # ════════════════════════════════════════════════════════
+  # 阶段三：DeepSeek 逐文件分析（API）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 4: 批量读取源文件内容（串行 cat，无 LLM，确定性）──
+  # 每个 item 是 {path, role, reason, priority} 对象
+  # 输出：JSON 数组，每条 = {"path":"...","content":"...","role":"...","reason":"..."}
+  # 注意：batch 串行输出为 JSON 数组字符串，交给下一步整体处理
+  - id: read_files
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 30
+    batch:
+      foreach: "${steps.select_files.output.core_files}"
+      parallel: true
+      concurrency: 5
+    inputs:
+      command: >-
+        echo '=== FILE: ${item.path} | ROLE: ${item.role} | PRIORITY: ${item.priority} ===' &&
+        cat '${item.path}' 2>/dev/null | head -250 ||
+        echo '[文件不存在或无权限]'
+    next: analyze_files
+
+  # ── Step 5: DeepSeek 全量逐文件分析 ──
+  # 将所有 cat 结果一次性交给 DeepSeek 逐文件分析
+  # 输出：JSON 数组，每条对应一个文件的详细分析
+  - id: analyze_files
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 600
+    retry: 1
+    retry_delay: 10
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你是一位代码分析专家，目标是评估将以下项目模块合并到 beishan-core 的可行性。
+        beishan-core 是一个 Go 微内核 + 硬化层 + 工作流编排 + 知识管理系统。
+
+        以下是从目标项目读取的核心源文件内容（按优先级排列）。
+        请对每个文件独立分析，输出严格 JSON 数组（每个元素对应一个文件，不加任何其他文字）：
+
+        [
+          {
+            "file": "文件路径",
+            "role": "架构角色（10字内）",
+            "types": [
+              {"name": "类型名", "kind": "struct/interface/func/class", "purpose": "一句话"}
+            ],
+            "key_exports": ["核心公开函数/方法（最多8个）"],
+            "external_deps": ["依赖的第三方库（不含标准库）"],
+            "complexity": "low/medium/high",
+            "beishan_compat": {
+              "drop_in": ["可直接复制使用的函数/类型"],
+              "needs_adapter": ["需要适配层（说明冲突原因）"],
+              "incompatible": ["不可合并的逻辑（说明为什么）"]
+            },
+            "security_risks": ["路径穿越/命令注入/硬编码密钥等风险（无则空数组）"],
+            "hardening_notes": "需在 beishan-core 硬化层增加的校验（无则 none）",
+            "merge_priority": "high/medium/low",
+            "merge_notes": "命名冲突/接口签名差异/初始化顺序等注意事项（一句话）"
+          }
+        ]
+
+        项目路径：${input}
+        DeepSeek 初步判断：${steps.select_files.output.architecture_guess}
+
+        ── 源文件内容（分隔线分割各文件）──
+        ${steps.read_files.output}
+    next: synthesize
+
+  # ════════════════════════════════════════════════════════
+  # 阶段四：DeepSeek 综合 + 手术方案（战略，小成本）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 5: DeepSeek 综合架构 + 输出可执行合并计划 ──────
+  # 输入：所有逐文件分析 + 静态度量 + 初步判断
+  # 输出：架构全景 + 冲突清单 + 迁移步骤顺序 + 硬化层增强点
+  - id: synthesize
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 300
+    retry: 1
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你是 beishan-core 的架构师（微内核 + 硬化层 L1-L4 + 工作流编排 + 知识管理）。
+        基于以下完整分析数据，输出：
+        ① 项目架构全景
+        ② 可执行的"外科手术合并方案"
+
+        必须输出严格 JSON（不加任何其他文字）：
+
+        {
+          "project": "项目名",
+          "type": "项目类型",
+          "summary": "核心思想与定位（100字内）",
+
+          "layers": [
+            {
+              "name": "层名（如：微内核层/工具层/插件层/存储层/Web层）",
+              "files": ["属于该层的文件路径"],
+              "maturity": "骨架/半成品/完整",
+              "key_types": ["核心类型名"]
+            }
+          ],
+
+          "data_flow": "核心数据流路径（一句话，如：请求→路由→插件→工具→存储→响应）",
+
+          "strengths": [
+            "值得吸收的设计（最多5条，每条说明能给 beishan-core 带来什么价值）"
+          ],
+
+          "gaps": [
+            "缺失或不完善的部分（最多5条）"
+          ],
+
+          "merge_plan": {
+            "dependency_conflicts": [
+              {
+                "lib": "冲突的第三方库名",
+                "their_version": "对方版本",
+                "our_version": "beishan-core 版本（如未使用则填 none）",
+                "resolution": "建议处理方式"
+              }
+            ],
+            "naming_conflicts": [
+              {
+                "symbol": "重名的类型/函数名",
+                "resolution": "重命名建议"
+              }
+            ],
+            "adapter_design": [
+              {
+                "their_interface": "对方的接口签名",
+                "our_interface": "beishan-core 对应接口签名",
+                "adapter_sketch": "适配层代码草案（伪代码，10-20行）"
+              }
+            ],
+            "hardening_additions": [
+              "需要在 code_security.go 或 code_apply.go 新增的安全规则（具体描述）"
+            ],
+            "migration_order": [
+              "按低风险优先的迁移步骤顺序（如：1.先复制 types.go 接口定义，2.再迁移工具实现，3.最后对接路由层）"
+            ],
+            "test_recommendations": [
+              "合并后应新增的测试用例（具体行为描述）"
+            ],
+            "estimated_effort": "预估合并工作量（人天或描述）",
+            "risk_level": "low/medium/high",
+            "recommendation": "最终合并建议：全量合并/选择性提取/仅参考设计/不建议合并（并说明理由）"
+          }
+        }
+
+        ── 逐文件分析结果 ──
+        ${steps.analyze_files.output}
+
+        ── 静态度量：导出符号 ──
+        ${steps.static_metrics.output.exports}
+
+        ── 初步判断 ──
+        ${steps.select_files.output.architecture_guess}
+        依赖冲突初判：${steps.select_files.output.dependency_conflicts}
+    next: save_knowledge
+
+  # ════════════════════════════════════════════════════════
+  # 阶段五：知识入库 + 洞察闭环
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 6: 知识入库 ────────────────────────────────────
+  # 将完整的架构分析和合并方案存入知识库
+  # 自动触发 insight_followup 将高价值建议转为待办事项
+  - id: save_knowledge
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "code"
+      title: "${steps.synthesize.output.project} 深度合并分析（v2 手术方案）"
+      summary: >-
+        ${steps.synthesize.output.summary} |
+        风险等级: ${steps.synthesize.output.merge_plan.risk_level} |
+        建议: ${steps.synthesize.output.merge_plan.recommendation}
+      tags:
+        - "${steps.select_files.output.project_type}"
+        - "架构分析"
+        - "${steps.select_files.output.primary_language}"
+        - "合并方案"
+        - "全 API 分析"
+      topics:
+        - "代码合并"
+        - "架构"
+        - "硬化层"
+      raw_ref: "${input}"
+      content: >-
+        项目: ${steps.synthesize.output.project}
+        类型: ${steps.synthesize.output.type}
+        数据流: ${steps.synthesize.output.data_flow}
+
+        === 架构层次 ===
+        ${steps.synthesize.output.layers}
+
+        === 优势（值得吸收）===
+        ${steps.synthesize.output.strengths}
+
+        === 差距 ===
+        ${steps.synthesize.output.gaps}
+
+        === 合并方案 ===
+        依赖冲突: ${steps.synthesize.output.merge_plan.dependency_conflicts}
+        命名冲突: ${steps.synthesize.output.merge_plan.naming_conflicts}
+        迁移顺序: ${steps.synthesize.output.merge_plan.migration_order}
+        硬化层增强: ${steps.synthesize.output.merge_plan.hardening_additions}
+        工作量: ${steps.synthesize.output.merge_plan.estimated_effort}
+        风险等级: ${steps.synthesize.output.merge_plan.risk_level}
+        最终建议: ${steps.synthesize.output.merge_plan.recommendation}
+
+        === 静态度量原始数据 ===
+        行数分布: ${steps.static_metrics.output.lines}
+    next: followup
+
+  # ── Step 7: 洞察跟进 — 高价值建议自动转待办 ────────────
+  - id: followup
+    plugin: workflow_plugin
+    type: workflow_run
+    timeout: 120
+    on_error: done
+    inputs:
+      workflow: "insight_followup"
+      input: "${steps.save_knowledge.output.id}"
+    next: done
+
+  # ── Step 8: 完成报告 ─────────────────────────────────────
+  - id: done
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        为以下项目分析结果生成一份简洁的执行摘要（中文，200字以内），
+        包含：①项目定位，②最大合并价值，③最高风险点，④建议下一步行动。
+
+        项目：${steps.synthesize.output.project}
+        类型：${steps.synthesize.output.type}
+        总结：${steps.synthesize.output.summary}
+        优势：${steps.synthesize.output.strengths}
+        风险等级：${steps.synthesize.output.merge_plan.risk_level}
+        最终建议：${steps.synthesize.output.merge_plan.recommendation}
+        迁移步骤：${steps.synthesize.output.merge_plan.migration_order}
+        硬化层增强：${steps.synthesize.output.merge_plan.hardening_additions}

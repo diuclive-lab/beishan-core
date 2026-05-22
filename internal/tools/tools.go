@@ -249,6 +249,7 @@ func Init() {
 	registerCodeSecurityTools()
 	registerCodeReadTools()
 	registerCodeApplyTools()
+	registerCodeAnalysisTools()
 	registerSyncTools()
 	registerKBAuditTools()
 	registerUsageTools()
