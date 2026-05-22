@@ -16,6 +16,13 @@ import (
 	"beishan/kernel"
 )
 
+const (
+	maxMsgSize      = 10 * 1024 * 1024  // 10MB — 单条消息上限
+	healthCheckIntv = 30 * time.Second  // 健康检查间隔
+	maxRestarts     = 3                  // 5 分钟内最大重启次数
+	restartWindow   = 5 * time.Minute   // 重启计数窗口
+)
+
 /* GlueLayer 是内核与 Python 插件之间的胶水层。
 
    它作为内核的一个 Plugin 注册，管理所有 Python 子进程的生命周期。
@@ -26,14 +33,20 @@ type GlueLayer struct {
 	dir      string          // 插件目录路径
 	procs    map[string]*proc // 插件名 → 子进程
 	mu       sync.RWMutex
+	manifests []Manifest     // 存 manifest 用于重启
+	stopHealth chan struct{}
 }
 
 /* proc 代表一个 Python 插件子进程。 */
 type proc struct {
-	name   string
-	cmd    *exec.Cmd
-	stdin  *bufio.Writer
-	stdout *bufio.Scanner
+	name      string
+	cmd       *exec.Cmd
+	stdin     *bufio.Writer
+	stdout    *bufio.Scanner
+	alive     bool          // 子进程是否存活
+	restarts  int           // 重启次数
+	lastRest  time.Time     // 上次重启时间
+	manifest  Manifest      // 用于重启
 }
 
 /* New 创建胶水层实例，还不启动子进程。 */
@@ -55,17 +68,22 @@ func New(k *kernel.Kernel, pluginDir string) *GlueLayer {
    5. 注册完成后，该插件名的消息会路由到 GlueLayer.OnMessage
 */
 func (g *GlueLayer) Start() error {
-	manifests, err := ScanDir(g.dir)
+	var err error
+	g.manifests, err = ScanDir(g.dir)
 	if err != nil {
 		return err
 	}
 
-	for _, m := range manifests {
+	for _, m := range g.manifests {
 		if err := g.spawn(m); err != nil {
 			log.Printf("[Glue] 插件 %s 启动失败: %v", m.Name, err)
 			continue
 		}
 	}
+
+	// 启动健康检查
+	g.stopHealth = make(chan struct{})
+	go g.healthCheckLoop()
 
 	log.Printf("[Glue] 胶水层就绪，已启动 %d 个插件", len(g.procs))
 	return nil
@@ -111,10 +129,13 @@ func (g *GlueLayer) spawn(m Manifest) error {
 	}
 
 	p := &proc{
-		name:   m.Name,
-		cmd:    cmd,
-		stdin:  bufio.NewWriter(stdin),
-		stdout: bufio.NewScanner(stdout),
+		name:     m.Name,
+		cmd:      cmd,
+		stdin:    bufio.NewWriter(stdin),
+		stdout:   bufio.NewScanner(stdout),
+		alive:    false,
+		manifest: m,
+		lastRest: time.Now(),
 	}
 
 	// 等待子进程发 register 确认（最长 5 秒）
@@ -122,6 +143,8 @@ func (g *GlueLayer) spawn(m Manifest) error {
 		cmd.Process.Kill()
 		return err
 	}
+
+	p.alive = true
 
 	// 注册到内核
 	g.mu.Lock()
@@ -178,6 +201,26 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return kernel.Message{}, fmt.Errorf("[Glue] 未知插件: %s", msg.Recipient)
 	}
 
+	// 消息大小保护
+	if len(msg.Payload) > maxMsgSize {
+		return kernel.Message{}, fmt.Errorf("[Glue] 消息过大: %d bytes（上限 %d）", len(msg.Payload), maxMsgSize)
+	}
+
+	// 子进程失效时尝试重启一次
+	if !p.alive {
+		log.Printf("[Glue] 插件 %s 已失效，自动重启", msg.Recipient)
+		if err := g.respawn(msg.Recipient); err != nil {
+			return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 重启失败: %w", msg.Recipient, err)
+		}
+		// 重新获取 proc
+		g.mu.RLock()
+		p = g.procs[msg.Recipient]
+		g.mu.RUnlock()
+		if p == nil {
+			return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 重启后仍不可用", msg.Recipient)
+		}
+	}
+
 	// 构造 dispatch 消息，注入链路元数据
 	traceID := newTraceID()
 	dispatch := ProtocolMessage{
@@ -198,19 +241,23 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 
 	// 写入子进程 stdin
 	if _, err := p.stdin.Write(data); err != nil {
-		return kernel.Message{}, fmt.Errorf("写入 stdin 失败: %w", err)
+		p.alive = false // 写入失败 → 标记为失效，由健康检查重启
+		return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s stdin 写入失败，已标记失效: %w", msg.Recipient, err)
 	}
 	if err := p.stdin.WriteByte('\n'); err != nil {
-		return kernel.Message{}, fmt.Errorf("写入换行符失败: %w", err)
+		p.alive = false
+		return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 换行写入失败，已标记失效: %w", msg.Recipient, err)
 	}
 	if err := p.stdin.Flush(); err != nil {
-		return kernel.Message{}, fmt.Errorf("刷新 stdin 失败: %w", err)
+		p.alive = false
+		return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 刷新失败，已标记失效: %w", msg.Recipient, err)
 	}
 
 	// 从子进程 stdout 读取响应（带 30 秒超时）
 	response, err := g.readResponse(p, 30*time.Second)
 	if err != nil {
-		return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 响应超时: %w", msg.Recipient, err)
+		p.alive = false // 读取失败 → 标记为失效
+		return kernel.Message{}, fmt.Errorf("[Glue] 插件 %s 响应失败，已标记失效: %w", msg.Recipient, err)
 	}
 
 	// 如果有关联 ID，把子进程响应包装为 Message 返回给内核
@@ -227,6 +274,80 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 
 	log.Printf("[Glue] 插件 %s 处理完成", msg.Recipient)
 	return kernel.Message{}, nil
+}
+
+// healthCheckLoop 定期检查子进程存活状态，异常时自动重启。
+func (g *GlueLayer) healthCheckLoop() {
+	ticker := time.NewTicker(healthCheckIntv)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			g.mu.RLock()
+			names := make([]string, 0, len(g.procs))
+			for name, p := range g.procs {
+				if !p.alive {
+					names = append(names, name)
+				}
+			}
+			g.mu.RUnlock()
+
+			for _, name := range names {
+				log.Printf("[Glue] 检测到插件 %s 已失效，尝试重启", name)
+				if err := g.respawn(name); err != nil {
+					log.Printf("[Glue] 插件 %s 重启失败: %v", name, err)
+				}
+			}
+
+		case <-g.stopHealth:
+			return
+		}
+	}
+}
+
+// respawn 重启指定名称的子进程。
+func (g *GlueLayer) respawn(name string) error {
+	g.mu.Lock()
+	p, ok := g.procs[name]
+	if !ok {
+		g.mu.Unlock()
+		return fmt.Errorf("未知插件: %s", name)
+	}
+
+	// 重启计数保护：5分钟内超过 maxRestarts 次则熔断
+	now := time.Now()
+	if now.Sub(p.lastRest) < restartWindow {
+		p.restarts++
+		if p.restarts > maxRestarts {
+			g.mu.Unlock()
+			return fmt.Errorf("熔断保护：插件 %s 5分钟内重启 %d 次", name, maxRestarts)
+		}
+	} else {
+		p.restarts = 1
+	}
+	p.lastRest = now
+	g.mu.Unlock()
+
+	// 找到 manifest
+	var m Manifest
+	for _, mm := range g.manifests {
+		if mm.Name == name {
+			m = mm
+			break
+		}
+	}
+	if m.Name == "" {
+		return fmt.Errorf("找不到插件 %s 的 manifest", name)
+	}
+
+	// 清理旧进程
+	if p.cmd != nil && p.cmd.Process != nil {
+		p.cmd.Process.Kill()
+	}
+
+	// 重新 spawn
+	return g.spawn(m)
 }
 
 func (g *GlueLayer) readResponse(p *proc, timeout time.Duration) (*ProtocolMessage, error) {
@@ -261,6 +382,11 @@ func (g *GlueLayer) readResponse(p *proc, timeout time.Duration) (*ProtocolMessa
    向每个子进程发送 shutdown 消息，等待它们退出。
 */
 func (g *GlueLayer) Shutdown() {
+	// 停止健康检查
+	if g.stopHealth != nil {
+		close(g.stopHealth)
+	}
+
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
