@@ -1,0 +1,84 @@
+# L1 主动观察者 Agent
+# 定期轮询技术资讯源 → 按知识库主题筛选 → 高相关内容自动入库 → 通知用户
+#
+# 触发方式（手动）：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"agent_observer"}}
+#
+# 定时执行（由 scheduler_plugin 管理，main.go 注册 cron: "0 8 * * 1-5"）
+
+id: agent_observer
+
+steps:
+  # ── Step 1: 抓取默认资讯源 ──
+  - id: fetch
+    plugin: memory_plugin
+    type: rss_default
+    timeout: 60
+    retry: 1
+    next: score
+
+  # ── Step 2: LLM 评估相关性并筛选 ──
+  - id: score
+    plugin: think_plugin
+    type: chat
+    timeout: 120
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你的任务是从以下资讯中筛选出与 beishan-core 项目相关的条目。
+
+        beishan-core 关注领域：
+        - Go 语言开发、微内核架构、智能体编排
+        - 知识管理、语义检索、知识图谱
+        - 量化交易、股票分析、金融数据
+        - 图片生成、视觉 AI、提示词工程
+        - 开源项目工程实践、架构设计
+
+        资讯列表：
+        ${steps.fetch.output}
+
+        对每条资讯：
+        1. 判断是否与关注领域相关
+        2. 如果相关，用中文总结核心价值（20字以内）
+        3. 输出 JSON 数组：[{"title":"...","url":"...","reason":"..."}]，不相关的不要包含
+
+        如果都不相关，输出空数组 []。
+    next: auto_ingest
+
+  # ── Step 3: 批量入库高相关内容 ──
+  - id: auto_ingest
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    skip_if: "len(steps.score.output) == 0 || steps.score.output == '[]'"
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        以下条目被筛选为与项目相关，逐一调用 content_review 入库。
+
+        筛选结果：
+        ${steps.score.output}
+
+        请输出每条 URL，每行一个，不要其他文字。
+    next: notify
+
+  # ── Step 4: 汇总通知 ──
+  - id: notify
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        生成今日观察报告。
+
+        抓取结果：${steps.fetch.output.count} 条
+        筛选结果：${steps.score.output}
+
+        如果筛选结果为空：
+          输出"今日未发现与项目相关的新内容。"
+
+        如果有相关条目：
+          用中文列出每条标题、来源和推荐理由，格式简洁。

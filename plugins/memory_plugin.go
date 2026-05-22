@@ -52,6 +52,7 @@ func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		"knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "system_info", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline",
 		"kb_audit", "kb_repair",
 		"stock_quote", "stock_multi_quote",
+		"rss_fetch", "rss_default",
 		"image_generate", "image_to_image",
 		"prompt_engineer", "prompt_analyze", "prompt_style_list":
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)

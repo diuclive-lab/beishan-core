@@ -237,6 +237,7 @@ func Init() {
 	registerSystemInfoTools()
 	registerWebRenderTool()
 	registerStockTools()
+	registerRSSTools()
 	registerKBAuditTools()
 	registerUsageTools()
 
