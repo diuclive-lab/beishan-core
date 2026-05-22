@@ -61,12 +61,31 @@ steps:
         ${steps.score.output}
 
         每条格式：
-        {"title":"项目名称/文章标题","summary":"一句话总结核心价值","tags":["参考项目","关键技术点"],"source_type":"code","content":"URL和推荐理由"}
+        {"title":"项目名称","summary":"核心价值及参考意义","tags":["参考项目","Go"],"source_type":"code","content":"URL和推荐理由"}
 
+        source_type 固定用 "code"。tags 至少包含 "参考项目" 和技术栈标签。
         直接输出 JSON 数组，不要其他文字。
+    next: store
+
+  # ── Step 4: 批量入库 ──
+  - id: store
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    skip_if: "steps.auto_ingest.output == '[]'"
+    batch:
+      foreach: "${steps.auto_ingest.output}"
+      parallel: true
+      concurrency: 3
+    inputs:
+      source_type: "${item.source_type}"
+      title: "${item.title}"
+      summary: "${item.summary}"
+      tags: "${item.tags}"
+      content: "${item.content}"
     next: report
 
-  # ── Step 4: 汇总通知（含日期） ──
+  # ── Step 5: 汇总通知（含日期） ──
   - id: report
     plugin: think_plugin
     type: chat
