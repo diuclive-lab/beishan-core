@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -114,7 +115,8 @@ func webSearchHandler(args map[string]interface{}) *ToolResult {
 		return errorResult("query is required")
 	}
 
-	results := performDuckDuckGoSearch(query, limit)
+	// 多引擎并行搜索
+	results := searchMultiEngine(query, limit)
 
 	out := WebSearchOutput{
 		Success: true,
@@ -122,6 +124,68 @@ func webSearchHandler(args map[string]interface{}) *ToolResult {
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	return successResult(string(b))
+}
+
+// searchMultiEngine 并行调用多个搜索引擎，合并去重后返回。
+func searchMultiEngine(query string, limit int) []WebResult {
+	type engineResult struct {
+		results []WebResult
+		err     error
+	}
+
+	ch := make(chan engineResult, 2)
+	// DuckDuckGo
+	go func() {
+		r := performDuckDuckGoSearch(query, limit)
+		ch <- engineResult{results: r}
+	}()
+	// Bing
+	go func() {
+		r := searchBing(query, limit)
+		ch <- engineResult{results: r}
+	}()
+
+	var all []WebResult
+	seen := make(map[string]bool)
+	for i := 0; i < 2; i++ {
+		res := <-ch
+		for _, r := range res.results {
+			key := strings.ToLower(strings.TrimSpace(r.URL))
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			all = append(all, r)
+		}
+	}
+
+	// 按 query 关键词重叠度排序（核心排序：最相关的排最前）
+	qWords := strings.Fields(strings.ToLower(query))
+	sort.SliceStable(all, func(i, j int) bool {
+		scoreI := countQueryMatch(qWords, all[i].Title+" "+all[i].Description)
+		scoreJ := countQueryMatch(qWords, all[j].Title+" "+all[j].Description)
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+		return all[i].Position < all[j].Position
+	})
+
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all
+}
+
+// countQueryMatch 计算文本中包含多少个查询关键词。
+func countQueryMatch(words []string, text string) int {
+	lower := strings.ToLower(text)
+	count := 0
+	for _, w := range words {
+		if len(w) > 1 && strings.Contains(lower, w) {
+			count++
+		}
+	}
+	return count
 }
 
 func webFetchHandler(args map[string]interface{}) *ToolResult {

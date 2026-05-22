@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 /* ─── FactCheck 可核查事实的检测和验证 ──────────
@@ -123,6 +124,35 @@ func extractNumberAfter(text, keyword string) int {
 		}
 	}
 	return 0
+}
+
+// DateVerify 检测文本中的日期格式并验证合理性。
+func DateVerify(text string) []FactCheckResult {
+	var results []FactCheckResult
+	// 匹配 YYYY-MM-DD 和 YYYY年MM月DD日
+	re := regexp.MustCompile(`(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?`)
+	matches := re.FindAllStringSubmatch(text, -1)
+	now := time.Now()
+
+	for _, m := range matches {
+		year, _ := strconv.Atoi(m[1])
+		month, _ := strconv.Atoi(m[2])
+		day, _ := strconv.Atoi(m[3])
+
+		if month < 1 || month > 12 {
+			results = append(results, FactCheckResult{Status: "contradicted", Reason: fmt.Sprintf("月份 %d 不存在", month)})
+			continue
+		}
+		if day < 1 || day > 31 {
+			results = append(results, FactCheckResult{Status: "contradicted", Reason: fmt.Sprintf("日期 %d 不存在", day)})
+			continue
+		}
+		// 检查日期是否在合理范围内（当前年份 ±5 年）
+		if year < now.Year()-5 || year > now.Year()+1 {
+			results = append(results, FactCheckResult{Status: "contradicted", Reason: fmt.Sprintf("年份 %d 超出合理范围", year), Actual: fmt.Sprintf("%d", now.Year())})
+		}
+	}
+	return results
 }
 
 // ContainsVerifiableClaim 快速判断文本是否包含可核查事实。

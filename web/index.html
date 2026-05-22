@@ -585,7 +585,18 @@ async function send() {
     if (d.type === 'workflow.result') {
       const wf = d.payload;
       if (typeof wf === 'object' && wf && wf.WorkflowID) {
-        reply = `工作流「${wf.WorkflowID}」执行${wf.Success?'✅ 成功':'❌ 失败'}` + (wf.Steps?`\n共 ${wf.Steps.length} 步`:'') + (wf.FinalOutput?'\n\n'+wf.FinalOutput:'');
+        reply = `工作流「${wf.WorkflowID}」执行${wf.Success?'✅ 成功':'❌ 失败'}`;
+        if (wf.Steps) {
+          reply += `\n<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent);font-size:13px">执行详情（${wf.Steps.length} 步）</summary>`;
+          for (const s of wf.Steps) {
+            const status = s.Error ? '❌' : '✅';
+            const output = s.Error || (s.Output ? s.Output.substring(0, 120) : 'ok');
+            reply += `\n<div style="margin:6px 0;padding:6px 10px;background:rgba(255,255,255,.03);border-radius:4px;font-size:12px">`;
+            reply += `<span style="font-weight:500">${status} ${s.ID}</span>: ${escapeHtml(output)}</div>`;
+          }
+          reply += '\n</details>';
+        }
+        if (wf.FinalOutput) reply += '\n\n' + wf.FinalOutput;
       } else { reply = typeof wf === 'string' ? wf : JSON.stringify(wf); }
     } else if (d.type === 'chat.response') {
       if (d.payload && typeof d.payload === 'object' && d.payload.retrieval_trace) {

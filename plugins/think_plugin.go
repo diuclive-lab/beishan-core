@@ -323,11 +323,14 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 
 	// 输出质量门禁：检测 LLM 回复中的可验证事实
-	if stockChecks := tools.StockCodeVerify(reply); len(stockChecks) > 0 {
-		for _, c := range stockChecks {
-			if c.Status == "contradicted" {
-				reply += fmt.Sprintf("\n\n⚠️ 事实修正：%s（实际值：%s）", c.Reason, c.Actual)
+	allChecks := append(tools.StockCodeVerify(reply), tools.DateVerify(reply)...)
+	for _, c := range allChecks {
+		if c.Status == "contradicted" {
+			suffix := c.Reason
+			if c.Actual != "" {
+				suffix += fmt.Sprintf("（实际值：%s）", c.Actual)
 			}
+			reply += fmt.Sprintf("\n\n⚠️ 事实修正：%s", suffix)
 		}
 	}
 
