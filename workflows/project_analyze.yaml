@@ -9,18 +9,18 @@
 id: project_analyze
 
 steps:
-  # ── Step 1: 抓取项目内容（先试 GitHub raw README） ──
-  - id: fetch_raw
-    plugin: search_plugin
-    type: web_fetch
+  # ── Step 1: 获取项目 README（L3 github_readme 工具） ──
+  - id: fetch
+    plugin: memory_plugin
+    type: github_readme
     timeout: 30
-    on_error: fetch_page
+    on_error: fetch_web
     inputs:
-      url: "${input}/raw/main/README.md"
+      url: "${input}"
     next: analyze
 
-  # ── 降级：普通页面抓取 ──
-  - id: fetch_page
+  # ── 降级：非 GitHub 项目用 web_fetch ──
+  - id: fetch_web
     plugin: search_plugin
     type: web_fetch
     timeout: 30
@@ -48,8 +48,8 @@ steps:
           "code_quality": "代码质量评估: excellent/good/fair/poor"
         }
 
-        项目内容：
-        ${steps.fetch.output}
+        项目 README 内容：
+        ${steps.fetch.output.content}
 
         只输出 JSON，不要其他文字。
     next: store
