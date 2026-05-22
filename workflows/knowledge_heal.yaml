@@ -1,0 +1,38 @@
+# 知识自愈 — 定期扫描重复/缺失关联 + 自动修复 + 报告
+#
+# 定时执行（由 scheduler_plugin 管理，cron: "0 4 * * 1" 每周一 04:00）
+
+id: knowledge_heal
+
+steps:
+  # ── Step 1: 自愈扫描 ──
+  - id: scan
+    plugin: memory_plugin
+    type: knowledge_heal
+    timeout: 60
+    inputs:
+      threshold: 60
+    next: report
+
+  # ── Step 2: 生成报告 ──
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    on_error: done
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        生成知识自愈报告。
+
+        扫描结果：${steps.scan.output}
+
+        如果 count > 0，输出：
+        "🩺 知识自愈发现 {count} 个待处理项：
+         - 建议合并：X 组
+         - 建议关联：X 组
+         - 最紧急：{最高相似度的条目对}
+        可使用 knowledge_merge 和 knowledge_update 处理。"
+
+        如果 count == 0，输出：
+        "🩺 知识自愈扫描完成，未发现待处理项。知识库状态良好。"

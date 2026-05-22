@@ -97,7 +97,7 @@ func main() {
 		Types:       []string{"session_add", "session_get", "session_search", "session_list", "session_delete", "session_cleanup", "evidence_add", "evidence_search", "knowledge_add", "knowledge_search", "knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline", "system_info", "stock_quote", "stock_multi_quote",
 		"rss_fetch", "rss_default",
 		"profile_show", "profile_update",
-		"knowledge_history", "knowledge_version_get",
+		"knowledge_history", "knowledge_version_get", "knowledge_heal",
 		"image_generate", "image_to_image",
 		"prompt_engineer", "prompt_analyze", "prompt_style_list"},
 		Example:     `type="knowledge_add" payload={"source_type":"web","title":"标题","summary":"摘要"} 或 type="knowledge_search" payload={"keyword":"Go语言"} 或 type="knowledge_remember" payload={"title":"事实","summary":"内容"}`,
@@ -161,6 +161,13 @@ func main() {
 		"cron":     "0 8 * * 1-5", // 工作日 08:00
 	})
 	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: observerSchedule})
+
+	healSchedule, _ := json.Marshal(map[string]string{
+		"name":     "knowledge_heal_weekly",
+		"workflow": "knowledge_heal",
+		"cron":     "0 4 * * 1", // 每周一 04:00
+	})
+	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: healSchedule})
 	k.Register("codex_plugin", &plugins.CodexSessionPlugin{}, kernel.Meta{
 		Description: "Codex 对话导入：列出和提取本地 Codex 对话，用于知识库入库",
 		Tags:        []string{"codex", "import"},

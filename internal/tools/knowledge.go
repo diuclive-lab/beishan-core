@@ -2246,6 +2246,133 @@ func KnowledgeGraph() *ToolResult {
 	return successResult(string(b))
 }
 
+/* ─── 知识自愈 ──────────────────────────────────── */
+
+type HealSuggestion struct {
+	Type       string   `json:"type"`                 // "merge" / "link" / "review"
+	EntryA     string   `json:"entry_a_id"`           // 条目 A ID
+	EntryB     string   `json:"entry_b_id,omitempty"` // 条目 B ID（merge/link 需要两个）
+	TitleA     string   `json:"title_a"`
+	TitleB     string   `json:"title_b,omitempty"`
+	Similarity float64  `json:"similarity,omitempty"`  // BOW 余弦相似度
+	Reason     string   `json:"reason"`
+	Action     string   `json:"action"`                // "建议合并" / "建议关联" / "需人工复核"
+}
+
+func KnowledgeHeal(threshold float64) *ToolResult {
+	if threshold <= 0 {
+		threshold = 0.6
+	}
+
+	all := loadAllKnowledge()
+	if len(all) < 2 {
+		return successResult(`{"suggestions":[],"count":0,"message":"条目太少，无需自愈"}`)
+	}
+
+	// 预计算 BOW 向量
+	type entryVec struct {
+		entry *KnowledgeEntry
+		vec   []float64
+	}
+	var vecs []entryVec
+	for _, e := range all {
+		if e.Status != "" && e.Status != "active" {
+			continue
+		}
+		text := buildEmbedText(e)
+		vec := textToVector(text)
+		vecs = append(vecs, entryVec{entry: e, vec: vec})
+	}
+
+	var suggestions []HealSuggestion
+	mergeThreshold := 0.85
+	linkThreshold := threshold
+
+	for i := 0; i < len(vecs); i++ {
+		for j := i + 1; j < len(vecs); j++ {
+			a, b := vecs[i], vecs[j]
+
+			// 跳过同一条
+			if a.entry.ID == b.entry.ID {
+				continue
+			}
+
+			sim := cosineSimilarity(a.vec, b.vec)
+
+			// 极高相似度 → 重复候选
+			if sim >= mergeThreshold {
+				// 只建议一次（按 ID 排序避免重复）
+				if a.entry.ID < b.entry.ID {
+					suggestions = append(suggestions, HealSuggestion{
+						Type:       "merge",
+						EntryA:     a.entry.ID,
+						EntryB:     b.entry.ID,
+						TitleA:     a.entry.Title,
+						TitleB:     b.entry.Title,
+						Similarity: sim,
+						Reason:     fmt.Sprintf("BOW 相似度 %.0f%%，建议合并或确认是否为不同条目", sim*100),
+						Action:     "建议合并",
+					})
+				}
+				continue
+			}
+
+			// 高相似度 → 检查是否有 TypedLinks
+			if sim >= linkThreshold {
+				hasLink := false
+				for _, tl := range a.entry.TypedLinks {
+					if tl.TargetID == b.entry.ID {
+						hasLink = true
+						break
+					}
+				}
+				if !hasLink {
+					for _, tl := range b.entry.TypedLinks {
+						if tl.TargetID == a.entry.ID {
+							hasLink = true
+							break
+						}
+					}
+				}
+				if !hasLink {
+					if a.entry.ID < b.entry.ID {
+						suggestions = append(suggestions, HealSuggestion{
+							Type:       "link",
+							EntryA:     a.entry.ID,
+							EntryB:     b.entry.ID,
+							TitleA:     a.entry.Title,
+							TitleB:     b.entry.Title,
+							Similarity: sim,
+							Reason:     fmt.Sprintf("内容高度相关（%.0f%%），建议建立 TypedLinks", sim*100),
+							Action:     "建议关联",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// 按相似度降序
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].Similarity > suggestions[j].Similarity
+	})
+
+	// 上限 20 条
+	if len(suggestions) > 20 {
+		suggestions = suggestions[:20]
+	}
+
+	result := map[string]interface{}{
+		"suggestions": suggestions,
+		"count":       len(suggestions),
+		"total":       len(all),
+		"threshold":   threshold,
+		"message":     fmt.Sprintf("扫描 %d 个条目，发现 %d 个待处理项", len(all), len(suggestions)),
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	return successResult(string(b))
+}
+
 func registerKnowledgeTools() {
 	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
 		map[string]interface{}{
@@ -2584,6 +2711,23 @@ func registerKnowledgeTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			return KnowledgeVersionGet(strArg(args, "id"), strArg(args, "version"))
+		},
+	)
+
+	Register("knowledge_heal", "知识自愈扫描：用BOW向量对比检测高相似度条目，找出应合并或应建立TypedLinks的候选。threshold默认0.6。",
+		map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]interface{}{
+				"threshold": intParam("相似度阈值 0-100，默认 60。越高越严格"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			th := 0.6
+			if t, ok := args["threshold"].(float64); ok && t > 0 {
+				th = t / 100.0
+			}
+			return KnowledgeHeal(th)
 		},
 	)
 
