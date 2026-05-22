@@ -9,20 +9,18 @@
 id: project_analyze
 
 steps:
-  # ── Step 1: 抓取项目页面 ──
-  - id: fetch
+  # ── Step 1: 抓取项目内容（先试 GitHub raw README） ──
+  - id: fetch_raw
     plugin: search_plugin
-    type: web_render
-    timeout: 60
-    retry: 2
-    on_error: fetch_fallback
+    type: web_fetch
+    timeout: 30
+    on_error: fetch_page
     inputs:
-      url: "${input}"
-      wait: 3
+      url: "${input}/raw/main/README.md"
     next: analyze
 
-  # ── 降级：web_render 失败时用 web_fetch ──
-  - id: fetch_fallback
+  # ── 降级：普通页面抓取 ──
+  - id: fetch_page
     plugin: search_plugin
     type: web_fetch
     timeout: 30
