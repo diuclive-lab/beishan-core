@@ -114,7 +114,11 @@ function render(d) {
 
   // 插件列表
   const plugs = d.plugins || [];
-  g.innerHTML += card('插件', plugs.map(p => `<span class="tag">${p}</span>`).join(''));
+  const pluginLabels = {'search_plugin':['Search','网络搜索'],'memory_plugin':['Memory','记忆与知识库'],'think_plugin':['Think','LLM推理'],'todo_plugin':['Todo','待办'],'terminal_plugin':['Terminal','终端'],'browser_plugin':['Browser','浏览器'],'write_plugin':['File','文件'],'notify_plugin':['Notify','通知'],'workflow_plugin':['Workflow','工作流'],'skill_factory_plugin':['Skill Factory','技能工场'],'codex_plugin':['Codex','Codex导入'],'claude_plugin':['Claude','Claude导入'],'image_gen_plugin':['Image Gen','图片生成'],'tts_plugin':['TTS','语音'],'scheduler_plugin':['Scheduler','定时'],'cold_start_plugin':['Cold Start','合同'],'legal_search_plugin':['Legal Search','法律检索'],'clause_analyzer_plugin':['Clause Analyzer','条款分析'],'legal_write_plugin':['Legal Write','法律文书'],'session_search_plugin':['Session Search','会话搜索']};
+  g.innerHTML += card('插件 ('+plugs.length+')', plugs.map(p => {
+    const l = pluginLabels[p] || [p, ''];
+    return `<span class="tag" title="${p}: ${l[1]}">${l[0]}</span>`;
+  }).join(''));
 }
 
 function card(title, body) {

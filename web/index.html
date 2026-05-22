@@ -266,6 +266,57 @@ async function checkHealth() {
 checkHealth();
 setInterval(checkHealth, 10000);
 
+// ─── 工作流 / 插件中英文对照 ───
+const workflowLabels = {
+  'agent_observer': ['Agent Observer', '主动观察者 — 每日自动扫描技术资讯并筛选入库'],
+  'batch_ingest': ['Batch Ingest', '批量导入 — 同时处理多个 URL 的 content_review'],
+  'claude_memory_ingest': ['Claude Memory Ingest', 'Claude 记忆导入 — 将 Claude 记忆文件转结构化知识'],
+  'code_knowledge_ingest': ['Code Knowledge Ingest', '代码知识入库 — 从源码提取架构决策'],
+  'code_project_analyze': ['Code Project Analyze', '代码项目分析 — 扫描项目结构生成审计报告'],
+  'codex_conversation_ingest': ['Codex Ingest', 'Codex 对话入库 — 提取历史对话中的洞察'],
+  'content_review': ['Content Review', '内容审核 — 评估质量/相关度，自动入库高价值内容'],
+  'file_ingest': ['File Ingest', '文件入库 — 从本地文件提取知识'],
+  'github_radar': ['GitHub Radar', 'GitHub 雷达 — 监控仓库动态'],
+  'kb_hygiene': ['KB Hygiene', '知识库卫生 — 审计 + 修复 + 报告（每周自动）'],
+  'knowledge_classify': ['Knowledge Classify', '知识分类 — 自动分配合适的 source_type'],
+  'knowledge_enrich': ['Knowledge Enrich', '知识丰富 — 补充条目内容'],
+  'knowledge_enrich_local': ['Knowledge Enrich (Local)', '本地知识丰富 — 使用本地模型增强'],
+  'knowledge_heal': ['Knowledge Heal', '知识自愈 — 检测重复和缺失关联（每周自动）'],
+  'knowledge_review': ['Knowledge Review', '知识审查 — 审查条目标题/标签/任务质量'],
+  'knowledge_review_scheduler': ['Review Scheduler', '审查调度 — 定时触发知识审查'],
+  'knowledge_suggest_links': ['Suggest Links', '关联建议 — 推荐与当前条目相关的内容'],
+  'legal_review': ['Legal Review', '法律审查 — 合同条款分析与风险评估'],
+  'monthly_review': ['Monthly Review', '月度回顾 — 当月知识库健康度总览'],
+  'multimodal_ingest': ['Multimodal Ingest', '多模态入库 — 图片→AI分析→结构化知识'],
+  'personal_knowledge_ingest': ['Personal KB Ingest', '个人知识入库 — 文章/笔记→摘要标签'],
+  'stock_daily_brief': ['Stock Daily Brief', '股票日报 — 行情抓取→分析→推送报告'],
+  'weekly_review': ['Weekly Review', '周报 — 本周知识库变化汇总'],
+  'writing_assistant': ['Writing Assistant', '写作助手 — 基于知识库生成文章/报告'],
+};
+
+const pluginLabels = {
+  'search_plugin': ['Search', '网络搜索'],
+  'memory_plugin': ['Memory', '记忆与知识库'],
+  'think_plugin': ['Think', 'LLM 推理对话'],
+  'todo_plugin': ['Todo', '待办管理'],
+  'terminal_plugin': ['Terminal', '终端命令'],
+  'browser_plugin': ['Browser', '浏览器自动化'],
+  'write_plugin': ['File', '文件读写'],
+  'notify_plugin': ['Notify', '通知推送'],
+  'workflow_plugin': ['Workflow', '工作流引擎'],
+  'skill_factory_plugin': ['Skill Factory', '技能工场'],
+  'codex_plugin': ['Codex', 'Codex 对话导入'],
+  'claude_plugin': ['Claude', 'Claude 记忆导入'],
+  'image_gen_plugin': ['Image Gen', '图片生成'],
+  'tts_plugin': ['TTS', '文本转语音'],
+  'scheduler_plugin': ['Scheduler', '定时任务'],
+  'cold_start_plugin': ['Cold Start', '合同冷启动'],
+  'legal_search_plugin': ['Legal Search', '法律检索'],
+  'clause_analyzer_plugin': ['Clause Analyzer', '条款分析'],
+  'legal_write_plugin': ['Legal Write', '法律文书'],
+  'session_search_plugin': ['Session Search', '会话搜索'],
+};
+
 // ─── 工作流列表 ───
 async function loadWorkflows() {
   const grid = document.getElementById('wf-grid');
@@ -278,12 +329,14 @@ async function loadWorkflows() {
     const skills = d.payload || [];
     document.getElementById('wf-count').textContent = skills.length + ' 个';
     if (skills.length === 0) { grid.innerHTML = '<div style="color:var(--text-dim);padding:20px;grid-column:1/-1">暂无工作流</div>'; return; }
-    grid.innerHTML = skills.map(s => `
-      <div class="wf-card" onclick="quickSend('帮我跑一下 ${s.name}')">
-        <div class="name">${s.name}</div>
-        <div class="desc">${s.path || 'YAML 工作流'}</div>
-      </div>
-    `).join('');
+    grid.innerHTML = skills.map(s => {
+      const label = workflowLabels[s.name] || [s.name, s.path || ''];
+      return `<div class="wf-card" onclick="quickSend('帮我跑一下 ${s.name}')">
+        <div class="name">${label[0]}</div>
+        <div class="desc">${label[1]}</div>
+        <div class="meta">${s.name}</div>
+      </div>`;
+    }).join('');
   } catch { grid.innerHTML = '<div style="color:var(--text-dim);padding:20px;grid-column:1/-1">加载失败</div>'; }
 }
 
