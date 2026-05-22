@@ -65,3 +65,13 @@ steps:
       summary: "${steps.analyze.output.tagline} | ${steps.analyze.output.architecture} | 借鉴: ${steps.analyze.output.beishan_relevance}"
       tags: "${steps.analyze.output.tech_stack}"
       content: "URL: ${input}\n亮点:\n${steps.analyze.output.highlights}\n\n完整分析: ${steps.analyze.output}"
+    next: followup
+
+  # ── Step 4: 洞察跟进 — 评估可借鉴点，创建待办 ──
+  - id: followup
+    plugin: workflow_plugin
+    type: workflow_run
+    timeout: 120
+    inputs:
+      workflow: "insight_followup"
+      input: "${steps.store.output.id}"

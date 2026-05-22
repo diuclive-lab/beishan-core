@@ -1,0 +1,101 @@
+# 洞察跟进 — 评估分析结果，可借鉴点转为待办事项
+#
+# 由 project_analyze 自动触发，也可手动对已有条目调用。
+#
+# 手动触发：
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"insight_followup","input":"<知识条目ID>"}}
+
+id: insight_followup
+
+steps:
+  # ── Step 1: 获取条目内容 ──
+  - id: get_entry
+    plugin: memory_plugin
+    type: knowledge_get
+    timeout: 10
+    inputs:
+      id: "${input}"
+    next: evaluate
+
+  # ── Step 2: LLM 评估是否可落地 ──
+  - id: evaluate
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        分析以下知识条目，判断其中是否包含对 beishan-core 项目可落地的改进建议。
+
+        条目内容：
+        ${steps.get_entry.output}
+
+        输出 JSON：
+        {
+          "actionable": true/false,
+          "reason": "判断理由",
+          "title": "改进事项标题（actionable=true 时必填）",
+          "summary": "一句话描述要做什么",
+          "tags": ["改进建议", "相关技术领域"],
+          "priority": "high/medium/low"
+        }
+
+        判断标准：
+        - actionable=true：有具体可实现的设计模式、架构思路或工程实践
+        - actionable=false：纯信息性内容，没有具体的实施路径
+    next: create_todo
+
+  # ── Step 3: 创建待办（仅 actionable=true） ──
+  - id: create_todo
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    skip_if: "steps.evaluate.output.actionable != true"
+    inputs:
+      source_type: "note"
+      title: "${steps.evaluate.output.title}"
+      summary: "[改进建议] ${steps.evaluate.output.summary} ｜ 优先级: ${steps.evaluate.output.priority} ｜ 来源: ${input}"
+      tags: "${steps.evaluate.output.tags}"
+      content: "${steps.get_entry.output}"
+    next: add_todo
+
+  # ── Step 4: 添加待办（使用 todo 工具） ──
+  - id: add_todo
+    plugin: todo_plugin
+    type: todo_add
+    timeout: 10
+    inputs:
+      todos: ["${steps.evaluate.output.title}（优先级: ${steps.evaluate.output.priority}）"]
+    next: link
+
+  # ── Step 5: 关联到原始条目 ──
+  - id: link
+    plugin: memory_plugin
+    type: knowledge_confirm_links
+    timeout: 10
+    inputs:
+      id: "${input}"
+      link_ids: ["${steps.create_todo.output.id}"]
+    next: done
+
+  # ── Step 6: 完成（无操作） ──
+  - id: done
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        以下是对知识条目的洞察跟进结果：
+
+        条目：${input}
+        评估：${steps.evaluate.output}
+        是否创建待办：${steps.evaluate.output.actionable}
+
+        actionable=true 时输出：
+        "✅ 已创建改进建议并添加待办：[标题]"
+
+        actionable=false 时输出：
+        "ℹ️ 未发现可落地改进建议。
+        ${steps.evaluate.output.reason}"
