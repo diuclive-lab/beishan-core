@@ -239,6 +239,7 @@ func Init() {
 	registerStockTools()
 	registerRSSTools()
 	registerProfileTools()
+	registerSyncTools()
 	registerKBAuditTools()
 	registerUsageTools()
 
