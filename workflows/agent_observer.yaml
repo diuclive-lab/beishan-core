@@ -30,11 +30,11 @@ steps:
         你的任务是从以下资讯中筛选出与 beishan-core 项目相关的条目。
 
         beishan-core 关注领域：
-        - Go 语言开发、微内核架构、智能体编排
+        - 编程语言（Go/Python/Rust/TypeScript）、微内核架构、智能体编排
         - 知识管理、语义检索、知识图谱
         - 量化交易、股票分析、金融数据
         - 图片生成、视觉 AI、提示词工程
-        - 开源项目工程实践、架构设计
+        - 开源项目工程实践、架构设计、DevOps
 
         资讯列表：
         ${steps.fetch.output}
@@ -47,7 +47,7 @@ steps:
         如果都不相关，输出空数组 []。
     next: auto_ingest
 
-  # ── Step 3: 批量入库高相关内容 ──
+  # ── Step 3: 生成入库内容 ──
   - id: auto_ingest
     plugin: think_plugin
     type: chat
@@ -56,16 +56,18 @@ steps:
     inputs:
       mode: "no_retrieval"
       message: >-
-        以下条目被筛选为与项目相关，逐一调用 content_review 入库。
+        为以下条目生成知识入库内容，输出 JSON 数组：
 
-        筛选结果：
         ${steps.score.output}
 
-        请输出每条 URL，每行一个，不要其他文字。
-    next: notify
+        每条格式：
+        {"title":"项目名称/文章标题","summary":"一句话总结核心价值","tags":["参考项目","关键技术点"],"source_type":"code","content":"URL和推荐理由"}
 
-  # ── Step 4: 汇总通知 ──
-  - id: notify
+        直接输出 JSON 数组，不要其他文字。
+    next: report
+
+  # ── Step 4: 汇总通知（含日期） ──
+  - id: report
     plugin: think_plugin
     type: chat
     timeout: 60
@@ -74,11 +76,11 @@ steps:
       message: >-
         生成今日观察报告。
 
-        抓取结果：${steps.fetch.output.count} 条
-        筛选结果：${steps.score.output}
+        筛选结果：${steps.auto_ingest.output}
 
-        如果筛选结果为空：
+        如果有入库条目：
+          用中文列出每条标题、来源和推荐理由。
+          在末尾加上今天的日期。
+
+        如果无条目或筛选结果为空数组：
           输出"今日未发现与项目相关的新内容。"
-
-        如果有相关条目：
-          用中文列出每条标题、来源和推荐理由，格式简洁。
