@@ -1,9 +1,28 @@
-# 通用内容审核 — 挖金子：评估→过滤→入库洞察
+# 通用内容审核 v2 — 挖金子：评估→过滤→入库洞察
 #
-# 所有内容都会出完整评估报告，action 决定额外行为：
-#   discard: quality<3 → 出报告 + 标记已过滤（不入库不污染）
-#   report:  quality>=3但relevance<3 → 出报告（已评估，未入库）
-#   store:   quality>=3且relevance>=3 → 出报告 + 提炼洞察 + 确认后入库
+# 设计原则：
+#   - 分层评估：先分类 → 再验证 → 最后打分，每步收窄范围
+#   - 双评分过滤：quality + relevance 双 3 分门槛，防止低质内容入库污染
+#   - 容错降级：cross_check/kb_check 失败不阻塞评估，靠已有数据走 evaluate
+#   - 自动化闭环：store 动作自动入库 + insight_followup，无需人工确认
+#
+# 流程：
+#   1. fetch:        web_render 获取页面内容（约 ¥0）
+#   2. classify:      DeepSeek 分类 + 提取标签/搜索词（约 ¥0.01）
+#   3. cross_check:   全网搜索验证（可降级，约 ¥0）
+#   4. kb_check:      知识库检索对比（可降级，约 ¥0）
+#   5. evaluate:      DeepSeek 综合评分 + 洞察提炼（约 ¥0.02）
+#   6. auto_store:    条件入库（仅 action=store 时）
+#   7. report:        生成最终评估报告（约 ¥0.01）
+#
+# 评分标准：
+#   quality_score:   0=纯噪音  1=低质  2=一般  3=有参考价值  4=高质量  5=顶级
+#   relevance_score: 0=无关  1=弱  2=一般  3=可参考  4=直接借鉴  5=核心必须
+#   action: discard(<3/<3) → report(>=3/<3) → store(>=3/>=3)
+#
+# 总成本估算：
+#   DeepSeek：3 次，约 1000 tokens ≈ ¥0.04
+#   网络/搜索：2-3 次外部请求，零 LLM 成本
 #
 # 触发方式：
 #   POST /api/chat
@@ -17,7 +36,10 @@ steps:
   - id: fetch
     plugin: search_plugin
     type: web_render
-    timeout: 60
+    timeout: 120
+    retry: 1
+    retry_delay: 5
+    on_error: report_direct
     inputs:
       url: "${input}"
       wait: 5
@@ -25,10 +47,12 @@ steps:
 
   # ── Step 2: 内容分类 ──
   - id: classify
+    provider: deepseek
     plugin: think_plugin
     type: chat
     timeout: 120
     retry: 1
+    retry_delay: 5
     inputs:
       message: >-
         分析内容输出 JSON。
@@ -45,7 +69,9 @@ steps:
   - id: cross_check
     plugin: search_plugin
     type: web_search
-    timeout: 30
+    timeout: 60
+    retry: 1
+    retry_delay: 3
     on_error: evaluate
     inputs:
       query: "${steps.classify.output.search_queries[0]}"
@@ -63,10 +89,12 @@ steps:
 
   # ── Step 5: 核心步骤 — 评估 + 洞察提炼 ──
   - id: evaluate
+    provider: deepseek
     plugin: think_plugin
     type: chat
     timeout: 300
-    retry: 1
+    retry: 2
+    retry_delay: 5
     inputs:
       message: >-
         你是评估+提炼助手。评估内容质量和项目相关度，双评分 0-5。
@@ -127,6 +155,7 @@ steps:
     type: knowledge_remember
     timeout: 15
     skip_if: "steps.evaluate.output.action != 'store'"
+    on_error: report
     inputs:
       title: "${steps.evaluate.output.insight_title}"
       summary: "${steps.evaluate.output.insight_summary}"
@@ -135,9 +164,12 @@ steps:
 
   # ── Step 7: 最终报告 ──
   - id: report
+    provider: deepseek
     plugin: think_plugin
     type: chat
     timeout: 60
+    retry: 1
+    on_error: done
     inputs:
       message: >-
         根据评估生成最终报告。
@@ -167,3 +199,14 @@ steps:
           可供日后重新评估
 
         纯文本输出。
+    next: done
+
+  # ── 降级：获取页面失败时直接出简要报告 ──
+  - id: report_direct
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      message: >-
+        页面获取失败，URL: ${input}，生成一条简要记录告知用户。
+        输出纯文本，50 字以内，说明该 URL 当前不可达。

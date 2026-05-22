@@ -1,10 +1,29 @@
-# 项目深度分析 — 读取 README/源码 → 架构分析 → 知识入库
+# 项目深度分析 v2 — README/源码 → 架构分析 → 知识入库 → 洞察闭环
 #
-# 由 agent_observer 工作流自动触发，也可手动调用。
+# 设计原则：
+#   - L3 工具优先：github_readme 拆 URL 和分支降级是工具层职责，工作流不拼接 URL
+#   - 双通道获取：GitHub 项目走 github_readme，其他项目降级 web_fetch
+#   - 洞察必闭环：分析结果入库后自动触发 insight_followup 转为待办
+#   - 零检索：分析步骤用 no_retrieval，避免知识库噪声干扰 LLM 判断
 #
-# 手动触发：
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"project_analyze","input":"<项目URL>"}}
+# 流程：
+#   1. fetch:        github_readme 获取项目 README（L3，约 ¥0）
+#   2. fetch_web:    降级通道，非 GitHub 项目走 web_fetch（约 ¥0）
+#   3. analyze:      DeepSeek 结构化分析（约 ¥0.03）
+#   4. store:        分析结果入库（约 ¥0）
+#   5. followup:     insight_followup 自动创建待办（约 ¥0.02）
+#
+# 总成本估算：
+#   DeepSeek：1-2 次，约 2000 tokens ≈ ¥0.05
+#   L3 工具：github_readme/web_fetch 各 1 次，零 LLM 成本
+#   insight_followup：1 次工作流，约 ¥0.02
+#
+# 触发方式：
+#   手动：
+#     POST /api/chat
+#     {"recipient":"workflow_plugin","type":"workflow_run",
+#      "payload":{"workflow":"project_analyze","input":"<项目URL>"}}
+#   自动：由 agent_observer 工作流触发（agent_observer.yaml）
 
 id: project_analyze
 
@@ -13,7 +32,9 @@ steps:
   - id: fetch
     plugin: memory_plugin
     type: github_readme
-    timeout: 30
+    timeout: 60
+    retry: 1
+    retry_delay: 5
     on_error: fetch_web
     inputs:
       url: "${input}"
@@ -23,16 +44,22 @@ steps:
   - id: fetch_web
     plugin: search_plugin
     type: web_fetch
-    timeout: 30
+    timeout: 60
+    retry: 1
+    retry_delay: 5
+    on_error: done
     inputs:
       url: "${input}"
     next: analyze
 
   # ── Step 2: 深度分析 ──
   - id: analyze
+    provider: deepseek
     plugin: think_plugin
     type: chat
     timeout: 180
+    retry: 1
+    retry_delay: 5
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -59,6 +86,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "code"
       title: "${steps.analyze.output.title}"
@@ -67,11 +95,12 @@ steps:
       content: "URL: ${input}\n亮点:\n${steps.analyze.output.highlights}\n\n完整分析: ${steps.analyze.output}"
     next: followup
 
-  # ── Step 4: 洞察跟进 — 评估可借鉴点，创建待办 ──
+  # ── Step 4: 洞察跟进 — 评估可借鉴点，创建待办（非核心，失败不阻塞）──
   - id: followup
     plugin: workflow_plugin
     type: workflow_run
     timeout: 120
+    on_error: done
     inputs:
       workflow: "insight_followup"
       input: "${steps.store.output.id}"
