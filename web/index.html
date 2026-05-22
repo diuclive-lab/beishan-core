@@ -459,7 +459,24 @@ function addMsg(role, content, raw, traceData) {
     div.textContent = content;
   } else {
     let html = '';
-    if (content) html += '<div>' + escapeHtml(content) + '</div>';
+    // 事实核查对比卡片
+    if (content && content.includes('⚠️ 事实核查')) {
+      const matchActual = content.match(/实际值[：:]\s*([^\n]+)/);
+      const matchClaimed = content.match(/不是\s*([^\n]+)/);
+      const actual = matchActual ? matchActual[1].trim() : '';
+      const claimed = matchClaimed ? matchClaimed[1].trim() : '';
+      html += '<div style="background:#2a1f3e;border:1px solid #ffa726;border-radius:8px;padding:12px;margin-bottom:8px">';
+      html += '<div style="color:#ffa726;font-weight:600;margin-bottom:8px">⚠️ 事实核查不通过</div>';
+      html += '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+      if (claimed) html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">你的数据</td><td style="padding:4px 8px;color:#ef5350;text-decoration:line-through">' + escapeHtml(claimed) + '</td></tr>';
+      if (actual) html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">实际值</td><td style="padding:4px 8px;color:var(--success);font-weight:600">' + escapeHtml(actual) + '</td></tr>';
+      html += '</table>';
+      html += '<div style="display:flex;gap:8px;margin-top:10px">';
+      html += '<button class="btn-accent" style="flex:1" onclick="forceSave()">强制入库</button>';
+      html += '</div></div>';
+    } else {
+      if (content) html += '<div>' + escapeHtml(content) + '</div>';
+    }
     if (traceData && traceData.stages && traceData.stages.length > 0) {
       html += renderTraceWaterfall(traceData);
     }
@@ -468,6 +485,12 @@ function addMsg(role, content, raw, traceData) {
   }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
+}
+
+function forceSave() {
+  const input = document.getElementById('input');
+  input.value = '强制记录';
+  send();
 }
 
 function renderTraceWaterfall(trace) {

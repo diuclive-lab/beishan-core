@@ -358,6 +358,18 @@ func confirmPendingRemember(sessionID string) *PendingRemember {
 	return pr
 }
 
+// isForceSaveReply 检测是否是强制记录回复（跳过事实核查）
+func isForceSaveReply(sessionID, text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "强制记录" || t == "是的，强制记录" || t == "强制入库" {
+		pendingRemembersMu.Lock()
+		defer pendingRemembersMu.Unlock()
+		pr, ok := pendingRemembers[sessionID]
+		return ok && time.Now().Unix() <= pr.ExpiresAt
+	}
+	return false
+}
+
 // isConfirmReply 检测是否是确认回复
 func isConfirmReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)

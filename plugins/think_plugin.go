@@ -137,6 +137,17 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		}
 	}
 
+	// 强制记录检测（Stage 2b）：跳过事实核查直接写入
+	if isForceSaveReply(sessionID, userText) {
+		pr := confirmPendingRemember(sessionID)
+		if pr != nil {
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
+			reply := fmt.Sprintf("已强制记录（跳过核查）：%s\n%s", pr.Title, result.Output)
+			replyJSON, _ := json.Marshal(reply)
+			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+		}
+	}
+
 	// 自然语言入口：知识审查触发
 	if isReviewTrigger(userText) {
 		return p.triggerReviewWorkflow()
