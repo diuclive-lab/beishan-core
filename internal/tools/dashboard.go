@@ -1,10 +1,8 @@
 package tools
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"beishan/internal/llm"
@@ -12,7 +10,7 @@ import (
 
 // KnowledgeStats 返回知识库统计信息。
 func KnowledgeStats() map[string]interface{} {
-	all := loadAllKnowledgePtr()
+	all := loadAllKnowledge()
 	total := len(all)
 	byType := make(map[string]int)
 	byStatus := make(map[string]int)
@@ -51,31 +49,6 @@ func KnowledgeStats() map[string]interface{} {
 		"with_embedding":   withEmbedding,
 		"with_bow":         withBow,
 	}
-}
-
-func loadAllKnowledgePtr() []*KnowledgeEntry {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".hermes", "memory", "knowledge")
-	entries, _ := os.ReadDir(dir)
-	var result []*KnowledgeEntry
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".embed.json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			continue
-		}
-		var entry KnowledgeEntry
-		if json.Unmarshal(data, &entry) == nil {
-			result = append(result, &entry)
-		}
-	}
-	return result
 }
 
 // SessionStats 返回会话统计信息。

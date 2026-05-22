@@ -49,7 +49,9 @@ type StepDef struct {
 // BatchDef 批量循环定义。对 foreach 数组中的每个元素，执行 step 中的 plugin:action。
 // 当前元素可通过 ctx["item"] 访问。
 type BatchDef struct {
-	Foreach string `yaml:"foreach"`          // 表达式，求值为数组（如 "${input}"）
+	Foreach     string `yaml:"foreach"`               // 表达式，求值为数组（如 "${input}"）
+	Parallel    bool   `yaml:"parallel,omitempty"`    // 是否并发执行（默认 false 串行）
+	Concurrency int    `yaml:"concurrency,omitempty"` // 并发数上限，默认 5。仅 parallel=true 时生效
 }
 
 /* NextList 支持 next 字段的字符串和列表两种格式。 */

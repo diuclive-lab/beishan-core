@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"beishan/kernel"
@@ -236,6 +237,7 @@ func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResu
 
 // runBatch 批量循环执行：对 foreach 数组中的每个元素调用 step 的 plugin:type。
 // 当前元素存入 ctx["item"]，索引存入 ctx["item_index"]。
+// 当 step.Batch.Parallel=true 时并发执行（默认串行）。
 func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int) StepResult {
 	result := StepResult{ID: step.ID}
 
@@ -247,7 +249,6 @@ func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int
 		case []interface{}:
 			items = arr
 		case string:
-			// 尝试解析 JSON 数组字符串
 			json.Unmarshal([]byte(arr), &items)
 		}
 	}
@@ -257,43 +258,104 @@ func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int
 		return result
 	}
 
-	var outputs []string
-	var errs []string
+	// 确定并发数
+	concurrency := step.Batch.Concurrency
+	if concurrency <= 0 {
+		concurrency = 5
+	}
+
+	var (
+		outputs   = make([]string, len(items))
+		errs      []string
+		outputsMu sync.Mutex
+		errsMu    sync.Mutex
+		wg        sync.WaitGroup
+		sem       chan struct{} // nil = 串行
+		parallel  = step.Batch.Parallel
+	)
+
+	if parallel {
+		sem = make(chan struct{}, concurrency)
+	}
+
 	for i, item := range items {
-		ctx["item"] = item
-		ctx["item_index"] = i
-
-		payload := buildPayload(step.Inputs, ctx)
-		resp, callErr := e.Kernel.Call(kernel.Message{
-			Recipient: step.Plugin,
-			Type:      step.Type,
-			Payload:   payload,
-			Provider:  step.Provider,
-		}, time.Duration(timeout)*time.Second)
-
-		if callErr != nil {
-			errs = append(errs, fmt.Sprintf("[%d]: %v", i, callErr))
-			continue
+		if parallel {
+			sem <- struct{}{}
+			wg.Add(1)
 		}
-		if resp.Type != "" && strings.HasSuffix(resp.Type, ".error") {
-			errs = append(errs, fmt.Sprintf("[%d]: %s", i, string(resp.Payload)))
-			continue
+
+		idx := i
+		it := item
+
+		do := func() {
+			if parallel {
+				defer wg.Done()
+				defer func() { <-sem }()
+			}
+
+			savedItem, savedIdx := ctx["item"], ctx["item_index"]
+			ctx["item"] = it
+			ctx["item_index"] = idx
+
+			payload := buildPayload(step.Inputs, ctx)
+			resp, callErr := e.Kernel.Call(kernel.Message{
+				Recipient: step.Plugin,
+				Type:      step.Type,
+				Payload:   payload,
+				Provider:  step.Provider,
+			}, time.Duration(timeout)*time.Second)
+
+			// 恢复原始上下文
+			ctx["item"], ctx["item_index"] = savedItem, savedIdx
+
+			if callErr != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("[%d]: %v", idx, callErr))
+				errsMu.Unlock()
+				return
+			}
+			if resp.Type != "" && strings.HasSuffix(resp.Type, ".error") {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("[%d]: %s", idx, string(resp.Payload)))
+				errsMu.Unlock()
+				return
+			}
+			outputsMu.Lock()
+			outputs[idx] = string(resp.Payload)
+			outputsMu.Unlock()
+			fmt.Printf("[工作流] batch %s [%d/%d] 完成\n", step.ID, idx+1, len(items))
 		}
-		outputs = append(outputs, string(resp.Payload))
-		fmt.Printf("[工作流] batch %s [%d/%d] 完成\n", step.ID, i+1, len(items))
+
+		if parallel {
+			go do()
+		} else {
+			do()
+		}
+	}
+
+	if parallel {
+		wg.Wait()
 	}
 
 	// 清理临时上下文
 	delete(ctx, "item")
 	delete(ctx, "item_index")
 
+	// 过滤空 output（并发场景下失败的位置为空字符串）
+	var filled []string
+	for _, o := range outputs {
+		if o != "" {
+			filled = append(filled, o)
+		}
+	}
+
 	if len(errs) > 0 {
 		result.Error = fmt.Sprintf("批量执行 %d/%d 失败: %s", len(errs), len(items), strings.Join(errs, "; "))
 	}
-	outputJSON, _ := json.Marshal(outputs)
+	outputJSON, _ := json.Marshal(filled)
 	result.Output = string(outputJSON)
 	ctx["steps."+step.ID+".output"] = result.Output
-	ctx["steps."+step.ID+".count"] = len(outputs)
+	ctx["steps."+step.ID+".count"] = len(filled)
 	ctx["steps."+step.ID+".errors"] = len(errs)
 	return result
 }

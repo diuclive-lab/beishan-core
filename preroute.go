@@ -112,6 +112,19 @@ func preRoute(msg *kernel.Message) bool {
 			if strings.Contains(userText, kw) {
 				msg.Recipient = p.recipient
 				msg.Type = p.msgType
+
+				// 搜索歧义二次检查：命中 search_plugin 但内容指知识库/记忆时改路由
+				if p.recipient == "search_plugin" && p.msgType == "web_search" {
+					if strings.Contains(userText, "知识库") || strings.Contains(userText, "记忆") {
+						msg.Recipient = "memory_plugin"
+						msg.Type = "knowledge_search"
+						if payload := buildSearchPayload(userText); payload != nil {
+							msg.Payload = payload
+						}
+						return true
+					}
+				}
+
 				if p.extract != nil {
 					if payload := p.extract(userText); payload != nil {
 						msg.Payload = payload
@@ -122,6 +135,19 @@ func preRoute(msg *kernel.Message) bool {
 		}
 	}
 	return false
+}
+
+// buildSearchPayload 从用户文本中提取搜索关键词，构造 knowledge_search payload
+func buildSearchPayload(text string) json.RawMessage {
+	for _, prefix := range []string{"搜索一下", "搜索知识", "查知识", "搜一下", "搜索", "搜"} {
+		text = strings.TrimPrefix(text, prefix)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	b, _ := json.Marshal(map[string]string{"keyword": text})
+	return b
 }
 
 // extractUserText 从 message payload 中提取用户文本

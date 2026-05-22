@@ -232,6 +232,19 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 	// 加载最近 5 轮对话作为上下文
 	if history := loadRecentSessionMessages(sessionID, 5); len(history) > 0 {
+		// token 截断保护：从最新往前累计，超 8000 rune 时丢弃最早的历史
+		const maxHistoryRunes = 8000
+		total := 0
+		var safe []llm.ChatMessage
+		for i := len(history) - 1; i >= 0; i-- {
+			size := len([]rune(history[i].Content))
+			if total+size > maxHistoryRunes {
+				break
+			}
+			total += size
+			safe = append([]llm.ChatMessage{history[i]}, safe...)
+		}
+		history = safe
 		messages = append(messages, history...)
 	}
 	messages = append(messages, llm.ChatMessage{Role: "user", Content: userMsg})

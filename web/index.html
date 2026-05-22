@@ -476,19 +476,33 @@ function renderTraceWaterfall(trace) {
   for (const s of trace.stages) {
     const stageClass = s.stage.includes('L0') ? 'L0' : s.stage.includes('L0.5') ? 'L0_5' : s.stage.includes('L1') ? 'L1' : s.stage.includes('L2') ? 'L2' : s.stage === 'intent' ? 'intent' : 'ranking';
     const score = s.score > 0 ? ' <span class="trace-score">' + s.score.toFixed(2) + '</span>' : '';
-    const output = s.output ? (typeof s.output === 'object' ? JSON.stringify(s.output) : String(s.output)) : '';
+    const output = s.output ? (typeof s.output === 'object' ? JSON.stringify(s.output, null, 2) : String(s.output)) : '';
     const outputShort = output.length > 120 ? output.substring(0, 120) + '...' : output;
-    html += '<div class="trace-stage">';
+    const stageId = 'trace-' + Math.random().toString(36).substr(2, 6);
+    const collapsed = output.length > 120; // 长内容默认折叠
+
+    html += '<div class="trace-stage" onclick="toggleTraceStage(\'' + stageId + '\')" style="cursor:pointer">';
     html += '<span class="trace-badge ' + stageClass + '">' + escapeHtml(s.stage) + '</span>';
     html += '<div class="trace-body">';
     html += '<div><span class="trace-method">' + escapeHtml(s.method || '') + '</span>' + score + '</div>';
     if (s.input) html += '<div class="trace-detail">输入: ' + escapeHtml(s.input.substring(0, 80)) + '</div>';
-    if (outputShort) html += '<div class="trace-detail">输出: ' + escapeHtml(outputShort) + '</div>';
+    if (outputShort) html += '<div class="trace-detail" id="' + stageId + '-short">输出: ' + escapeHtml(outputShort) + ' <span style="color:var(--accent);font-size:11px">点击展开</span></div>';
+    if (output) html += '<div class="trace-detail" id="' + stageId + '-full" style="display:none;white-space:pre;font-family:monospace;font-size:11px;background:var(--bg);padding:8px;border-radius:4px;margin-top:4px;max-height:300px;overflow:auto">' + escapeHtml(output) + '</div>';
     if (s.reason) html += '<div class="trace-detail">原因: ' + escapeHtml(s.reason) + '</div>';
     html += '</div></div>';
   }
   html += '</div>';
   return html;
+}
+
+function toggleTraceStage(id) {
+  const short = document.getElementById(id + '-short');
+  const full = document.getElementById(id + '-full');
+  if (full) {
+    const vis = full.style.display === 'block';
+    full.style.display = vis ? 'none' : 'block';
+    if (short) short.style.display = vis ? 'block' : 'none';
+  }
 }
 
 function escapeHtml(s) {

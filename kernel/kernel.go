@@ -214,7 +214,7 @@ func (k *Kernel) deliverReply(msg Message) {
 		if err := k.Send(Message{
 		Sender:    msg.Recipient,
 		Recipient: target,
-		Type:      msg.Type + ".result",
+		Type:      msg.Type,
 		Payload:   msg.Payload,
 		}); err != nil {
 		log.Printf("[Kernel] deliverReply 失败: %v", err)

@@ -316,11 +316,14 @@ func (p *SkillFactoryPlugin) classifyTemplate(description string) (string, map[s
   }
 }`, strings.Join(templateDescs, "\n"), description)
 
-	content, err := llm.ChatCompletion(
-		"你是工作流模板分类器。只输出 JSON，不要其他文字。",
-		prompt,
+	content, usage, err := llm.ChatCompletionWithUsage(
+		[]llm.ChatMessage{
+			{Role: "system", Content: "你是工作流模板分类器。只输出 JSON，不要其他文字。"},
+			{Role: "user", Content: prompt},
+		},
 		30*time.Second,
 	)
+	llm.RecordUsage("skill_factory", usage)
 	if err != nil {
 		return "", nil, err
 	}
@@ -418,11 +421,14 @@ Available plugins:
 
 User request: %s`, nameHint, pluginList, description)
 
-	content, err := llm.ChatCompletion(
-		"You generate beishan-core workflow YAML files. Output ONLY valid YAML. No explanations, no markdown fences, no extra text.",
-		prompt,
+	content, usage, err := llm.ChatCompletionWithUsage(
+		[]llm.ChatMessage{
+			{Role: "system", Content: "You generate beishan-core workflow YAML files. Output ONLY valid YAML. No explanations, no markdown fences, no extra text."},
+			{Role: "user", Content: prompt},
+		},
 		90*time.Second,
 	)
+	llm.RecordUsage("skill_factory", usage)
 	if err != nil {
 		return "", fmt.Errorf("API 调用失败: %w", err)
 	}
