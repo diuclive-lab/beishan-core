@@ -1,0 +1,76 @@
+# 多模态知识入库 — 图片 → AI 分析 → 结构化知识 → 入库
+#
+# 支持：架构图、手写笔记、白板照片、截图等
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"multimodal_ingest","input":"<图片URL>"}}
+
+id: multimodal_ingest
+
+steps:
+  # ── Step 1: 视觉分析 ──
+  - id: analyze
+    plugin: memory_plugin
+    type: vision_analyze
+    timeout: 90
+    retry: 1
+    on_error: report
+    inputs:
+      image_url: "${input}"
+    next: structure
+
+  # ── Step 2: 结构化提取 ──
+  - id: structure
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        从以下视觉分析结果中提取结构化知识，输出 JSON：
+
+        {
+          "title": "知识条目标题（20字以内）",
+          "summary": "内容摘要（一句话）",
+          "tags": ["标签1", "标签2"],
+          "insights": "对这个项目/架构可借鉴的关键洞察",
+          "source_type": "知识类型: code/article/idea/note"
+        }
+
+        分析结果：
+        ${steps.analyze.output}
+    next: store
+
+  # ── Step 3: 入库 ──
+  - id: store
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "${steps.structure.output.source_type}"
+      title: "${steps.structure.output.title}"
+      summary: "${steps.structure.output.summary}"
+      tags: "${steps.structure.output.tags}"
+      content: "${steps.structure.output.insights}"
+    next: report
+
+  # ── Step 4: 报告 ──
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      mode: "no_retrieval"
+      message: |-
+        生成多模态入库报告。
+
+        图片：${input}
+        入库结果：${steps.store.output}
+
+        如果入库成功，输出：
+        "✅ 图片分析已完成并入库：[标题]"
+
+        如果失败，输出：
+        "❌ 入库失败：[原因]"

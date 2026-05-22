@@ -388,7 +388,11 @@ func visionAnalyzeHandler(args map[string]interface{}) *ToolResult {
 	}
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey != "" && question != "" {
+	if apiKey != "" {
+		prompt := question
+		if prompt == "" {
+			prompt = "请详细描述这张图片的内容。如果包含文字、图表或代码，请完整提取。最后给出标题（title）、摘要（summary）、标签（tags）和关键洞察（insights）。"
+		}
 		client := &http.Client{Timeout: 60 * time.Second}
 		body := map[string]interface{}{
 			"model": "gpt-4o",
@@ -396,7 +400,7 @@ func visionAnalyzeHandler(args map[string]interface{}) *ToolResult {
 				{
 					"role": "user",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": question},
+						{"type": "text", "text": prompt},
 						{"type": "image_url", "image_url": map[string]string{"url": imageURL}},
 					},
 				},
