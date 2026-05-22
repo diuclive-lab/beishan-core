@@ -129,3 +129,85 @@ func extractNumberAfter(text, keyword string) int {
 func ContainsVerifiableClaim(text string) bool {
 	return len(DetectVerifiableClaims(text)) > 0
 }
+
+// StockCodeVerify 检测文本中的股票代码并用 stock_quote 验证。
+// 匹配 6 位数字，调接口确认，只返回 contradicted 结果。
+func StockCodeVerify(text string) []FactCheckResult {
+	var results []FactCheckResult
+	re := regexp.MustCompile(`(\d{6})`)
+	matches := re.FindAllStringSubmatch(text, -1)
+	seen := make(map[string]bool)
+
+	for _, m := range matches {
+		code := m[1]
+		if seen[code] {
+			continue
+		}
+		seen[code] = true
+
+		// 过滤明显不是股票代码的 6 位数字（如日期 202605）
+		if !strings.HasPrefix(code, "6") && !strings.HasPrefix(code, "0") && !strings.HasPrefix(code, "3") {
+			continue
+		}
+
+		quote, err := fetchStockQuote(code)
+		if err != nil {
+			continue
+		}
+
+		// 检查代码前后的文本是否包含与名称不匹配的公司名
+		idx := strings.Index(text, code)
+		if idx < 0 {
+			continue
+		}
+		// 取代码前 20 个字符作为上下文
+		start := idx - 20
+		if start < 0 {
+			start = 0
+		}
+		ctx := text[start : idx+6]
+		// 如果上下文包含"移动"但名称不含"移动"，或反义
+		claimedKeywords := extractStockKW(ctx, code)
+		if len(claimedKeywords) > 0 {
+			matched := false
+			for _, kw := range claimedKeywords {
+				if strings.Contains(quote.Name, kw) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				results = append(results, FactCheckResult{
+					Status: "contradicted",
+					Reason: fmt.Sprintf("股票代码 %s 对应的是「%s」", code, quote.Name),
+					Actual: fmt.Sprintf("%s（%s）", quote.Name, code),
+				})
+			}
+		}
+	}
+	return results
+}
+
+// extractStockKW 从股票代码上下文中提取公司关键词。
+func extractStockKW(ctx, code string) []string {
+	ctx = strings.ReplaceAll(ctx, code, "")
+	// 去掉标点和空格
+	for _, r := range []string{"（", "）", "(", ")", " ", ",", "，", "、" } {
+		ctx = strings.ReplaceAll(ctx, r, "")
+	}
+	if len([]rune(ctx)) < 2 {
+		return nil
+	}
+	// 取最后 2-6 个字符作为关键词
+	runes := []rune(ctx)
+	start := len(runes) - 6
+	if start < 0 {
+		start = 0
+	}
+	kw := string(runes[start:])
+	if len([]rune(kw)) >= 2 {
+		return []string{kw}
+	}
+	return nil
+}
+

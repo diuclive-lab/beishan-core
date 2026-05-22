@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"beishan/kernel"
@@ -86,6 +87,29 @@ var preroutePatterns = []preroutePattern{
 		},
 	},
 	// 记住意图
+	// 股票行情（必须有 6 位数字代码）
+	{
+		keywords:  []string{"股价", "行情", "股票"},
+		recipient: "memory_plugin",
+		msgType:   "stock_multi_quote",
+		extract: func(text string) json.RawMessage {
+			re := regexp.MustCompile(`(\d{6})`)
+			matches := re.FindAllStringSubmatch(text, -1)
+			if len(matches) == 0 {
+				return nil
+			}
+			var codes []string
+			seen := make(map[string]bool)
+			for _, m := range matches {
+				if !seen[m[1]] {
+					seen[m[1]] = true
+					codes = append(codes, m[1])
+				}
+			}
+			b, _ := json.Marshal(map[string]interface{}{"codes": codes})
+			return b
+		},
+	},
 	{
 		keywords:  []string{"记住", "记录一下"},
 		recipient: "think_plugin",

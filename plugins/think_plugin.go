@@ -272,6 +272,15 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 		return kernel.Message{}, fmt.Errorf("think_plugin: %w", err)
 	}
 
+	// 输出质量门禁：检测 LLM 回复中的可验证事实
+	if stockChecks := tools.StockCodeVerify(reply); len(stockChecks) > 0 {
+		for _, c := range stockChecks {
+			if c.Status == "contradicted" {
+				reply += fmt.Sprintf("\n\n⚠️ 事实修正：%s（实际值：%s）", c.Reason, c.Actual)
+			}
+		}
+	}
+
 	// Suggest-to-Remember
 	if shouldSuggestRemember(userText, reply) {
 		title, summary := extractRememberCandidate(userText, reply)
