@@ -233,6 +233,7 @@ body {
       <button class="cancel" onclick="hideKnowledgeGraph()" style="background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer;">&times;</button>
     </div>
     <div id="graph-container" style="flex:1;min-height:0;background:var(--bg);border-radius:var(--radius);overflow:hidden;position:relative;">
+      <div id="graph-tooltip" style="display:none;position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--text);pointer-events:none;z-index:10;max-width:250px;box-shadow:0 4px 12px rgba(0,0,0,.3)"></div>
       <p id="graph-loading" style="color:var(--text-dim);text-align:center;padding:40px;">加载中...</p>
     </div>
   </div>
@@ -733,6 +734,17 @@ function renderGraph(container, data) {
     .attr('stroke-width', 1.5)
     .attr('stroke-opacity', 0.6);
 
+  // 边标签（关系类型，悬浮时显示）
+  const linkLabel = g.append('g')
+    .selectAll('text')
+    .data(edges)
+    .join('text')
+    .text(d => d.relation)
+    .attr('font-size', 10)
+    .attr('fill', '#888')
+    .attr('text-anchor', 'middle')
+    .style('display', 'none');
+
   // 节点
   const node = g.append('g')
     .selectAll('circle')
@@ -772,6 +784,29 @@ function renderGraph(container, data) {
     .attr('fill', '#ccc')
     .style('pointer-events', 'none');
 
+  // 节点 hover → 高亮关联边 + 气泡
+  const tip = document.getElementById('graph-tooltip');
+  node.on('mouseover', (e, d) => {
+    // 高亮关联边
+    link.attr('stroke', l => (l.source.id === d.id || l.target.id === d.id) ? '#ffa726' : '#333')
+        .attr('stroke-opacity', l => (l.source.id === d.id || l.target.id === d.id) ? 1 : 0.1)
+        .attr('stroke-width', l => (l.source.id === d.id || l.target.id === d.id) ? 2.5 : 1);
+    // 显示关联关系气泡
+    const rels = edges.filter(e => e.source.id === d.id).map(e => '→ ' + e.target.id.substring(0, 10) + ' (' + e.relation + ')').join('<br>');
+    tip.style.display = 'block';
+    tip.style.left = (e.offsetX + 15) + 'px';
+    tip.style.top = (e.offsetY - 10) + 'px';
+    tip.innerHTML = '<b>' + (d.title || d.id) + '</b><br>' + (rels || '无关联');
+  })
+  .on('mousemove', (e) => {
+    tip.style.left = (e.offsetX + 15) + 'px';
+    tip.style.top = (e.offsetY - 10) + 'px';
+  })
+  .on('mouseout', () => {
+    link.attr('stroke', '#444').attr('stroke-opacity', 0.6).attr('stroke-width', 1.5);
+    tip.style.display = 'none';
+  });
+
   // 节点点击 → 显示详情
   node.on('click', (e, d) => {
     const msg = '详情: ' + d.id + '\n标题: ' + (d.title || '-') + '\n类型: ' + (d.source_type || '-') + '\n标签: ' + (d.tags || []).join(', ');
@@ -793,6 +828,9 @@ function renderGraph(container, data) {
     label
       .attr('x', d => d.x)
       .attr('y', d => d.y);
+    linkLabel
+      .attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2);
   });
 }
 </script>
