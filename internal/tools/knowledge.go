@@ -1015,6 +1015,92 @@ func recordAccess(id string) {
 	saveKnowledge(entry)
 }
 
+/* ─── 版本控制 ──────────────────────────────────── */
+
+// saveVersionSnapshot 在修改前保存当前版本快照。
+// 历史文件存储在 history/{id}/v{timestamp}.json。
+func saveVersionSnapshot(id string, entry *KnowledgeEntry) {
+	initKnowledgeDir()
+	historyDir := filepath.Join(knowledgeDir, "history", id)
+	os.MkdirAll(historyDir, 0755)
+	path := filepath.Join(historyDir, fmt.Sprintf("v%d.json", time.Now().UnixNano()))
+	data, _ := json.MarshalIndent(entry, "", "  ")
+	os.WriteFile(path, data, 0644)
+}
+
+// KnowledgeHistory 查看指定条目的版本历史。
+func KnowledgeHistory(id string) *ToolResult {
+	if id == "" {
+		return errorResult("id 不能为空")
+	}
+	initKnowledgeDir()
+	historyDir := filepath.Join(knowledgeDir, "history", id)
+
+	entries, err := os.ReadDir(historyDir)
+	if err != nil {
+		return successResult(fmt.Sprintf(`{"id":"%s","versions":[],"message":"暂无历史版本"}`, id))
+	}
+
+	type VersionInfo struct {
+		Timestamp int64  `json:"timestamp"`
+		File      string `json:"file"`
+		Title     string `json:"title"`
+		Summary   string `json:"summary"`
+	}
+
+	var versions []VersionInfo
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, _ := os.ReadFile(filepath.Join(historyDir, e.Name()))
+		var entry KnowledgeEntry
+		if json.Unmarshal(data, &entry) != nil {
+			continue
+		}
+		// 从文件名 v1712345678.json 提取时间戳
+		var ts int64
+		fmt.Sscanf(e.Name(), "v%d.json", &ts)
+		versions = append(versions, VersionInfo{
+			Timestamp: ts,
+			File:      e.Name(),
+			Title:     entry.Title,
+			Summary:   truncateStr(entry.Summary, 100),
+		})
+	}
+
+	if len(versions) == 0 {
+		return successResult(fmt.Sprintf(`{"id":"%s","versions":[],"message":"暂无历史版本"}`, id))
+	}
+
+	// 按时间倒序
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Timestamp > versions[j].Timestamp
+	})
+
+	result := map[string]interface{}{
+		"id":       id,
+		"versions": versions,
+		"count":    len(versions),
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	return successResult(string(b))
+}
+
+// KnowledgeVersionGet 获取指定版本的内容。
+func KnowledgeVersionGet(id, versionFile string) *ToolResult {
+	if id == "" || versionFile == "" {
+		return errorResult("id 和 version 不能为空")
+	}
+	initKnowledgeDir()
+	path := filepath.Join(knowledgeDir, "history", id, versionFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return errorResult(fmt.Sprintf("版本文件 %s 未找到", versionFile))
+	}
+	return successResult(string(data))
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -1481,6 +1567,11 @@ func KnowledgeUpdate(id string, fields map[string]interface{}) *ToolResult {
 
 	if !changed {
 		return successResult(fmt.Sprintf(`{"id":"%s","message":"无需更新"}`, id))
+	}
+
+	// 保存版本快照（重新加载原始条目，避免保存修改后的内容）
+	if orig := loadKnowledge(id); orig != nil {
+		saveVersionSnapshot(id, orig)
 	}
 
 	// 保持原始创建时间不变
@@ -2466,6 +2557,33 @@ func registerKnowledgeTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			return KnowledgeReindex()
+		},
+	)
+
+	Register("knowledge_history", "查看指定知识条目的修改历史版本列表。每次 knowledge_update 自动保存快照。",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"id"},
+			"properties": map[string]interface{}{
+				"id": stringParam("知识条目 ID"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeHistory(strArg(args, "id"))
+		},
+	)
+
+	Register("knowledge_version_get", "获取指定知识条目的特定历史版本内容。先用 knowledge_history 查看可用版本。",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"id", "version"},
+			"properties": map[string]interface{}{
+				"id":      stringParam("知识条目 ID"),
+				"version": stringParam("版本文件名，如 v1712345678.json"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeVersionGet(strArg(args, "id"), strArg(args, "version"))
 		},
 	)
 

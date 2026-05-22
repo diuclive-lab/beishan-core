@@ -97,6 +97,7 @@ func main() {
 		Types:       []string{"session_add", "session_get", "session_search", "session_list", "session_delete", "session_cleanup", "evidence_add", "evidence_search", "knowledge_add", "knowledge_search", "knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline", "system_info", "stock_quote", "stock_multi_quote",
 		"rss_fetch", "rss_default",
 		"profile_show", "profile_update",
+		"knowledge_history", "knowledge_version_get",
 		"image_generate", "image_to_image",
 		"prompt_engineer", "prompt_analyze", "prompt_style_list"},
 		Example:     `type="knowledge_add" payload={"source_type":"web","title":"标题","summary":"摘要"} 或 type="knowledge_search" payload={"keyword":"Go语言"} 或 type="knowledge_remember" payload={"title":"事实","summary":"内容"}`,
