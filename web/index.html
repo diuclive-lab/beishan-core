@@ -617,8 +617,13 @@ async function send() {
     let traceData = null;
     if (d.type === 'workflow.result') {
       const wf = d.payload;
-      reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '&#10003; 成功' : '&#10007; 失败'}\n`;
-      reply += `共 ${wf.Steps.length} 步`;
+      if (typeof wf === 'object' && wf.WorkflowID) {
+        reply = `工作流「${wf.WorkflowID}」执行完成 — ${wf.Success ? '&#10003; 成功' : '&#10007; 失败'}\n`;
+        reply += `共 ${wf.Steps ? wf.Steps.length : 0} 步`;
+        if (wf.FinalOutput) reply += '\n\n' + wf.FinalOutput;
+      } else {
+        reply = typeof wf === 'string' ? wf : JSON.stringify(wf);
+      }
     } else if (d.type === 'chat.response') {
       // 检测 trace 模式响应
       if (d.payload && typeof d.payload === 'object' && d.payload.retrieval_trace) {
