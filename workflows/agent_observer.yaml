@@ -47,8 +47,8 @@ steps:
         如果都不相关，输出空数组 []。
     next: auto_ingest
 
-  # ── Step 3: 生成入库内容 ──
-  - id: auto_ingest
+  # ── Step 3: 提取项目 URL ──
+  - id: extract_urls
     plugin: think_plugin
     type: chat
     timeout: 60
@@ -56,33 +56,28 @@ steps:
     inputs:
       mode: "no_retrieval"
       message: >-
-        为以下条目生成知识入库内容，输出 JSON 数组：
+        从以下筛选结果中提取 URL 列表，输出 JSON 字符串数组：
 
         ${steps.score.output}
 
-        每条格式：
-        {"title":"项目名称","summary":"核心价值及参考意义","tags":["参考项目","Go"],"source_type":"code","content":"URL和推荐理由"}
+        格式：["url1","url2","url3"]
 
-        source_type 固定用 "code"。tags 至少包含 "参考项目" 和技术栈标签。
-        直接输出 JSON 数组，不要其他文字。
-    next: store
+        只输出 JSON 数组，不要其他文字。
+    next: analyze
 
-  # ── Step 4: 批量入库 ──
-  - id: store
-    plugin: memory_plugin
-    type: knowledge_add
-    timeout: 15
-    skip_if: "steps.auto_ingest.output == '[]'"
+  # ── Step 4: 逐个项目深度分析 ──
+  - id: analyze
+    plugin: workflow_plugin
+    type: workflow_run
+    timeout: 300
+    skip_if: "steps.extract_urls.output == '[]'"
     batch:
-      foreach: "${steps.auto_ingest.output}"
+      foreach: "${steps.extract_urls.output}"
       parallel: true
-      concurrency: 3
+      concurrency: 2
     inputs:
-      source_type: "${item.source_type}"
-      title: "${item.title}"
-      summary: "${item.summary}"
-      tags: "${item.tags}"
-      content: "${item.content}"
+      workflow: "project_analyze"
+      input: "${item}"
     next: report
 
   # ── Step 5: 汇总通知（含日期） ──
@@ -95,11 +90,12 @@ steps:
       message: >-
         生成今日观察报告。
 
-        筛选结果：${steps.auto_ingest.output}
+        发现项目：${steps.score.output}
+        分析完成：${steps.analyze.count} 个
 
-        如果有入库条目：
-          用中文列出每条标题、来源和推荐理由。
+        如果分析完成 > 0：
+          用中文列出每个项目的名称、技术栈和可借鉴点。
           在末尾加上今天的日期。
 
-        如果无条目或筛选结果为空数组：
+        如果无项目：
           输出"今日未发现与项目相关的新内容。"

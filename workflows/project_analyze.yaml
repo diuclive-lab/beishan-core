@@ -1,0 +1,69 @@
+# 项目深度分析 — 读取 README/源码 → 架构分析 → 知识入库
+#
+# 由 agent_observer 工作流自动触发，也可手动调用。
+#
+# 手动触发：
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"project_analyze","input":"<项目URL>"}}
+
+id: project_analyze
+
+steps:
+  # ── Step 1: 抓取项目页面 ──
+  - id: fetch
+    plugin: search_plugin
+    type: web_render
+    timeout: 60
+    retry: 2
+    on_error: fetch_fallback
+    inputs:
+      url: "${input}"
+      wait: 3
+    next: analyze
+
+  # ── 降级：web_render 失败时用 web_fetch ──
+  - id: fetch_fallback
+    plugin: search_plugin
+    type: web_fetch
+    timeout: 30
+    inputs:
+      url: "${input}"
+    next: analyze
+
+  # ── Step 2: 深度分析 ──
+  - id: analyze
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        分析以下开源项目内容，输出结构化 JSON：
+
+        {
+          "title": "项目名称",
+          "tagline": "一句话概括项目定位",
+          "tech_stack": ["主要技术栈"],
+          "architecture": "架构特点（30字内）",
+          "highlights": ["3-5个最值得关注的设计决策或工程实践"],
+          "beishan_relevance": "对 beishan-core 可借鉴的具体点",
+          "code_quality": "代码质量评估: excellent/good/fair/poor"
+        }
+
+        项目内容：
+        ${steps.fetch.output}
+
+        只输出 JSON，不要其他文字。
+    next: store
+
+  # ── Step 3: 知识入库 ──
+  - id: store
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "code"
+      title: "${steps.analyze.output.title}"
+      summary: "${steps.analyze.output.tagline} | ${steps.analyze.output.architecture} | 借鉴: ${steps.analyze.output.beishan_relevance}"
+      tags: "${steps.analyze.output.tech_stack}"
+      content: "URL: ${input}\n亮点:\n${steps.analyze.output.highlights}\n\n完整分析: ${steps.analyze.output}"
