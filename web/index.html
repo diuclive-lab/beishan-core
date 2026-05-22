@@ -38,6 +38,8 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif
 .msg.system .header { font-size:11px; color:var(--accent); margin-bottom:4px; }
 .msg.system .raw { font-size:11px; color:var(--text-dim); margin-top:6px; display:none; }
 .msg.system:hover .raw { display:block; }
+.msg { animation:fadeIn .3s ease; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 .input-bar { border-top:1px solid var(--border); padding:12px 20px; display:flex; gap:8px; background:var(--surface); flex-shrink:0; }
 .input-bar input { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; color:var(--text); font-size:14px; outline:none; }
 .input-bar input:focus { border-color:var(--accent); }
@@ -490,6 +492,26 @@ function toggleTrace(id) {
 }
 
 // ─── 聊天 ───
+var typingIndicator = null;
+function showTyping() {
+  if (!typingIndicator) {
+    const chat = document.getElementById('chat');
+    const div = document.createElement('div');
+    div.className = 'msg system';
+    div.id = 'typing-indicator';
+    div.innerHTML = '<div style="display:flex;gap:4px;align-items:center;padding:4px 0"><span style="animation:dotPulse 1.4s infinite;opacity:0.4">●</span><span style="animation:dotPulse 1.4s infinite 0.2s;opacity:0.4">●</span><span style="animation:dotPulse 1.4s infinite 0.4s;opacity:0.4">●</span></div>';
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    typingIndicator = div;
+  }
+}
+function hideTyping() {
+  if (typingIndicator) { typingIndicator.remove(); typingIndicator = null; }
+}
+const styleSheet = document.createElement('style');
+styleSheet.textContent = '@keyframes dotPulse { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }';
+document.head.appendChild(styleSheet);
+
 function addMsg(role, content, raw, traceData) {
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.style.display = 'none';
@@ -528,6 +550,7 @@ async function send() {
   if (!text) return;
   input.value = ''; btn.disabled = true;
   addMsg('user', text);
+  showTyping();
 
   let payload;
   if (text.startsWith('帮我入库') || text.startsWith('入库以下内容')) {
@@ -575,7 +598,7 @@ async function send() {
 
     addMsg('system', reply, d, traceData);
   } catch(err) { addMsg('system', '请求失败: ' + err.message); }
-  finally { btn.disabled = false; document.getElementById('input').focus(); }
+  finally { hideTyping(); btn.disabled = false; document.getElementById('input').focus(); }
 }
 </script>
 </body>
