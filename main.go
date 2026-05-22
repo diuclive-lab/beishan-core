@@ -100,7 +100,7 @@ func main() {
 		"code_read", "code_diff", "code_apply", "code_rollback",
 		"rss_fetch", "rss_default",
 		"profile_show", "profile_update",
-		"knowledge_history", "knowledge_version_get", "knowledge_heal", "knowledge_feedback", "knowledge_export", "knowledge_import",
+		"knowledge_history", "knowledge_version_get", "knowledge_heal", "knowledge_feedback", "knowledge_export", "knowledge_import", "kb_dedup",
 		"session_summarize",
 		"kb_audit", "kb_repair",
 		"image_generate", "image_to_image",

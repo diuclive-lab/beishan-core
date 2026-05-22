@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -133,7 +134,12 @@ func searchMultiEngine(query string, limit int) []WebResult {
 		err     error
 	}
 
-	ch := make(chan engineResult, 2)
+	ch := make(chan engineResult, 3)
+	// Tavily（优先，API key 存在时使用）
+	go func() {
+		r := searchTavily(query, limit)
+		ch <- engineResult{results: r}
+	}()
 	// DuckDuckGo
 	go func() {
 		r := performDuckDuckGoSearch(query, limit)
@@ -147,7 +153,7 @@ func searchMultiEngine(query string, limit int) []WebResult {
 
 	var all []WebResult
 	seen := make(map[string]bool)
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		res := <-ch
 		for _, r := range res.results {
 			key := strings.ToLower(strings.TrimSpace(r.URL))
@@ -243,6 +249,70 @@ func collectURLs(args map[string]interface{}) []string {
 		return strings.Split(u, ",")
 	}
 	return nil
+}
+
+// ─── Tavily Search ─────────────────────────────────────────────────────────
+
+// searchTavily 调用 Tavily API 搜索。API key 不存在时返回 nil。
+func searchTavily(query string, limit int) []WebResult {
+	apiKey := os.Getenv("TAVILY_API_KEY")
+	if apiKey == "" {
+		return nil
+	}
+
+	payload := map[string]interface{}{
+		"query":          query,
+		"max_results":    limit,
+		"include_answer": false,
+	}
+	body, _ := json.Marshal(payload)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, _ := http.NewRequest("POST", "https://api.tavily.com/search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("[tavily] 请求失败: %v\n", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		fmt.Printf("[tavily] HTTP %d: %s\n", resp.StatusCode, string(b)[:200])
+		return nil
+	}
+
+	var result struct {
+		Results []struct {
+			Title   string  `json:"title"`
+			URL     string  `json:"url"`
+			Content string  `json:"content"`
+			Score   float64 `json:"score"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Printf("[tavily] 解析失败: %v\n", err)
+		return nil
+	}
+
+	var out []WebResult
+	for i, r := range result.Results {
+		desc := r.Content
+		if len([]rune(desc)) > 300 {
+			desc = string([]rune(desc)[:300]) + "..."
+		}
+		out = append(out, WebResult{
+			Title:       r.Title,
+			URL:         r.URL,
+			Description: desc,
+			Position:    i + 1,
+		})
+	}
+	fmt.Printf("[tavily] 搜索 %q 返回 %d 条结果\n", query, len(out))
+	return out
 }
 
 // ─── DuckDuckGo Search ─────────────────────────────────────────────────────

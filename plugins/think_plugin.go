@@ -323,7 +323,10 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 	}
 
 	// 输出质量门禁：检测 LLM 回复中的可验证事实
-	allChecks := append(tools.StockCodeVerify(reply), tools.DateVerify(reply)...)
+	allChecks := tools.StockCodeVerify(reply)
+	allChecks = append(allChecks, tools.DateVerify(reply)...)
+	allChecks = append(allChecks, tools.NumberRangeVerify(reply)...)
+	allChecks = append(allChecks, tools.URLVerify(reply)...)
 	for _, c := range allChecks {
 		if c.Status == "contradicted" {
 			suffix := c.Reason

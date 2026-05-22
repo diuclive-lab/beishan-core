@@ -84,9 +84,10 @@ func (n *NextList) UnmarshalYAML(value *yaml.Node) error {
 
 /* StepResult 单步执行结果，用于上下文传递。 */
 type StepResult struct {
-	ID     string
-	Output string
-	Error  string
+	ID        string
+	Output    string
+	Error     string
+	ElapsedMs int64 `json:"ElapsedMs,omitempty"` // 步骤耗时（毫秒）
 }
 
 /* WorkflowResult 整个工作流的执行结果。 */
@@ -97,4 +98,5 @@ type WorkflowResult struct {
 	Success     bool         `json:"Success"`
 	Error       string       `json:"Error"`
 	FinalOutput string       `json:"FinalOutput,omitempty"` // 最后一步的输出，用于嵌套工作流
+	TotalMs     int64        `json:"TotalMs,omitempty"`     // 总耗时（毫秒）
 }

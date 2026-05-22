@@ -511,6 +511,16 @@ function toggleTrace(id) {
   f.style.display=vis?'none':'block';
   if(s) s.style.display=vis?'block':'none';
 }
+function toggleWfStep(id) {
+  const s=document.getElementById(id+'-s'),f=document.getElementById(id+'-f');
+  if(!f) return;
+  const vis=f.style.display==='block';
+  f.style.display=vis?'none':'block';
+  if(s) {
+    const full=s.getAttribute('data-full');
+    if(full) { s.textContent=vis?s.getAttribute('data-short'):full; }
+  }
+}
 
 // ─── 聊天 ───
 var typingIndicator = null;
@@ -606,14 +616,34 @@ async function send() {
     if (d.type === 'workflow.result') {
       const wf = d.payload;
       if (typeof wf === 'object' && wf && wf.WorkflowID) {
-        reply = `工作流「${wf.WorkflowID}」执行${wf.Success?'✅ 成功':'❌ 失败'}`;
+        const totalSec = wf.TotalMs ? (wf.TotalMs/1000).toFixed(1)+'s' : '';
+        reply = `工作流「${wf.WorkflowID}」执行${wf.Success?'✅ 成功':'❌ 失败'}${totalSec?' · '+totalSec:''}`;
         if (wf.Steps) {
-          reply += `\n<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent);font-size:13px">执行详情（${wf.Steps.length} 步）</summary>`;
-          for (const s of wf.Steps) {
+          const stepDetails = 'wf-'+Math.random().toString(36).substr(2,6);
+          reply += `\n<details style="margin-top:8px" open><summary style="cursor:pointer;color:var(--accent);font-size:13px;font-weight:600">执行详情（${wf.Steps.length} 步）</summary>`;
+          for (let i=0;i<wf.Steps.length;i++) {
+            const s = wf.Steps[i];
             const status = s.Error ? '❌' : '✅';
-            const output = s.Error || (s.Output ? s.Output.substring(0, 120) : 'ok');
-            reply += `\n<div style="margin:6px 0;padding:6px 10px;background:rgba(255,255,255,.03);border-radius:4px;font-size:12px">`;
-            reply += `<span style="font-weight:500">${status} ${s.ID}</span>: ${escapeHtml(output)}</div>`;
+            const output = s.Error || (s.Output ? s.Output : 'ok');
+            const short = output.length>150?output.substring(0,150)+'...':output;
+            const elapsed = s.ElapsedMs ? s.ElapsedMs+'ms' : '';
+            const stepId = stepDetails+'-'+i;
+            const bgColor = s.Error ? 'rgba(248,81,73,.08)' : 'rgba(255,255,255,.03)';
+            const borderColor = s.Error ? 'var(--danger)' : 'var(--border)';
+            reply += `\n<div style="margin:4px 0;padding:8px 10px;background:${bgColor};border-left:3px solid ${borderColor};border-radius:0 4px 4px 0;font-size:12px">`;
+            reply += `<div style="display:flex;align-items:center;gap:6px">`;
+            reply += `<span>${status}</span>`;
+            reply += `<span style="font-weight:600;color:var(--accent)">${escapeHtml(s.ID)}</span>`;
+            if(elapsed) reply += `<span style="color:var(--text-dim);font-size:11px;margin-left:auto">${elapsed}</span>`;
+            reply += `</div>`;
+            if(short && short !== 'ok') {
+              reply += `<div style="color:var(--text-dim);margin-top:4px;cursor:pointer" onclick="toggleWfStep('${stepId}')">`;
+              reply += `<span id="${stepId}-s">${escapeHtml(short)}</span>`;
+              if(output.length>150) reply += ` <span style="color:var(--accent);font-size:11px">展开</span>`;
+              reply += `</div>`;
+              if(output.length>150) reply += `<pre id="${stepId}-f" style="display:none;margin:6px 0 0;padding:8px;background:var(--bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto;color:var(--text)">${escapeHtml(output)}</pre>`;
+            }
+            reply += `</div>`;
           }
           reply += '\n</details>';
         }

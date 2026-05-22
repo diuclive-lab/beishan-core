@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -158,6 +159,75 @@ func DateVerify(text string) []FactCheckResult {
 // ContainsVerifiableClaim 快速判断文本是否包含可核查事实。
 func ContainsVerifiableClaim(text string) bool {
 	return len(DetectVerifiableClaims(text)) > 0
+}
+
+// NumberRangeVerify 检测文本中的不合理数值。
+// 百分比 >100% 或 <0%、负数金额、年龄 >150 等。
+func NumberRangeVerify(text string) []FactCheckResult {
+	var results []FactCheckResult
+
+	// 百分比检测：匹配 "N%" 或 "N percent"
+	re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*%`)
+	for _, m := range re.FindAllStringSubmatch(text, -1) {
+		pct, _ := strconv.ParseFloat(m[1], 64)
+		if pct > 100 {
+			results = append(results, FactCheckResult{
+				Status: "contradicted",
+				Reason: fmt.Sprintf("百分比 %.1f%% 超过 100%%，可能有误", pct),
+				Actual: "≤100%",
+			})
+		} else if pct < 0 {
+			results = append(results, FactCheckResult{
+				Status: "contradicted",
+				Reason: fmt.Sprintf("百分比 %.1f%% 为负数，可能有误", pct),
+				Actual: "≥0%",
+			})
+		}
+	}
+
+	// 年龄检测：匹配 "N岁"
+	ageRe := regexp.MustCompile(`(\d+)\s*岁`)
+	for _, m := range ageRe.FindAllStringSubmatch(text, -1) {
+		age, _ := strconv.Atoi(m[1])
+		if age > 150 {
+			results = append(results, FactCheckResult{
+				Status: "contradicted",
+				Reason: fmt.Sprintf("年龄 %d 岁超过人类寿命极限", age),
+				Actual: "≤150",
+			})
+		}
+	}
+
+	return results
+}
+
+// URLVerify 检测文本中的 URL 格式是否合法。
+func URLVerify(text string) []FactCheckResult {
+	var results []FactCheckResult
+	// 匹配 http/https URL
+	re := regexp.MustCompile(`https?://[^\s\)\]\"'<>]+`)
+	matches := re.FindAllString(text, -1)
+	for _, u := range matches {
+		// 检查常见错误：缺少域名后缀、localhost 混入生产文本
+		if strings.Contains(u, "localhost") || strings.Contains(u, "127.0.0.1") {
+			results = append(results, FactCheckResult{
+				Status: "contradicted",
+				Reason: fmt.Sprintf("URL 包含 localhost，不应出现在正式文本中: %s", u),
+			})
+		}
+		// 检查域名是否有后缀
+		parsed, err := url.Parse(u)
+		if err == nil {
+			host := parsed.Hostname()
+			if host != "" && !strings.Contains(host, ".") && host != "localhost" {
+				results = append(results, FactCheckResult{
+					Status: "contradicted",
+					Reason: fmt.Sprintf("URL 域名缺少后缀: %s", host),
+				})
+			}
+		}
+	}
+	return results
 }
 
 // StockCodeVerify 检测文本中的股票代码并用 stock_quote 验证。

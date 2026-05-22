@@ -2510,6 +2510,62 @@ func KnowledgeHeal(threshold float64, autoMerge bool) *ToolResult {
 	return successResult(string(b))
 }
 
+/* ─── 批量去重 ──────────────────────────────────── */
+
+// KBDedup 一键去重：高阈值扫描 + 自动合并沉睡条目 + 返回待审查列表。
+func KBDedup() *ToolResult {
+	// 第一轮：90% 阈值 + 自动合并（沉睡条目）
+	healResult := KnowledgeHeal(0.9, true)
+	var healOut struct {
+		Suggestions  []HealSuggestion    `json:"suggestions"`
+		AutoMerged   []map[string]interface{} `json:"auto_merged"`
+		Count        int                 `json:"count"`
+		MergedCount  int                 `json:"merged_count"`
+		Total        int                 `json:"total"`
+	}
+	json.Unmarshal([]byte(healResult.Output), &healOut)
+
+	// 第二轮：80% 阈值，不自动合并，找出待审查项
+	reviewResult := KnowledgeHeal(0.8, false)
+	var reviewOut struct {
+		Suggestions []HealSuggestion `json:"suggestions"`
+		Count       int              `json:"count"`
+	}
+	json.Unmarshal([]byte(reviewResult.Output), &reviewOut)
+
+	// 过滤掉已在第一轮合并的条目
+	mergedIDs := make(map[string]bool)
+	for _, m := range healOut.AutoMerged {
+		if sid, ok := m["source_id"].(string); ok {
+			mergedIDs[sid] = true
+		}
+	}
+
+	var reviewItems []HealSuggestion
+	for _, s := range reviewOut.Suggestions {
+		if s.Type == "merge" && (mergedIDs[s.EntryA] || mergedIDs[s.EntryB]) {
+			continue // 已合并，跳过
+		}
+		reviewItems = append(reviewItems, s)
+	}
+
+	// 上限 10 条待审查
+	if len(reviewItems) > 10 {
+		reviewItems = reviewItems[:10]
+	}
+
+	result := map[string]interface{}{
+		"auto_merged":    healOut.AutoMerged,
+		"merged_count":   healOut.MergedCount,
+		"review_items":   reviewItems,
+		"review_count":   len(reviewItems),
+		"total":          healOut.Total,
+		"message":        fmt.Sprintf("去重完成：自动合并 %d 对，待审查 %d 项", healOut.MergedCount, len(reviewItems)),
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	return successResult(string(b))
+}
+
 /* ─── 检索反馈 ──────────────────────────────────── */
 
 // KnowledgeFeedback 记录用户对知识条目的反馈，调整 UtilityScore。
@@ -2902,6 +2958,16 @@ func registerKnowledgeTools() {
 				am = v
 			}
 			return KnowledgeHeal(th, am)
+		},
+	)
+
+	Register("kb_dedup", "知识库去重：高阈值(90%)扫描+自动合并沉睡条目+返回待审查列表。一键完成去重。",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KBDedup()
 		},
 	)
 

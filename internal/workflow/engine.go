@@ -25,6 +25,7 @@ func New(k *kernel.Kernel, dir string) *Engine {
 
 /* Run 执行工作流，支持超时、重试、条件分支。 */
 func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult, error) {
+	tStart := time.Now()
 	def, err := e.load(workflowID)
 	if err != nil {
 		return nil, err
@@ -48,14 +49,14 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 	for currentStep != "done" && currentStep != "" {
 		step := findStep(def, currentStep)
 		if step == nil {
-			return buildResult(workflowID, results, currentStep, false, fmt.Sprintf("步骤 %s 未定义", currentStep)), nil
+			return buildResult(workflowID, results, currentStep, false, fmt.Sprintf("步骤 %s 未定义", currentStep), time.Since(tStart).Milliseconds()), nil
 		}
 
 		// skip_if 条件跳过
 		if step.SkipIf != "" {
 			shouldSkip := evaluateCondition(step.SkipIf, ctx)
 			if shouldSkip {
-				result := StepResult{ID: step.ID, Output: "skipped: " + step.SkipIf}
+				result := StepResult{ID: step.ID, Output: "skipped: " + step.SkipIf, ElapsedMs: 0}
 				results = append(results, result)
 				currentStep = resolveNext(step, ctx)
 				continue
@@ -77,7 +78,9 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 
 		// 并行步骤：goroutine + WaitGroup 并发执行子步骤
 		if len(step.ParallelSteps) > 0 {
+			t0 := time.Now()
 			result := e.runParallel(step, ctx)
+			result.ElapsedMs = time.Since(t0).Milliseconds()
 			results = append(results, result)
 			currentStep = resolveNext(step, ctx)
 			continue
@@ -90,7 +93,9 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 
 		// 批量循环步骤：对 foreach 数组中的每个元素执行当前步骤
 		if step.Batch != nil {
+			t0 := time.Now()
 			result := e.runBatch(step, ctx, timeout)
+			result.ElapsedMs = time.Since(t0).Milliseconds()
 			results = append(results, result)
 			currentStep = resolveNext(step, ctx)
 			continue
@@ -105,6 +110,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			retryDelay = 1
 		}
 
+		t0 := time.Now()
 		var resp kernel.Message
 		var callErr error
 		for attempt := 0; attempt <= maxRetry; attempt++ {
@@ -130,7 +136,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			}
 		}
 
-		result := StepResult{ID: step.ID}
+		result := StepResult{ID: step.ID, ElapsedMs: time.Since(t0).Milliseconds()}
 		if callErr != nil {
 			result.Error = fmt.Sprintf("步骤 %s 失败(%d次重试后): %v", step.ID, maxRetry, callErr)
 			results = append(results, result)
@@ -142,7 +148,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 				currentStep = step.OnError
 				continue
 			}
-			return buildResult(workflowID, results, step.ID, false, result.Error), nil
+			return buildResult(workflowID, results, step.ID, false, result.Error, time.Since(tStart).Milliseconds()), nil
 		}
 		result.Output = string(resp.Payload)
 		results = append(results, result)
@@ -152,7 +158,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		currentStep = resolveNext(step, ctx)
 		stepVisits[step.ID]++
 		if stepVisits[step.ID] > maxIter {
-			return buildResult(workflowID, results, step.ID, false, fmt.Sprintf("步骤 %s 已达循环上限 %d 次，疑似死循环", step.ID, maxIter)), nil
+			return buildResult(workflowID, results, step.ID, false, fmt.Sprintf("步骤 %s 已达循环上限 %d 次，疑似死循环", step.ID, maxIter), time.Since(tStart).Milliseconds()), nil
 		}
 	}
 
@@ -163,14 +169,14 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			break
 		}
 	}
-	return buildResult(workflowID, results, currentStep, true, "", finalOutput), nil
+	return buildResult(workflowID, results, currentStep, true, "", time.Since(tStart).Milliseconds(), finalOutput), nil
 }
 
-func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string, finalOutput ...string) *WorkflowResult {
+func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string, totalMs int64, finalOutput ...string) *WorkflowResult {
 	r := &WorkflowResult{
 		WorkflowID: workflowID, Steps: steps,
 		FinalStep: finalStep, Success: success,
-		Error: err,
+		Error: err, TotalMs: totalMs,
 	}
 	if len(finalOutput) > 0 {
 		r.FinalOutput = finalOutput[0]
