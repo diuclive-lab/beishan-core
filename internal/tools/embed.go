@@ -129,7 +129,12 @@ func buildEmbedText(entry *KnowledgeEntry) string {
 		parts = append(parts, entry.Title)
 	}
 	if entry.Summary != "" {
-		parts = append(parts, entry.Summary)
+		summary := entry.Summary
+		// 去掉硬件前缀 【...】（影响 BOW 向量纯度）
+		if idx := strings.Index(summary, "】"); idx >= 0 && strings.HasPrefix(summary, "【") {
+			summary = summary[idx+len("】"):]
+		}
+		parts = append(parts, summary)
 	}
 	if len(entry.Tags) > 0 {
 		parts = append(parts, strings.Join(entry.Tags, " "))

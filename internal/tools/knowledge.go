@@ -1031,6 +1031,7 @@ func recordAccess(id string) {
 
 // saveVersionSnapshot 在修改前保存当前版本快照。
 // 历史文件存储在 history/{id}/v{timestamp}.json。
+// 每个条目保留最近 50 个版本，超出时删除最旧的。
 func saveVersionSnapshot(id string, entry *KnowledgeEntry) {
 	initKnowledgeDir()
 	historyDir := filepath.Join(knowledgeDir, "history", id)
@@ -1038,6 +1039,18 @@ func saveVersionSnapshot(id string, entry *KnowledgeEntry) {
 	path := filepath.Join(historyDir, fmt.Sprintf("v%d.json", time.Now().UnixNano()))
 	data, _ := json.MarshalIndent(entry, "", "  ")
 	os.WriteFile(path, data, 0644)
+
+	// 版本清理：保留最近 50 个
+	if entries, err := os.ReadDir(historyDir); err == nil && len(entries) > 50 {
+		sort.Slice(entries, func(i, j int) bool {
+			ii, _ := entries[i].Info()
+			ji, _ := entries[j].Info()
+			return ii.ModTime().Before(ji.ModTime())
+		})
+		for i := 0; i < len(entries)-50; i++ {
+			os.Remove(filepath.Join(historyDir, entries[i].Name()))
+		}
+	}
 }
 
 // KnowledgeHistory 查看指定条目的版本历史。
