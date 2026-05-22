@@ -55,6 +55,7 @@ type KnowledgeEntry struct {
 	ExpiresAt  int64     `json:"expires_at,omitempty"`   // 过期时间戳，0=永久
 	Status        string    `json:"status,omitempty"`         // active/archived/expired，空=active
 	LastAccessedAt int64     `json:"last_accessed_at,omitempty"` // 最后被检索/引用的时间戳
+	Namespace     string    `json:"namespace,omitempty"`      // 所属空间: default/workspace-a/project-b，空=default
 	Verified      bool      `json:"verified,omitempty"`        // 是否经过事实核查
 	VerifiedAt    int64     `json:"verified_at,omitempty"`     // 核查时间
 }
@@ -196,7 +197,7 @@ func newKnowledgeID() string {
 
 /* ─── 公开 API ─────────────────────────────────── */
 
-func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links []string, rawRef, content string) *ToolResult {
+func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links []string, rawRef, content string, namespace string) *ToolResult {
 	if sourceType == "" {
 		return errorResult("source_type 不能为空")
 	}
@@ -224,6 +225,7 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 		TypedLinks: linksToTypedLinks(links),
 		RawRef:     rawRef,
 		Content:    content,
+		Namespace:  namespace,
 	}
 	// 保存，但保持 CreatedAt 为首次创建时间
 	saveKnowledge(entry)
@@ -327,7 +329,7 @@ type ScoredEntry struct {
 // decisionKeywords 决策类标签关键词（结构化加权用）
 var decisionKeywords = []string{"决策", "决定", "架构", "方案", "结论", "教训", "放弃", "最终"}
 
-func SearchWithScore(query string, limit int) []ScoredEntry {
+func SearchWithScore(query string, limit int, namespace string) []ScoredEntry {
 	if limit <= 0 {
 		limit = 3
 	}
@@ -338,6 +340,9 @@ func SearchWithScore(query string, limit int) []ScoredEntry {
 
 	for _, entry := range all {
 		if entry.Status != "" && entry.Status != "active" {
+			continue
+		}
+		if !matchNamespace(entry, namespace) {
 			continue
 		}
 		score := 0
@@ -572,7 +577,7 @@ func tryEmbedding(text string) ([]float64, bool) {
 
 // searchByEmbedding 向量相似度检索。
 // 无 embedding 的条目异步触发惰性补全。
-func searchByEmbedding(queryEmb []float64, limit int) []ScoredEntry {
+func searchByEmbedding(queryEmb []float64, limit int, namespace string) []ScoredEntry {
 	all := loadAllKnowledge()
 	var scored []ScoredEntry
 	var pending []*KnowledgeEntry
@@ -580,6 +585,9 @@ func searchByEmbedding(queryEmb []float64, limit int) []ScoredEntry {
 	for _, entry := range all {
 		// 跳过过期和已归档条目
 		if entry.Status != "" && entry.Status != "active" {
+			continue
+		}
+		if !matchNamespace(entry, namespace) {
 			continue
 		}
 		if entry.Ephemeral && entry.ExpiresAt > 0 && time.Now().Unix() > entry.ExpiresAt {
@@ -975,6 +983,18 @@ func linksToTypedLinks(ids []string) []TypedLink {
 	return tls
 }
 
+// matchNamespace 检查条目是否匹配指定空间。ns 为空时返回 true（不过滤）。
+func matchNamespace(entry *KnowledgeEntry, ns string) bool {
+	if ns == "" {
+		return true
+	}
+	entryNs := entry.Namespace
+	if entryNs == "" {
+		entryNs = "default"
+	}
+	return entryNs == ns
+}
+
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {
@@ -1055,13 +1075,13 @@ func entryToResult(entry *KnowledgeEntry, source retrieval.RetrievalKind, score 
 //   L0:   确定性关键词评分（不调 LLM）
 //   L0.5: 图扩展（沿 Links/TypedLinks 遍历）
 //   L2:   embedding 语义回退（仅当 L0 结果不足时）
-func searchMemoryFull(query string, limit int, trace *RetrievalTrace) []retrieval.RetrievalResult {
+func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace string) []retrieval.RetrievalResult {
 	if limit <= 0 {
 		limit = 3
 	}
 
 	// ── L0: 确定性关键词评分 ──────────────────────
-	directScored := SearchWithScore(query, limit*2)
+	directScored := SearchWithScore(query, limit*2, namespace)
 	var direct []retrieval.RetrievalResult
 	for _, se := range directScored {
 		entry := loadKnowledge(se.ID)
@@ -1132,7 +1152,7 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace) []retrieva
 	// ── L2: embedding 语义回退（仅当 L0 结果不足）──
 	if len(expanded) < limit && embeddingEnabled() {
 		if emb, ok := tryEmbedding(query); ok {
-			embeddingResults := searchByEmbedding(emb, limit*2)
+			embeddingResults := searchByEmbedding(emb, limit*2, namespace)
 			for _, se := range embeddingResults {
 				if seen[se.ID] {
 					continue
@@ -1200,7 +1220,7 @@ func linkTypeWeight(lt LinkType) float64 {
 // SearchMemory 统一记忆检索入口（对外接口，保持 []ScoredEntry 兼容）。
 // 内部委托 searchMemoryFull 执行确定性优先的检索阶梯。
 func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry {
-	results := searchMemoryFull(query, limit, trace)
+	results := searchMemoryFull(query, limit, trace, "")
 	var out []ScoredEntry
 	for _, r := range results {
 		out = append(out, ScoredEntry{
@@ -1220,7 +1240,7 @@ func SearchMemory(query string, limit int, trace *RetrievalTrace) []ScoredEntry 
 
 // SearchMemoryFull 检索入口（导出版），返回 []retrieval.RetrievalResult 供多跳使用。
 func SearchMemoryFull(query string, limit int, trace *RetrievalTrace) []retrieval.RetrievalResult {
-	return searchMemoryFull(query, limit, trace)
+	return searchMemoryFull(query, limit, trace, "")
 }
 
 // NeedsSecondHop 判断是否需要第二轮检索（纯代码，零 LLM）。
@@ -2178,6 +2198,7 @@ func registerKnowledgeTools() {
 						},
 					},
 				},
+				"namespace": stringParam("所属空间: default/workspace/project。不同空间隔离，默认 default"),
 				"raw_ref": stringParam("原始来源引用，如 URL 或文件路径"),
 				"content": map[string]interface{}{
 					"oneOf": []interface{}{
@@ -2202,6 +2223,7 @@ func registerKnowledgeTools() {
 				strSliceArg(args, "links"),
 				strArg(args, "raw_ref"),
 				contentOrJoin(args, "content"),
+				strArg(args, "namespace"),
 			)
 		},
 	)
