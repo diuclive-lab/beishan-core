@@ -146,12 +146,15 @@ func (g *GlueLayer) spawn(m Manifest) error {
 
 	p.alive = true
 
-	// 注册到内核
+	// 注册到内核（首次启动时注册，重启时已存在则跳过）
 	g.mu.Lock()
+	_, alreadyRegistered := g.procs[m.Name]
 	g.procs[m.Name] = p
 	g.mu.Unlock()
 
-	g.kernel.Register(m.Name, g)
+	if !alreadyRegistered {
+		g.kernel.Register(m.Name, g)
+	}
 	log.Printf("[Glue] 插件 %s 已就绪 (PID %d)", m.Name, cmd.Process.Pid)
 	return nil
 }
@@ -341,9 +344,16 @@ func (g *GlueLayer) respawn(name string) error {
 		return fmt.Errorf("找不到插件 %s 的 manifest", name)
 	}
 
-	// 清理旧进程
+	// 清理旧进程（发送 SIGKILL 后等待退出）
 	if p.cmd != nil && p.cmd.Process != nil {
 		p.cmd.Process.Kill()
+		waitDone := make(chan struct{}, 1)
+		go func() { p.cmd.Wait(); waitDone <- struct{}{} }()
+		select {
+		case <-waitDone:
+		case <-time.After(3 * time.Second):
+			log.Printf("[Glue] 插件 %s 旧进程等待超时，强制继续", name)
+		}
 	}
 
 	// 重新 spawn

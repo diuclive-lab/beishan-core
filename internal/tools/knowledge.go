@@ -439,19 +439,13 @@ func computeStructuralBoost(entry *KnowledgeEntry) (int, []retrieval.Contradicti
 	}
 
 	// 检索反馈加权：UtilityScore 影响排名，上限 ±2
-	if entry.UtilityScore > 0 {
-		us := int(entry.UtilityScore * 2)
-		if us > 2 {
-			us = 2
-		}
-		boost += us
-	} else if entry.UtilityScore < 0 {
-		us := int(entry.UtilityScore * 2)
-		if us < -2 {
-			us = -2
-		}
-		boost += us
+	us := int(entry.UtilityScore * 2)
+	if us > 2 {
+		us = 2
+	} else if us < -2 {
+		us = -2
 	}
+	boost += us
 
 	// 矛盾链接加权 + 收集标注
 	for _, tl := range entry.TypedLinks {
@@ -2296,6 +2290,9 @@ func KnowledgeHeal(threshold float64) *ToolResult {
 	for _, e := range all {
 		if e.Status != "" && e.Status != "active" {
 			continue
+		}
+		if e.Title == "" {
+			continue // 跳过空 title（通常是残留噪音）
 		}
 		text := buildEmbedText(e)
 		vec := textToVector(text)

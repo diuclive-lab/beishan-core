@@ -31,7 +31,7 @@ func KnowledgeExportHandler(args map[string]interface{}) *ToolResult {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return errorResult(fmt.Sprintf("写入失败: %v", err))
 	}
-	return successResult(fmt.Sprintf(`{"path":"%s","count":%d,"message":"已导出 %d 条知识"}`, path, len(all), len(all)))
+	return successResult(fmt.Sprintf(`{"path":"%s","count":%d,"message":"已导出 %d 条知识。导入后请运行 knowledge_embed_all 补 BOW 向量。"}`, path, len(all), len(all)))
 }
 
 func KnowledgeImportHandler(args map[string]interface{}) *ToolResult {
