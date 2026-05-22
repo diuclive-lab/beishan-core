@@ -529,7 +529,7 @@ function addMsg(role, content, raw, traceData) {
       html += '<table style="width:100%;font-size:13px">';
       if(claimed) html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">你的数据</td><td style="padding:4px 8px;color:var(--danger);text-decoration:line-through">'+escapeHtml(claimed)+'</td></tr>';
       if(actual) html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">实际值</td><td style="padding:4px 8px;color:var(--success);font-weight:600">'+escapeHtml(actual)+'</td></tr>';
-      html += '</table><div style="display:flex;gap:8px;margin-top:10px"><button class="nav-item" style="width:auto;padding:4px 16px;font-size:13px;background:var(--accent);color:#000;border-radius:6px;border:none;cursor:pointer;font-weight:600" onclick="quickSend(\'强制记录\')">强制入库</button></div></div>';
+      html += '</table><div style="display:flex;gap:8px;margin-top:10px"><button class="nav-item" style="width:auto;padding:4px 16px;font-size:13px;background:var(--accent);color:#000;border-radius:6px;border:none;cursor:pointer;font-weight:600" onclick="quickSend(\'强制记录\')">强制入库</button><button class="nav-item" style="width:auto;padding:4px 16px;font-size:13px;background:#6a4c93;color:#fff;border-radius:6px;border:none;cursor:pointer;font-weight:600" onclick="quickSend(\'确认合并\')">一键合并</button></div></div>';
     } else {
       if (content) html += '<div>' + escapeHtml(content) + '</div>';
     }

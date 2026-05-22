@@ -33,12 +33,11 @@ import (
 type MemoryPlugin struct{}
 
 func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
-	switch msg.Type {
-	case "session_add", "session_get", "session_search",
-		"session_list", "session_delete", "session_cleanup", "session_summarize",
-		"evidence_add", "evidence_search":
+	// 动态转发：自动匹配 tools.Registry 中已注册的工具，无需硬编码 case 列表。
+	// 新增工具只需在 tools.go Init() 中注册，memory_plugin 自动可达。
+	if tools.HasTool(msg.Type) {
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
-		fmt.Printf("[记忆] %s: %s\n", msg.Type, result.Output)
+		fmt.Printf("[memory] %s: %s\n", msg.Type, truncate(result.Output, 200))
 		var respPayload json.RawMessage
 		output := result.Output
 		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
@@ -47,29 +46,7 @@ func (p *MemoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 			respPayload, _ = json.Marshal(output)
 		}
 		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
-
-	case "knowledge_add", "knowledge_search",
-		"knowledge_list", "knowledge_get", "knowledge_delete", "knowledge_update", "knowledge_suggest_links", "knowledge_dedupe", "knowledge_merge", "knowledge_confirm_links", "knowledge_remember", "knowledge_reindex", "system_info", "knowledge_embed", "knowledge_embed_all", "knowledge_semantic_search", "knowledge_topic_map", "knowledge_timeline",
-		"kb_audit", "kb_repair",
-		"stock_quote", "stock_multi_quote",
-		"rss_fetch", "rss_default",
-		"profile_show", "profile_update",
-		"knowledge_history", "knowledge_version_get", "knowledge_heal", "knowledge_feedback", "knowledge_export", "knowledge_import", "knowledge_graph",
-		"image_generate", "image_to_image",
-		"prompt_engineer", "prompt_analyze", "prompt_style_list":
-		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
-		fmt.Printf("[知识] %s: %s\n", msg.Type, result.Output)
-		// 如果输出是 JSON 对象/数组则原样传递，否则封装为 JSON 字符串
-		var respPayload json.RawMessage
-		output := result.Output
-		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
-			respPayload = json.RawMessage(output)
-		} else {
-			respPayload, _ = json.Marshal(output)
-		}
-		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
-
-	default:
-		return kernel.Message{}, fmt.Errorf("memory_plugin: 未知消息类型 %s", msg.Type)
 	}
+
+	return kernel.Message{}, fmt.Errorf("memory_plugin: 未知消息类型 %s（未在 tools.Registry 中注册）", msg.Type)
 }

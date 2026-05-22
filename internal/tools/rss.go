@@ -6,9 +6,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
+
+// stripHTML 移除 HTML/XML 标签，保留纯文本内容。
+func stripHTML(s string) string {
+	re := regexp.MustCompile(`<[^>]*>`)
+	s = re.ReplaceAllString(s, "")
+	// 常见 HTML 实体解码
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&#39;", "'")
+	s = strings.ReplaceAll(s, "&nbsp;", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.TrimSpace(s)
+	return s
+}
 
 /* ─── rss_fetch L3 工具 ─────────────────────────
 
@@ -71,10 +89,75 @@ type RssFetchResult struct {
 	Error     string     `json:"error,omitempty"`
 }
 
+// ─── RSS 熔断器 ─────────────────────────────────────
+
+const (
+	rssMaxFailures = 5               // 连续失败次数阈值
+	rssCooldown    = 24 * time.Hour  // 熔断冷却时间
+)
+
+type rssCircuitState struct {
+	failures int
+	lastFail time.Time
+	offline  bool
+}
+
+var rssCircuitBreaker = make(map[string]*rssCircuitState)
+var rssCircuitMu sync.Mutex
+
+func rssCheckCircuit(url string) bool {
+	rssCircuitMu.Lock()
+	defer rssCircuitMu.Unlock()
+	state, ok := rssCircuitBreaker[url]
+	if !ok {
+		return false
+	}
+	if state.offline && time.Since(state.lastFail) < rssCooldown {
+		return true // 熔断中
+	}
+	if state.offline && time.Since(state.lastFail) >= rssCooldown {
+		// 冷却结束，重试
+		state.offline = false
+		state.failures = 0
+	}
+	return false
+}
+
+func rssRecordFailure(url string) {
+	rssCircuitMu.Lock()
+	defer rssCircuitMu.Unlock()
+	state, ok := rssCircuitBreaker[url]
+	if !ok {
+		state = &rssCircuitState{}
+		rssCircuitBreaker[url] = state
+	}
+	state.failures++
+	state.lastFail = time.Now()
+	if state.failures >= rssMaxFailures {
+		state.offline = true
+		fmt.Printf("[rss] 源 %s 连续失败 %d 次，标记为 offline（%s 后重试）\n", url, state.failures, rssCooldown)
+	}
+}
+
+func rssRecordSuccess(url string) {
+	rssCircuitMu.Lock()
+	defer rssCircuitMu.Unlock()
+	if state, ok := rssCircuitBreaker[url]; ok {
+		state.failures = 0
+		state.offline = false
+	}
+}
+
 func fetchRSS(url string, limit int) *RssFetchResult {
+	// 熔断检查
+	if rssCheckCircuit(url) {
+		return &RssFetchResult{Error: "源已熔断（连续失败过多，24小时后自动重试）"}
+	}
+
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
+		rssRecordFailure(url)
 		return &RssFetchResult{Error: fmt.Sprintf("HTTP 请求失败: %v", err)}
 	}
 	defer resp.Body.Close()
@@ -89,7 +172,7 @@ func fetchRSS(url string, limit int) *RssFetchResult {
 			FeedTitle: rss.Channel.Title,
 		}
 		for _, item := range rss.Channel.Items {
-			desc := strings.TrimSpace(item.Description)
+			desc := stripHTML(item.Description)
 			if len([]rune(desc)) > 300 {
 				desc = string([]rune(desc)[:300]) + "..."
 			}
@@ -105,6 +188,7 @@ func fetchRSS(url string, limit int) *RssFetchResult {
 			}
 		}
 		result.Count = len(result.Items)
+		rssRecordSuccess(url)
 		return result
 	}
 
@@ -115,7 +199,7 @@ func fetchRSS(url string, limit int) *RssFetchResult {
 			FeedTitle: atom.Title,
 		}
 		for _, entry := range atom.Entries {
-			desc := strings.TrimSpace(entry.Summary)
+			desc := stripHTML(entry.Summary)
 			if len([]rune(desc)) > 300 {
 				desc = string([]rune(desc)[:300]) + "..."
 			}
@@ -131,9 +215,11 @@ func fetchRSS(url string, limit int) *RssFetchResult {
 			}
 		}
 		result.Count = len(result.Items)
+		rssRecordSuccess(url)
 		return result
 	}
 
+	rssRecordFailure(url)
 	return &RssFetchResult{Error: "无法解析为 RSS 2.0 或 Atom 格式"}
 }
 

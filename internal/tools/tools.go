@@ -128,6 +128,12 @@ type RegisteredTool struct {
 // Registry holds all registered tools.
 var Registry = make(map[string]*RegisteredTool)
 
+// HasTool 返回指定名称的工具是否已注册。
+func HasTool(name string) bool {
+	_, ok := Registry[name]
+	return ok
+}
+
 // Register adds a tool to the registry (always available).
 func Register(name, description string, params interface{}, handler ToolHandler) {
 	RegisterWithCheck(name, description, params, handler, nil)

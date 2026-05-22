@@ -148,6 +148,50 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		}
 	}
 
+	// 合并检测（Stage 2c）：将新条目与已有条目合并
+	if isMergeReply(sessionID, userText) {
+		pr := confirmPendingRemember(sessionID)
+		if pr != nil {
+			// 先用新条目的标题搜索已有条目
+			searchResult := tools.KnowledgeSearch(pr.Title)
+			var searchOut struct {
+				Results []struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"results"`
+			}
+			json.Unmarshal([]byte(searchResult.Output), &searchOut)
+
+			if len(searchOut.Results) == 0 {
+				// 没找到相似条目，直接新建
+				result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
+				reply := fmt.Sprintf("未找到相似条目，已新建：%s\n%s", pr.Title, result.Output)
+				replyJSON, _ := json.Marshal(reply)
+				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			}
+
+			// 先新建条目获取 ID，再合并到最相似的已有条目
+			newResult := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
+			// 从输出中提取新条目 ID
+			var newEntry struct {
+				ID string `json:"id"`
+			}
+			json.Unmarshal([]byte(newResult.Output), &newEntry)
+
+			targetID := searchOut.Results[0].ID
+			if newEntry.ID != "" && newEntry.ID != targetID {
+				mergeResult := tools.KnowledgeMerge(newEntry.ID, targetID)
+				reply := fmt.Sprintf("已合并到「%s」：%s", searchOut.Results[0].Title, mergeResult.Output)
+				replyJSON, _ := json.Marshal(reply)
+				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			}
+
+			reply := fmt.Sprintf("已记录：%s\n%s", pr.Title, newResult.Output)
+			replyJSON, _ := json.Marshal(reply)
+			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+		}
+	}
+
 	// 自然语言入口：知识审查触发
 	if isReviewTrigger(userText) {
 		return p.triggerReviewWorkflow()
@@ -223,8 +267,14 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 		projectPath = "."
 	}
 
+	// Query 改写：口语化查询 → 精确检索关键词
+	searchQuery := userText
+	if needsQueryRewrite(userText) {
+		searchQuery = rewriteQuery(userText, sessionID)
+	}
+
 	// 执行完整检索管道
-	results, trace := RunFullRetrieval(userText, projectPath)
+	results, trace := RunFullRetrieval(searchQuery, projectPath)
 
 	if len(results) > 0 {
 		background = retrieval.FormatForPromptFull(results)
@@ -454,4 +504,69 @@ func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 		result = append(result, llm.ChatMessage{Role: role, Content: content})
 	}
 	return result
+}
+
+// ─── Query 改写（口语化 → 精确检索词）───────────────────
+
+// vaguePatterns 需要改写的口语化模式
+var vaguePatterns = []string{
+	"昨天", "上次", "之前", "刚才", "前两天", "最近",
+	"那个", "这个", "那篇", "这篇", "那个改动", "那个问题",
+	"怎么说的", "怎么搞的", "什么情况", "怎么样了",
+	"聊过", "讨论过", "说过", "提到过",
+}
+
+// needsQueryRewrite 判断查询是否需要改写（确定性检测）。
+func needsQueryRewrite(query string) bool {
+	for _, p := range vaguePatterns {
+		if strings.Contains(query, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// rewriteQuery 用 LLM 将口语化查询改写为精确检索关键词。
+// 失败时静默降级返回原查询。
+func rewriteQuery(query string, sessionID string) string {
+	// 加载最近 3 轮对话作为改写上下文
+	var contextLines []string
+	if history := loadRecentSessionMessages(sessionID, 3); len(history) > 0 {
+		for _, m := range history {
+			contextLines = append(contextLines, m.Content)
+		}
+	}
+
+	contextBlock := ""
+	if len(contextLines) > 0 {
+		contextBlock = "\n\n最近对话上下文：\n" + strings.Join(contextLines, "\n")
+	}
+
+	prompt := fmt.Sprintf(`将以下用户口语化查询改写为精确的知识库检索关键词。
+要求：
+- 去掉指代不明的词（"那个""这个""上次"）
+- 保留核心实体和主题
+- 输出 3-5 个空格分隔的检索关键词
+- 不要解释，只输出关键词
+
+用户查询：%s%s`, query, contextBlock)
+
+	reply, usage, err := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+		{Role: "system", Content: "你是查询改写器。只输出检索关键词，不要解释。"},
+		{Role: "user", Content: prompt},
+	}, 10*time.Second)
+	llm.RecordUsage("query_rewrite", usage)
+
+	if err != nil || strings.TrimSpace(reply) == "" {
+		return query // 降级：用原查询
+	}
+
+	rewritten := strings.TrimSpace(reply)
+	// 清理可能的 markdown 标记
+	rewritten = strings.TrimPrefix(rewritten, "```")
+	rewritten = strings.TrimSuffix(rewritten, "```")
+	rewritten = strings.TrimSpace(rewritten)
+
+	fmt.Printf("[query_rewrite] %q → %q\n", query, rewritten)
+	return rewritten
 }

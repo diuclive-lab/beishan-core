@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"beishan/kernel"
@@ -115,6 +116,9 @@ func (g *GlueLayer) spawn(m Manifest) error {
 	}
 	cmd.Stderr = os.Stderr // 子进程的 stderr 直接输出到终端，便于调试
 
+	// PGID：子进程独立进程组，销毁时可一网打尽整棵进程树
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("创建 stdin pipe 失败: %w", err)
@@ -140,7 +144,7 @@ func (g *GlueLayer) spawn(m Manifest) error {
 
 	// 等待子进程发 register 确认（最长 5 秒）
 	if err := g.waitRegister(p, 5*time.Second); err != nil {
-		cmd.Process.Kill()
+		killProcessTree(cmd)
 		return err
 	}
 
@@ -344,9 +348,9 @@ func (g *GlueLayer) respawn(name string) error {
 		return fmt.Errorf("找不到插件 %s 的 manifest", name)
 	}
 
-	// 清理旧进程（发送 SIGKILL 后等待退出）
+	// 清理旧进程树（PGID 强杀含孙进程）
 	if p.cmd != nil && p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+		killProcessTree(p.cmd)
 		waitDone := make(chan struct{}, 1)
 		go func() { p.cmd.Wait(); waitDone <- struct{}{} }()
 		select {
@@ -417,8 +421,8 @@ func (g *GlueLayer) Shutdown() {
 		case <-done:
 			log.Printf("[Glue] 插件 %s 已退出", name)
 		case <-time.After(5 * time.Second):
-			p.cmd.Process.Kill()
-			log.Printf("[Glue] 插件 %s 强制终止", name)
+			killProcessTree(p.cmd)
+			log.Printf("[Glue] 插件 %s 强制终止（进程树）", name)
 		}
 	}
 }
@@ -428,6 +432,19 @@ func (g *GlueLayer) Shutdown() {
    在每次 dispatch 时由胶水层自动注入。
    L3 校验失败时可通过 TraceID 关联回原始请求和 LLM 输出。
 */
+// killProcessTree 通过 PGID 强杀整棵子进程树（含孙进程）。
+func killProcessTree(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err == nil {
+		syscall.Kill(-pgid, syscall.SIGKILL)
+	} else {
+		cmd.Process.Kill() // fallback：至少杀直接子进程
+	}
+}
+
 func newTraceID() string {
 	b := make([]byte, 8)
 	rand.Read(b)

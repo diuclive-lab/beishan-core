@@ -5,13 +5,14 @@
 id: knowledge_heal
 
 steps:
-  # ── Step 1: 自愈扫描 ──
+  # ── Step 1: 自愈扫描（自动合并 HitCount=0 的高相似条目）──
   - id: scan
     plugin: memory_plugin
     type: knowledge_heal
     timeout: 60
     inputs:
       threshold: 60
+      auto_merge: true
     next: report
 
   # ── Step 2: 生成报告 ──
@@ -27,12 +28,15 @@ steps:
 
         扫描结果：${steps.scan.output}
 
-        如果 count > 0，输出：
-        "🩺 知识自愈发现 {count} 个待处理项：
+        如果 merged_count > 0，先报告自动合并结果：
+        "🩺 知识自愈自动合并 {merged_count} 对重复条目。"
+
+        如果 count > 0，继续输出：
+        "待人工处理 {count} 项：
          - 建议合并：X 组
          - 建议关联：X 组
          - 最紧急：{最高相似度的条目对}
         可使用 knowledge_merge 和 knowledge_update 处理。"
 
-        如果 count == 0，输出：
+        如果 count == 0 且 merged_count == 0，输出：
         "🩺 知识自愈扫描完成，未发现待处理项。知识库状态良好。"

@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -123,6 +124,21 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
+// stripBase64Noise 移除文本中的 base64 编码、data URI 和长十六进制序列。
+// 这些噪音会严重污染 BOW 向量的词频分布，导致相似度计算失真。
+var (
+	reDataURI   = regexp.MustCompile(`data:[a-zA-Z/]+;base64,[A-Za-z0-9+/=]{100,}`)
+	reBase64    = regexp.MustCompile(`[A-Za-z0-9+/]{200,}={0,2}`)
+	reLongHex   = regexp.MustCompile(`[0-9a-fA-F]{64,}`)
+)
+
+func stripBase64Noise(text string) string {
+	text = reDataURI.ReplaceAllString(text, "[图片]")
+	text = reBase64.ReplaceAllString(text, "")
+	text = reLongHex.ReplaceAllString(text, "")
+	return text
+}
+
 func buildEmbedText(entry *KnowledgeEntry) string {
 	var parts []string
 	if entry.Title != "" {
@@ -150,7 +166,8 @@ func buildEmbedText(entry *KnowledgeEntry) string {
 			parts = append(parts, entry.Content)
 		}
 	}
-	return strings.Join(parts, "\n")
+	text := strings.Join(parts, "\n")
+	return stripBase64Noise(text)
 }
 
 func KnowledgeEmbed(id string) *ToolResult {

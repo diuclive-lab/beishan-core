@@ -1181,12 +1181,70 @@ func entryToResult(entry *KnowledgeEntry, source retrieval.RetrievalKind, score 
 	}
 }
 
+// ─── 检索缓存 (LRU) ────────────────────────────────────────
+
+const (
+	searchCacheSize = 50              // 最大缓存条目数
+	searchCacheTTL  = 2 * time.Minute // 缓存过期时间
+)
+
+type searchCacheEntry struct {
+	results   []retrieval.RetrievalResult
+	createdAt time.Time
+}
+
+var (
+	searchCache   = make(map[string]searchCacheEntry)
+	searchCacheMu sync.RWMutex
+)
+
+func searchCacheKey(query string, limit int, namespace string) string {
+	return fmt.Sprintf("%s|%d|%s", query, limit, namespace)
+}
+
+func searchCacheGet(key string) ([]retrieval.RetrievalResult, bool) {
+	searchCacheMu.RLock()
+	defer searchCacheMu.RUnlock()
+	e, ok := searchCache[key]
+	if !ok || time.Since(e.createdAt) > searchCacheTTL {
+		return nil, false
+	}
+	return e.results, true
+}
+
+func searchCacheSet(key string, results []retrieval.RetrievalResult) {
+	searchCacheMu.Lock()
+	defer searchCacheMu.Unlock()
+	// 超限清理：删除最旧的一半
+	if len(searchCache) >= searchCacheSize {
+		oldest := time.Now()
+		var oldestKey string
+		for k, v := range searchCache {
+			if v.createdAt.Before(oldest) {
+				oldest = v.createdAt
+				oldestKey = k
+			}
+		}
+		if oldestKey != "" {
+			delete(searchCache, oldestKey)
+		}
+	}
+	searchCache[key] = searchCacheEntry{results: results, createdAt: time.Now()}
+}
+
 // searchMemoryFull 内部统一检索入口，返回 []retrieval.RetrievalResult。
 // 检索阶梯（宪法优先）：
 //   L0:   确定性关键词评分（不调 LLM）
 //   L0.5: 图扩展（沿 Links/TypedLinks 遍历）
 //   L2:   embedding 语义回退（仅当 L0 结果不足时）
 func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace string) []retrieval.RetrievalResult {
+	// 缓存命中检查（跳过 trace 模式，避免缓存污染调试数据）
+	if trace == nil {
+		key := searchCacheKey(query, limit, namespace)
+		if cached, ok := searchCacheGet(key); ok {
+			return cached
+		}
+	}
 	if limit <= 0 {
 		limit = 3
 	}
@@ -1288,7 +1346,7 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 		}
 	}
 
-	// ── 排序 + 截断 ──────────────────────────────
+	// ── 排序 + 低分过滤 + 截断 ─────────────────────
 	sort.Slice(expanded, func(i, j int) bool {
 		if expanded[i].Score == expanded[j].Score {
 			im := expanded[i].SourceType == "memory"
@@ -1299,6 +1357,21 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 		}
 		return expanded[i].Score > expanded[j].Score
 	})
+	// 低分噪音过滤：丢弃 score < 5 的结果，但至少保留 1 条
+	const minScore = 5
+	if len(expanded) > 1 {
+		cutoff := len(expanded)
+		for i, r := range expanded {
+			if r.Score < minScore {
+				cutoff = i
+				break
+			}
+		}
+		if cutoff == 0 {
+			cutoff = 1 // 至少保留 1 条最高分结果
+		}
+		expanded = expanded[:cutoff]
+	}
 	if len(expanded) > limit {
 		expanded = expanded[:limit]
 	}
@@ -1310,6 +1383,10 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 			Output: map[string]any{"final": len(expanded)},
 			Reason: "score desc, memory priority",
 		})
+	}
+	// 写入缓存（非 trace 模式）
+	if trace == nil {
+		searchCacheSet(searchCacheKey(query, limit, namespace), expanded)
 	}
 	return expanded
 }
@@ -2284,7 +2361,7 @@ type HealSuggestion struct {
 	Action     string   `json:"action"`                // "建议合并" / "建议关联" / "需人工复核"
 }
 
-func KnowledgeHeal(threshold float64) *ToolResult {
+func KnowledgeHeal(threshold float64, autoMerge bool) *ToolResult {
 	if threshold <= 0 {
 		threshold = 0.6
 	}
@@ -2313,15 +2390,19 @@ func KnowledgeHeal(threshold float64) *ToolResult {
 	}
 
 	var suggestions []HealSuggestion
+	var autoMerged []map[string]interface{}
 	mergeThreshold := 0.85
 	linkThreshold := threshold
+
+	// 已被自动合并的 ID 集合（跳过后续配对）
+	mergedIDs := make(map[string]bool)
 
 	for i := 0; i < len(vecs); i++ {
 		for j := i + 1; j < len(vecs); j++ {
 			a, b := vecs[i], vecs[j]
 
-			// 跳过同一条
-			if a.entry.ID == b.entry.ID {
+			// 跳过同一条或已合并的
+			if a.entry.ID == b.entry.ID || mergedIDs[a.entry.ID] || mergedIDs[b.entry.ID] {
 				continue
 			}
 
@@ -2329,7 +2410,28 @@ func KnowledgeHeal(threshold float64) *ToolResult {
 
 			// 极高相似度 → 重复候选
 			if sim >= mergeThreshold {
-				// 只建议一次（按 ID 排序避免重复）
+				// 自动合并条件：两个条目 HitCount 均为 0（低访问量，低风险）
+				if autoMerge && a.entry.HitCount == 0 && b.entry.HitCount == 0 {
+					// 保留较长的条目作为 target
+					sourceID, targetID := a.entry.ID, b.entry.ID
+					if len(a.entry.Summary) > len(b.entry.Summary) {
+						sourceID, targetID = b.entry.ID, a.entry.ID
+					}
+					mergeResult := KnowledgeMerge(sourceID, targetID)
+					if mergeResult.Success {
+						mergedIDs[sourceID] = true
+						autoMerged = append(autoMerged, map[string]interface{}{
+							"source_id": sourceID,
+							"target_id": targetID,
+							"title":     a.entry.Title,
+							"similarity": sim,
+						})
+						fmt.Printf("[heal] 自动合并 %s → %s (%.0f%%)\n", sourceID, targetID, sim*100)
+					}
+					continue
+				}
+
+				// 不满足自动合并条件，生成建议
 				if a.entry.ID < b.entry.ID {
 					suggestions = append(suggestions, HealSuggestion{
 						Type:       "merge",
@@ -2390,12 +2492,19 @@ func KnowledgeHeal(threshold float64) *ToolResult {
 		suggestions = suggestions[:20]
 	}
 
+	msg := fmt.Sprintf("扫描 %d 个条目，发现 %d 个待处理项", len(all), len(suggestions))
+	if len(autoMerged) > 0 {
+		msg += fmt.Sprintf("，自动合并 %d 对", len(autoMerged))
+	}
+
 	result := map[string]interface{}{
-		"suggestions": suggestions,
-		"count":       len(suggestions),
-		"total":       len(all),
-		"threshold":   threshold,
-		"message":     fmt.Sprintf("扫描 %d 个条目，发现 %d 个待处理项", len(all), len(suggestions)),
+		"suggestions":  suggestions,
+		"auto_merged":  autoMerged,
+		"count":        len(suggestions),
+		"merged_count": len(autoMerged),
+		"total":        len(all),
+		"threshold":    threshold,
+		"message":      msg,
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
 	return successResult(string(b))
@@ -2774,12 +2883,13 @@ func registerKnowledgeTools() {
 		},
 	)
 
-	Register("knowledge_heal", "知识自愈扫描：用BOW向量对比检测高相似度条目，找出应合并或应建立TypedLinks的候选。threshold默认0.6。",
+	Register("knowledge_heal", "知识自愈扫描：用BOW向量对比检测高相似度条目，找出应合并或应建立TypedLinks的候选。threshold默认0.6。auto_merge=true时自动合并HitCount=0的高相似条目。",
 		map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": true,
 			"properties": map[string]interface{}{
-				"threshold": intParam("相似度阈值 0-100，默认 60。越高越严格"),
+				"threshold":  intParam("相似度阈值 0-100，默认 60。越高越严格"),
+				"auto_merge": boolParam("自动合并 HitCount=0 的高相似条目（默认 false）"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
@@ -2787,7 +2897,11 @@ func registerKnowledgeTools() {
 			if t, ok := args["threshold"].(float64); ok && t > 0 {
 				th = t / 100.0
 			}
-			return KnowledgeHeal(th)
+			am := false
+			if v, ok := args["auto_merge"].(bool); ok {
+				am = v
+			}
+			return KnowledgeHeal(th, am)
 		},
 	)
 

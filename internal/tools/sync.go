@@ -10,7 +10,7 @@ import (
 /* ─── 知识库导入导出 ────────────────────────────
 
    knowledge_export：导出所有条目为 JSON 文件（含 BOW 向量文件路径）
-   knowledge_import：从 JSON 文件导入（跳过已存在的 ID）
+   knowledge_import：从 JSON 文件导入（冲突时返回详情，force=true 覆盖）
 
    用于两台机器之间手动同步知识库。
 */
@@ -34,11 +34,20 @@ func KnowledgeExportHandler(args map[string]interface{}) *ToolResult {
 	return successResult(fmt.Sprintf(`{"path":"%s","count":%d,"message":"已导出 %d 条知识。导入后请运行 knowledge_embed_all 补 BOW 向量。"}`, path, len(all), len(all)))
 }
 
+type importConflict struct {
+	ID        string `json:"id"`
+	OldTitle  string `json:"old_title"`
+	NewTitle  string `json:"new_title"`
+	OldStatus string `json:"old_status,omitempty"`
+}
+
 func KnowledgeImportHandler(args map[string]interface{}) *ToolResult {
 	path, _ := args["path"].(string)
 	if path == "" {
 		return errorResult("path（导入文件路径）不能为空")
 	}
+	force, _ := args["force"].(bool)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return errorResult(fmt.Sprintf("读取文件失败: %v", err))
@@ -50,21 +59,48 @@ func KnowledgeImportHandler(args map[string]interface{}) *ToolResult {
 
 	imported := 0
 	skipped := 0
+	var conflicts []importConflict
+
 	for _, e := range entries {
 		if e.ID == "" {
 			continue
 		}
-		if existing := loadKnowledge(e.ID); existing != nil {
-			skipped++
+		existing := loadKnowledge(e.ID)
+		if existing != nil {
+			if force {
+				// 覆盖前保存版本快照
+				saveVersionSnapshot(e.ID, existing)
+				saveKnowledge(e)
+				imported++
+				fmt.Printf("[sync] 覆盖条目 %s: %q → %q\n", e.ID, existing.Title, e.Title)
+			} else {
+				conflicts = append(conflicts, importConflict{
+					ID:        e.ID,
+					OldTitle:  existing.Title,
+					NewTitle:  e.Title,
+					OldStatus: existing.Status,
+				})
+				skipped++
+			}
 			continue
 		}
 		saveKnowledge(e)
 		imported++
 	}
 
-	return successResult(fmt.Sprintf(
-		`{"imported":%d,"skipped":%d,"total":%d,"message":"导入 %d 条，跳过 %d 条"}`,
-		imported, skipped, len(entries), imported, skipped))
+	result := map[string]interface{}{
+		"imported":  imported,
+		"skipped":   skipped,
+		"conflicts": conflicts,
+		"total":     len(entries),
+	}
+	if len(conflicts) > 0 {
+		result["message"] = fmt.Sprintf("导入 %d 条，跳过 %d 条冲突。使用 force:true 可覆盖（旧版本自动备份到 history/）", imported, len(conflicts))
+	} else {
+		result["message"] = fmt.Sprintf("导入 %d 条，跳过 %d 条", imported, skipped)
+	}
+	b, _ := json.Marshal(result)
+	return successResult(string(b))
 }
 
 func registerSyncTools() {
@@ -78,12 +114,13 @@ func registerSyncTools() {
 		KnowledgeExportHandler,
 	)
 
-	Register("knowledge_import", "从 JSON 文件导入知识条目（跳过已存在的 ID）。用于跨机器手动同步。",
+	Register("knowledge_import", "从 JSON 文件导入知识条目。冲突时返回详情，force=true 可覆盖（旧版本自动备份）。用于跨机器手动同步。",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"path"},
 			"properties": map[string]interface{}{
-				"path": stringParam("导入文件路径"),
+				"path":  stringParam("导入文件路径"),
+				"force": boolParam("冲突时覆盖已有条目（旧版本自动备份到 history/）"),
 			},
 		},
 		KnowledgeImportHandler,

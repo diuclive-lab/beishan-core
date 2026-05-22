@@ -370,6 +370,18 @@ func isForceSaveReply(sessionID, text string) bool {
 	return false
 }
 
+// isMergeReply 检测是否是合并回复（与已有条目合并）
+func isMergeReply(sessionID, text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "确认合并" || t == "合并" {
+		pendingRemembersMu.Lock()
+		defer pendingRemembersMu.Unlock()
+		pr, ok := pendingRemembers[sessionID]
+		return ok && time.Now().Unix() <= pr.ExpiresAt
+	}
+	return false
+}
+
 // isConfirmReply 检测是否是确认回复
 func isConfirmReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
