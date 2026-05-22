@@ -58,6 +58,8 @@ type KnowledgeEntry struct {
 	Namespace     string    `json:"namespace,omitempty"`      // 所属空间: default/workspace-a/project-b，空=default
 	Verified      bool      `json:"verified,omitempty"`        // 是否经过事实核查
 	VerifiedAt    int64     `json:"verified_at,omitempty"`     // 核查时间
+	HitCount      int64     `json:"hit_count,omitempty"`       // 被检索命中次数，用于排序加权
+	UtilityScore  float64   `json:"utility_score,omitempty"`   // 用户反馈评分: +1/-1/0，越用越准
 }
 
 /* ─── Retrieval Trace ──────────────────────────── */
@@ -434,6 +436,21 @@ func computeStructuralBoost(entry *KnowledgeEntry) (int, []retrieval.Contradicti
 	// 事实核查加权：已验证事实优先展示
 	if entry.Verified {
 		boost += 2
+	}
+
+	// 检索反馈加权：UtilityScore 影响排名，上限 ±2
+	if entry.UtilityScore > 0 {
+		us := int(entry.UtilityScore * 2)
+		if us > 2 {
+			us = 2
+		}
+		boost += us
+	} else if entry.UtilityScore < 0 {
+		us := int(entry.UtilityScore * 2)
+		if us < -2 {
+			us = -2
+		}
+		boost += us
 	}
 
 	// 矛盾链接加权 + 收集标注
@@ -1012,6 +1029,7 @@ func recordAccess(id string) {
 		return
 	}
 	entry.LastAccessedAt = time.Now().Unix()
+	entry.HitCount++
 	saveKnowledge(entry)
 }
 
@@ -2373,6 +2391,38 @@ func KnowledgeHeal(threshold float64) *ToolResult {
 	return successResult(string(b))
 }
 
+/* ─── 检索反馈 ──────────────────────────────────── */
+
+// KnowledgeFeedback 记录用户对知识条目的反馈，调整 UtilityScore。
+// direction: "up"=有用(+1), "down"=没用(-1), "reset"=归零。
+func KnowledgeFeedback(id, direction string) *ToolResult {
+	if id == "" {
+		return errorResult("id 不能为空")
+	}
+
+	knowledgeMu.Lock()
+	defer knowledgeMu.Unlock()
+
+	entry := loadKnowledge(id)
+	if entry == nil {
+		return errorResult(fmt.Sprintf("知识条目 %s 未找到", id))
+	}
+
+	switch direction {
+	case "up":
+		entry.UtilityScore++
+	case "down":
+		entry.UtilityScore--
+	case "reset":
+		entry.UtilityScore = 0
+	default:
+		return errorResult("direction 必须是 up/down/reset")
+	}
+
+	saveKnowledge(entry)
+	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","utility_score":%.0f,"message":"反馈已记录"}`, id, entry.Title, entry.UtilityScore))
+}
+
 func registerKnowledgeTools() {
 	Register("knowledge_add", "添加结构化知识条目（统一 memory schema，含 tags/topics/tasks）。",
 		map[string]interface{}{
@@ -2728,6 +2778,20 @@ func registerKnowledgeTools() {
 				th = t / 100.0
 			}
 			return KnowledgeHeal(th)
+		},
+	)
+
+	Register("knowledge_feedback", "记录对知识条目的反馈。up=有用(+1分), down=没用(-1分), reset=归零。UtilityScore影响检索排名。",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"id", "direction"},
+			"properties": map[string]interface{}{
+				"id":        stringParam("知识条目 ID"),
+				"direction": stringParam("反馈方向: up（有用）/ down（没用）/ reset（归零）"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeFeedback(strArg(args, "id"), strArg(args, "direction"))
 		},
 	)
 
