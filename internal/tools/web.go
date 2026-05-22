@@ -153,20 +153,27 @@ func searchMultiEngine(query string, limit int) []WebResult {
 
 	var all []WebResult
 	seen := make(map[string]bool)
+	// 10 秒硬性超时，防止单引擎挂起阻塞整个搜索
+	timeout := time.After(10 * time.Second)
 	for i := 0; i < 3; i++ {
-		res := <-ch
-		for _, r := range res.results {
-			key := strings.ToLower(strings.TrimSpace(r.URL))
-			if key == "" || seen[key] {
-				continue
+		select {
+		case res := <-ch:
+			for _, r := range res.results {
+				key := strings.ToLower(strings.TrimSpace(r.URL))
+				if key == "" || seen[key] {
+					continue
+				}
+				seen[key] = true
+				all = append(all, r)
 			}
-			seen[key] = true
-			all = append(all, r)
+		case <-timeout:
+			fmt.Printf("[web] 多引擎搜索超时（10s），已返回 %d 条结果\n", len(all))
+			break
 		}
 	}
 
 	// 按 query 关键词重叠度排序（核心排序：最相关的排最前）
-	qWords := strings.Fields(strings.ToLower(query))
+	qWords := tokenizeQuery(query)
 	sort.SliceStable(all, func(i, j int) bool {
 		scoreI := countQueryMatch(qWords, all[i].Title+" "+all[i].Description)
 		scoreJ := countQueryMatch(qWords, all[j].Title+" "+all[j].Description)
@@ -187,11 +194,41 @@ func countQueryMatch(words []string, text string) int {
 	lower := strings.ToLower(text)
 	count := 0
 	for _, w := range words {
-		if len(w) > 1 && strings.Contains(lower, w) {
+		if len(w) > 0 && strings.Contains(lower, w) {
 			count++
 		}
 	}
 	return count
+}
+
+// tokenizeQuery 将查询分词：英文按空格，中文按字符。
+// "中国联通 latest" → ["中","国","联","通","latest"]
+func tokenizeQuery(query string) []string {
+	query = strings.ToLower(query)
+	var tokens []string
+	for _, segment := range strings.Fields(query) {
+		hasCJK := false
+		for _, r := range segment {
+			if r >= 0x4E00 && r <= 0x9FFF {
+				hasCJK = true
+				break
+			}
+		}
+		if hasCJK {
+			// 含中文：按 rune 拆分，每个 CJK 字符独立成词
+			for _, r := range segment {
+				if r >= 0x4E00 && r <= 0x9FFF {
+					tokens = append(tokens, string(r))
+				}
+			}
+		} else {
+			// 纯英文/数字：整体作为一个 token
+			if len(segment) > 1 {
+				tokens = append(tokens, segment)
+			}
+		}
+	}
+	return tokens
 }
 
 func webFetchHandler(args map[string]interface{}) *ToolResult {
@@ -658,24 +695,11 @@ func extractArticleText(html string) string {
 	return collapseWhitespace(raw)
 }
 
+var htmlTagRe = regexp.MustCompile(`</?[a-zA-Z][^>]*>`)
+
 func stripTags(s string) string {
-	var result strings.Builder
-	inTag := false
-	for i := 0; i < len(s); i++ {
-		r := s[i]
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-			result.WriteByte('\n')
-		default:
-			if !inTag {
-				result.WriteByte(r)
-			}
-		}
-	}
-	return result.String()
+	// 用正则匹配真正的 HTML 标签，避免误杀代码中的 < > 比较符
+	return htmlTagRe.ReplaceAllString(s, "\n")
 }
 
 func collapseWhitespace(s string) string {

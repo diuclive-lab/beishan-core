@@ -22,7 +22,8 @@ import (
 func CodeApplyHandler(args map[string]interface{}) *ToolResult {
 	path, _ := args["path"].(string)
 	content, _ := args["content"].(string)
-	skipCheck, _ := args["skip_security_check"].(bool)
+	// skip_security_check 已从 schema 移除，强制执行安全检查
+	skipCheck := false
 
 	if path == "" || content == "" {
 		return errorResult("path 和 content 不能为空")
@@ -58,14 +59,29 @@ func CodeApplyHandler(args map[string]interface{}) *ToolResult {
 
 	// 自修改防护：不能写入 beishan-core 关键源码
 	selfModPaths := []string{
+		// 内核
+		"kernel/kernel.go", "kernel/router.go", "kernel/msg.go",
+		// 工具层（安全 + 核心）
 		"internal/tools/knowledge.go", "internal/tools/tools.go",
 		"internal/tools/validate.go", "internal/tools/schema_registry.go",
-		"kernel/kernel.go", "kernel/router.go", "kernel/msg.go",
+		"internal/tools/code_security.go", "internal/tools/code_apply.go",
+		"internal/tools/web.go", "internal/tools/fact_check.go",
+		// 工作流引擎
+		"internal/workflow/engine.go", "internal/workflow/types.go",
+		// 胶水层
+		"glue/glue.go",
+		// 入口
+		"main.go", "preroute.go",
 	}
 	for _, smp := range selfModPaths {
 		if strings.HasSuffix(clean, smp) {
 			return errorResult(fmt.Sprintf("自修改防护：禁止写入 %s", smp))
 		}
+	}
+	// 目录级防护：plugins/ 整个目录不允许外部写入
+	if strings.Contains(clean, string(filepath.Separator)+"plugins"+string(filepath.Separator)) ||
+		strings.HasSuffix(clean, string(filepath.Separator)+"plugins") {
+		return errorResult("自修改防护：禁止写入 plugins/ 目录")
 	}
 
 	// 安全检查（默认开启）
@@ -169,6 +185,27 @@ func CodeRollbackHandler(args map[string]interface{}) *ToolResult {
 		return errorResult(fmt.Sprintf("读取备份失败: %v", err))
 	}
 
+	// 自修改防护：回滚目标也不能是关键源码
+	rollbackBlockPaths := []string{
+		"internal/tools/code_security.go", "internal/tools/code_apply.go",
+		"kernel/kernel.go", "kernel/router.go",
+	}
+	for _, bp := range rollbackBlockPaths {
+		if strings.HasSuffix(clean, bp) {
+			return errorResult(fmt.Sprintf("自修改防护：禁止回滚 %s", bp))
+		}
+	}
+
+	// 安全检查：回滚内容也必须通过安全扫描
+	checkResult := CodeSecurityCheckHandler(map[string]interface{}{"diff": string(backupData)})
+	if !checkResult.Success {
+		return errorResult(fmt.Sprintf("回滚安全检查失败: %s", checkResult.Output))
+	}
+	var secCheck SecurityCheckResult
+	if err := json.Unmarshal([]byte(checkResult.Output), &secCheck); err == nil && !secCheck.Safe {
+		return errorResult(fmt.Sprintf("回滚安全检查未通过：%d 个阻止性问题", len(secCheck.Blocked)))
+	}
+
 	if err := os.WriteFile(clean, backupData, 0644); err != nil {
 		return errorResult(fmt.Sprintf("回滚写入失败: %v", err))
 	}
@@ -182,9 +219,8 @@ func registerCodeApplyTools() {
 			"type":     "object",
 			"required": []string{"path", "content"},
 			"properties": map[string]interface{}{
-				"path":               stringParam("文件路径（相对项目根目录或绝对路径）"),
-				"content":            stringParam("要写入的内容"),
-				"skip_security_check": boolParam("跳过安全检查（默认 false）"),
+				"path":    stringParam("文件路径（相对项目根目录或绝对路径）"),
+				"content": stringParam("要写入的内容"),
 			},
 		},
 		CodeApplyHandler,

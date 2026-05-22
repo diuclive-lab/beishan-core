@@ -288,26 +288,58 @@ func StockCodeVerify(text string) []FactCheckResult {
 	return results
 }
 
-// extractStockKW 从股票代码上下文中提取公司关键词。
+// extractStockKW 从股票代码上下文中提取公司名关键词。
+// 策略：检查上下文是否包含已知公司名后缀模式（如"移动""联通""茅台"等）。
+// 只有明确检测到公司名时才返回，避免将普通描述词误判为公司名。
+// 返回 nil 表示上下文中无明确公司名，不应报事实错误。
 func extractStockKW(ctx, code string) []string {
 	ctx = strings.ReplaceAll(ctx, code, "")
 	// 去掉标点和空格
-	for _, r := range []string{"（", "）", "(", ")", " ", ",", "，", "、" } {
+	for _, r := range []string{"（", "）", "(", ")", " ", ",", "，", "、", "。", "？", "！"} {
 		ctx = strings.ReplaceAll(ctx, r, "")
 	}
-	if len([]rune(ctx)) < 2 {
+	runes := []rune(ctx)
+	if len(runes) < 2 {
 		return nil
 	}
-	// 取最后 2-6 个字符作为关键词
-	runes := []rune(ctx)
-	start := len(runes) - 6
-	if start < 0 {
-		start = 0
+
+	// 已知公司名后缀模式（2-3 字，常出现在股票简称中）
+	companySuffixes := []string{
+		"移动", "联通", "电信", "石油", "石化", "银行", "保险", "证券",
+		"茅台", "五粮液", "比亚迪", "宁德", "隆基", "中芯", "海康",
+		"平安", "人寿", "太保", "招行", "工行", "建行", "农行", "中行",
+		"万科", "保利", "绿地", "恒大", "融创", "碧桂园",
+		"腾讯", "阿里", "百度", "美团", "京东", "拼多多", "网易",
+		"华为", "小米", "联想", "海尔", "格力", "美的",
+		"上汽", "广汽", "长安", "吉利", "长城", "蔚来", "小鹏",
+		"中铁", "中建", "中车", "中船", "中铝", "中远",
+		"国电", "华电", "大唐", "华能", "三峡", "国投",
+		"紫光", "中科", "浪潮", "曙光", "用友", "金蝶",
 	}
-	kw := string(runes[start:])
-	if len([]rune(kw)) >= 2 {
-		return []string{kw}
+
+	var found []string
+	for _, suffix := range companySuffixes {
+		if strings.Contains(ctx, suffix) {
+			found = append(found, suffix)
+		}
 	}
-	return nil
+	return found
+}
+
+// isCommonWord 判断是否为常见的非公司名词汇（避免误判）。
+func isCommonWord(s string) bool {
+	common := map[string]bool{
+		"大家": true, "最近": true, "关注": true, "看看": true, "知道": true,
+		"觉得": true, "认为": true, "可以": true, "应该": true, "可能": true,
+		"怎么": true, "什么": true, "多少": true, "是否": true, "需要": true,
+		"这个": true, "那个": true, "这些": true, "那些": true, "比较": true,
+		"已经": true, "还是": true, "或者": true, "以及": true, "关于": true,
+		"大伙": true, "朋友": true, "各位": true, "请问": true, "帮忙": true,
+		"股票": true, "基金": true, "行情": true, "代码": true, "市场": true,
+		"上涨": true, "下跌": true, "涨停": true, "跌停": true, "买入": true,
+		"卖出": true, "持有": true, "分析": true, "推荐": true, "今天": true,
+		"昨天": true, "明天": true, "最新": true, "价格": true, "走势": true,
+	}
+	return common[s]
 }
 

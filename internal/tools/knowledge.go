@@ -1203,10 +1203,14 @@ func searchCacheKey(query string, limit int, namespace string) string {
 }
 
 func searchCacheGet(key string) ([]retrieval.RetrievalResult, bool) {
-	searchCacheMu.RLock()
-	defer searchCacheMu.RUnlock()
+	searchCacheMu.Lock()
+	defer searchCacheMu.Unlock()
 	e, ok := searchCache[key]
-	if !ok || time.Since(e.createdAt) > searchCacheTTL {
+	if !ok {
+		return nil, false
+	}
+	if time.Since(e.createdAt) > searchCacheTTL {
+		delete(searchCache, key)
 		return nil, false
 	}
 	return e.results, true
@@ -1845,6 +1849,11 @@ func KnowledgeMerge(sourceID, targetID string) *ToolResult {
 			target.TypedLinks = append(target.TypedLinks, tl)
 		}
 	}
+	// 合并反馈指标：HitCount 累加，UtilityScore 取最大值
+	target.HitCount += source.HitCount
+	if source.UtilityScore > target.UtilityScore {
+		target.UtilityScore = source.UtilityScore
+	}
 	// 合并 content: 如果 source 有额外内容
 	if source.Content != "" {
 		srcTrimmed := strings.TrimSpace(source.Content)
@@ -1860,6 +1869,24 @@ func KnowledgeMerge(sourceID, targetID string) *ToolResult {
 
 	saveKnowledge(target)
 	deleteKnowledge(sourceID)
+
+	// 重定向其他条目中指向 source 的 TypedLinks，避免悬空引用
+	allEntries := loadAllKnowledge()
+	for _, entry := range allEntries {
+		if entry.ID == targetID || entry.ID == sourceID {
+			continue
+		}
+		changed := false
+		for i, tl := range entry.TypedLinks {
+			if tl.TargetID == sourceID {
+				entry.TypedLinks[i].TargetID = targetID
+				changed = true
+			}
+		}
+		if changed {
+			saveKnowledge(entry)
+		}
+	}
 
 	b, _ := json.MarshalIndent(target, "", "  ")
 	return successResult(fmt.Sprintf(`{"target_id":"%s","source_id":"%s","message":"已合并","entry":%s}`, targetID, sourceID, string(b)))
