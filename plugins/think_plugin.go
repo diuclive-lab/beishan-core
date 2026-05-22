@@ -238,8 +238,14 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool) (ke
 		userMsg = "请参考以下背景知识回答：\n" + background + "\n\n用户问题：\n" + userText
 	}
 
+	// 注入用户画像到 system prompt
+	profilePrompt := tools.ProfileToPrompt()
+	sysContent := systemPrompt
+	if profilePrompt != "" {
+		sysContent += profilePrompt
+	}
 	messages := []llm.ChatMessage{
-		{Role: "system", Content: systemPrompt},
+		{Role: "system", Content: sysContent},
 	}
 	// 加载最近 5 轮对话作为上下文
 	if history := loadRecentSessionMessages(sessionID, 5); len(history) > 0 {

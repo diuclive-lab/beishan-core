@@ -238,6 +238,7 @@ func Init() {
 	registerWebRenderTool()
 	registerStockTools()
 	registerRSSTools()
+	registerProfileTools()
 	registerKBAuditTools()
 	registerUsageTools()
 
