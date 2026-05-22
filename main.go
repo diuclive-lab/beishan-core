@@ -98,6 +98,8 @@ func main() {
 		"rss_fetch", "rss_default",
 		"profile_show", "profile_update",
 		"knowledge_history", "knowledge_version_get", "knowledge_heal", "knowledge_feedback", "knowledge_export", "knowledge_import",
+		"session_summarize",
+		"kb_audit", "kb_repair",
 		"image_generate", "image_to_image",
 		"prompt_engineer", "prompt_analyze", "prompt_style_list"},
 		Example:     `type="knowledge_add" payload={"source_type":"web","title":"标题","summary":"摘要"} 或 type="knowledge_search" payload={"keyword":"Go语言"} 或 type="knowledge_remember" payload={"title":"事实","summary":"内容"}`,
