@@ -19,7 +19,8 @@ if ! $QUICK; then
   if go vet ./... 2>/dev/null; then echo "✅"; else echo "❌"; FAILED=1; fi
 
   echo -n "  core-health... "
-  if go run ./cmd/core-health/ 2>/dev/null | tail -1 | grep -q "pass"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
+  STATUS=$(go run ./cmd/core-health/ --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','fail'))" 2>/dev/null)
+  if [ "$STATUS" = "pass" ]; then echo "✅"; elif [ "$STATUS" = "warn" ]; then echo "⚠️"; $STRICT && FAILED=1; else echo "❌"; FAILED=1; fi
 
   echo -n "  boundary scan... "
   if bash "$HERE/eval/scripts/scan_boundary.sh" 2>/dev/null | tail -1 | grep -q "通过"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
