@@ -126,7 +126,40 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 10. Go 版本差异
+## 10. 茎注册表运行时过滤未启用
+
+`internal/registry/` 的 `Policy.Filter()` 已实现但未接入 Go-DSL 的 `validateGoStep`。当前只使用了生命周期门控 `Lock()`，角色过滤能力待激活。
+
+**影响**：理论上有 profile 过滤能力，实际上所有工具对所有角色可见。
+
+**缓解**：`validateGoStep` 已有 TODO 注释，接入后开启。
+
+---
+
+## 11. bench 评估框架无自动化流水线
+
+`internal/bench/` 已就绪（3 个套件 + runner），但未接入 CI 或定时执行。评估框架目前只能手动触发。
+
+**影响**：能力退化需要通过手动运行烟雾测试发现，无自动化预警。
+
+**缓解**：接入 CI 的 `eval/scripts/` 流程。
+
+---
+
+## 12. 右花协议未实现
+
+`docs/RIGHT_FLOWER_PROTOCOL.md` 已定义三层契约（通信/安全/注册），但代码层未实现：
+- glue/protocol.go 无 `external_flower` 消息类型
+- 无 `right_flowers/` 目录扫描
+- 工作流不支持 `external_flower` 步骤类型
+
+**影响**：右花接入协议目前是纸面文档，无法实际操作。
+
+**缓解**：等第一个真实右花接入时实现。
+
+---
+
+## 13. Go 版本差异
 
 开发环境（Desktop/0）使用 **Go 1.26**，公开仓库（beishan-core）使用 **Go 1.21**。
 部分新标准库特性和语法糖不能在公开仓库中使用。

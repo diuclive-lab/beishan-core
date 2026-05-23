@@ -58,6 +58,8 @@ L4 编排 → ValidateAndExecute → 自动触发 code_security → 自动触发
 | ✅ 路由校验 | DeepSeek 的回复必须满足 JSON 格式、置信度≥0.4、收件人已注册 | `parseDecision` |
 | ✅ 命令安全 | 禁止危险系统调用（rm -rf、强制删除、dd 覆写） | `code_security` 规则 |
 | ✅ 路径安全 | 禁止工作目录外的文件读写、路径穿越（`../`） | `file.go:isSafePath` |
+| ✅ 文件操作校验 | 操作类型（read/write/delete）+ 路径白名单 | `file_safe.go:validate_file_op` |
+| ✅ 文件并发锁 | 防止并发写入冲突 | `file_safe.go:lock_file/unlock_file` |
 | ✅ 敏感路径 | 禁止写入 `/etc/`、`/dev/`、`/sys/`、`/proc/` 等系统路径 | `file.go:isSafePath` |
 | ✅ 权限安全 | 检测 `chmod 777`、`chown` 等不安全权限操作 | `code_security` 规则 |
 | ✅ 自修改防护 | 禁止写入 `kernel/`、`internal/tools/schema.go`、`internal/tools/validate.go` 等核心文件 | `code_security:self_modification` 规则 |
