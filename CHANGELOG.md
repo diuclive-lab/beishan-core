@@ -1,5 +1,32 @@
 # 变更日志
 
+## 2026-05-24 债务清除 + 长期方案 P1-P2 + Core Gate 硬化
+
+### 新增
+
+- **L1: Protocol Contract Test**：TestManifestSchemaContract + TestManifestSchemaMissingFields
+- **L2: OpenHuman 真实方法映射**：472 方法发现，auth 验证通过（core.ping ✅）
+- **L3: observatory.Trace 链路预留**
+- **L7: core-eval 纳入 core_gate**：8 项门禁全部通过
+- **L10: rightflowerctl generate 子命令**：从模板生成右花 manifest
+
+### 修复
+
+- **D01: think_plugin.go**：`os.ReadFile` → `ValidateAndExecute("read_file")`
+- **D02: review_handler.go**：读写改用 L3 工具；MkdirAll/Remove 待 `delete_file`
+- **D03: skill_factory.go**：标记为 PRIVILEGED PLUGIN
+- **adapter 测试方法映射**：对齐 OpenHuman schema 真实方法名
+- **Core Gate workspace check**：gitignored 二进制不阻塞
+- **boundary_allowlist.yaml**：D01 → RESOLVED
+
+### 硬化层不变性测试
+
+8 项全部通过：build/vet/tools.Execute 绕过检查/isSafePath/code_security 规则/registry.Lock/validate_file_op/clarify structured
+
+### Core Gate 最终状态
+
+8/8 通过：test/vet/health/boundary/core-eval/docs/workspace/rightflower smoke
+
 ## 2026-05-23 Go-DSL 工作流引擎 + 架构文档 + 目录重组
 
 ### 新增
