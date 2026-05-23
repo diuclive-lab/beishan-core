@@ -20,6 +20,7 @@
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
 | `eval/` | 烟雾测试：场景定义、运行脚本、测试结果 | 测试 |
+| `examples/` | 开发/测试用示例插件（Go + Python 子进程模板） | 参考 |
 | `docs/` | 设计文档：架构决策、硬化层声明、已知限制 | 文档 |
 | `docs/devlog/` | 开发日志，按日期记录内部开发过程 | 过程档案 |
 
@@ -51,8 +52,7 @@
 
 ### `plugins/` 只包含生产级插件
 
-开发/测试用示例（`go_example/`、`python_example/`、`l3_echo_go/`、`l3_echo_python/`、`l4_template_go.go`）
-当前仍在 `plugins/` 中，计划移入 `examples/` 目录。
+开发/测试用示例统一放在 `examples/` 目录中。
 
 ## 架构层到目录的映射
 
