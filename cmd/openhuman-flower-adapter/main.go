@@ -44,10 +44,10 @@ type Finding struct {
 
 func loadMethodMap() map[string]string {
 	m := map[string]string{
-		"memory.search":   "recall",
-		"memory.store":    "store",
-		"context.retrieve": "recall",
-		"code.review":     "code_review",
+		"memory.search":   "openhuman.memory_recall_memories",
+		"memory.store":    "openhuman.memory_doc_put",
+		"context.retrieve": "openhuman.memory_context_query",
+		"code.review":     "openhuman.agent_chat",
 	}
 	// ENV override: OPENHUMAN_METHOD_MAP=memory.search=recall:cust.method=custom
 	if env := os.Getenv("OPENHUMAN_METHOD_MAP"); env != "" {

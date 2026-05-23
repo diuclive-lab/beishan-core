@@ -150,6 +150,16 @@ func main() {
 			fmt.Printf("✅ %s 已禁用\n", name)
 		}
 
+	case "generate":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: go run ./cmd/rightflowerctl generate <name>")
+			os.Exit(1)
+		}
+		name := os.Args[2]
+		tpl := fmt.Sprintf("name: \"%s\"\ntype: \"custom\"\nprotocol: \"http\"\nendpoint: \"http://localhost:9530\"\nenabled: false\nroute_exposed: false\ncapabilities:\n  - custom.method\noutput_format: \"json\"\nsafety_level: \"sandbox\"\n", name)
+		os.WriteFile(filepath.Join(dir, name+".yaml.example"), []byte(tpl), 0644)
+		fmt.Printf("✅ %s.yaml.example 已生成（编辑 endpoint 和 capabilities 后启用）\n", name)
+
 	case "validate":
 		entries, _ := os.ReadDir(dir)
 		failed := 0

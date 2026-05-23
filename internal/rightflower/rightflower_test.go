@@ -130,3 +130,23 @@ func TestSecurityWrapper_VerifiedFalse(t *testing.T) {
 		t.Fatal("expected Verified=false after SecurityWrapper")
 	}
 }
+
+func TestManifestSchemaContract(t *testing.T) {
+	// Verify that fake_example.yaml.example validates correctly
+	m := &Manifest{
+		Name: "test", Type: "testing", Protocol: "http",
+		Endpoint: "http://localhost:9528", Capabilities: []string{"test"},
+		OutputFormat: "json", SafetyLevel: "sandbox", Enabled: true,
+	}
+	if err := ValidateManifest(m); err != nil {
+		t.Fatalf("valid manifest rejected: %v", err)
+	}
+}
+
+func TestManifestSchemaMissingFields(t *testing.T) {
+	// Name is required
+	m := &Manifest{Protocol: "http", Endpoint: "http://localhost:1", Capabilities: []string{"x"}}
+	if err := ValidateManifest(m); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}

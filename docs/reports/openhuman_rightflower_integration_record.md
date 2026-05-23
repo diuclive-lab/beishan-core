@@ -21,8 +21,18 @@
 - 非 2xx 状态码分类为"调用失败"
 - adapter 每次 dispatch 时 probe OpenHuman 存活状态
 
-## 未完成
+## 完成情况
 
-- method mapping 需对齐 OpenHuman 实际 RPC 方法名
-- token 获取流程未自动化（需手动配置）
-- 返回结构解析为结构化 findings 待实现
+- ✅ method mapping 已对齐 OpenHuman schema（472 个方法）
+- ✅ token 获取路径：`~/.openhuman/core.token`
+- ✅ `core.ping` 认证通过
+- ⚠️ method 参数形状待对齐 schema
+- ⚠️ 用户未登录时大部分方法不可用（scheduler gate 为 signed_out）
+
+### 已验证
+
+| 方法 | 认证 | 状态 |
+|------|------|------|
+| core.ping | Bearer token | ✅ |
+| openhuman.memory_recall_memories | Bearer token | ⚠️ 需对齐参数 |
+| openhuman.memory_doc_put | Bearer token | ⚠️ 需对齐参数 |
