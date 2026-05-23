@@ -567,3 +567,50 @@ Core Gate: ✅
 | 跟踪文件 | 367 |
 | 测试 | 全部 PASS |
 | Core Gate | 8/8 ✅ |
+
+
+---
+
+## 2026-05-24 凌晨：债务修复 + 全量审计
+
+### D01-D03 边界债务最终状态
+
+| 债务 | 状态 | 说明 |
+|------|------|------|
+| D01 think_plugin.go | ✅ 已修复 | `os.ReadFile` → `ValidateAndExecute("read_file")` |
+| D02 review_handler.go | ⚠️ 部分修复 | 读写已走 L3；MkdirAll/Remove 待 `delete_file` 工具 |
+| D03 skill_factory.go | ✅ 已标记 | PRIVILEGED PLUGIN |
+
+### 全量审计结果
+
+| 检查项 | 结果 |
+|--------|------|
+| go build/vet | ✅ |
+| go test（5 包） | ✅ |
+| 功能测试（15 项） | 15/15 ✅ |
+| Core Gate（8 项） | 8/8 ✅ |
+| 边界扫描 | ✅ 仅 known debt |
+
+### 已完成（今天）
+
+- L1: Protocol Contract Test（2 个测试）
+- L2: OpenHuman 真实方法映射（472 方法发现，auth 验证）
+- L3: observatory.Trace 链路预留
+- L7: core-eval 纳入 core_gate
+- L10: rightflowerctl generate 子命令
+- D01-D03: 边界债务清除
+- core_gate workspace 检查修复
+- adapter 测试方法映射对齐
+- core_audit 2026-05-24 报告
+
+### 未完成（长期方案 P3）
+
+| 方案 | 优先级 | 说明 |
+|------|--------|------|
+| L4 Workflow Hardening | P3 | external_flower 步骤类型 / checkpoint |
+| L5 D02 残留 | P3 | MkdirAll/Remove 待 delete_file 工具 |
+| L6 FangLab 吸收 | P3 | F1-F3 队列待执行 |
+| L8 Security Gate | P3 | 门禁检查待纳入 |
+| L9 语义文档化 | P3 | Register/RegisterUnlisted 语义 |
+| M6-M10 | — | 中期方案剩余项 |
+| S56-S60 | — | 短期方案剩余轮次 |
