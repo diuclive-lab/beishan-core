@@ -116,3 +116,28 @@ LLM 只做它擅长的事：生成文本。
 内核验证：输入 -> 输出 -> 确认路由到正确的插件。
 不测试 DeepSeek 的行为，只测试硬化层的校验逻辑。
 不需要 mock DeepSeek，因为路由决策不是内核的职责。
+
+## 双工作流引擎
+
+项目有两个工作流引擎，定位不同，共存不冲突：
+
+| 引擎 | 文件 | 定位 |
+|------|------|------|
+| YAML 引擎 | `internal/workflow/engine.go` | L4 高层编排 — AI 可动态修改 |
+| Go-DSL 引擎 | `internal/workflow/gods_executor.go` | L3/L4 静态硬化链 — 编译时安全 |
+
+**选择原则**：
+- 工作流需要 AI 频繁修改或最终用户调整 → YAML
+- 工作流是核心管道、编译时安全优先 → Go-DSL
+- 既需要编译时安全又需要 AI 修改 → YAML 定义步骤，Go-DSL 包装校验
+
+**共享类型**：两者共用 `StepResult`/`WorkflowResult`，不创造第二套状态类型。
+
+## 文档硬化层
+
+文档和代码一样，是项目基础设施的一部分。
+
+- 重大架构决策记录在 `docs/MERGE_DECISIONS.md`（不是分散在提交信息中）
+- 硬化层的能力边界声明在 `docs/HARDENING_LAYER.md`（保证什么 + 不保证什么）
+- 已知限制诚实记录在 `docs/KNOWN_LIMITATIONS.md`（不回避设计边界）
+- 代码变更时同步更新文档，如同同步更新测试一样
