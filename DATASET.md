@@ -482,19 +482,19 @@ core_gate.sh:
 
 ---
 
-## M1-M10：长期方案全部完成
+## M1-M10：中期方案全部完成
 
 | 编号 | 交付 | 说明 |
 |------|------|------|
-| M1 | Protocol v1 freeze | RIGHT_FLOWER_PROTOCOL.md 标记 v1 |
-| M2 | Plugin Registry v2 | RegisterUnlisted 已有（S2） |
-| M3 | Core Eval Harness | cmd/core-eval 可运行 bench suites |
+| M1 | Protocol v1 | RIGHT_FLOWER_PROTOCOL.md 标记 v1 |
+| M2 | Plugin Registry v2 | RegisterUnlisted（S2） |
+| M3 | Eval Harness | cmd/core-eval |
 | M4 | SDK Template | examples/right_flower_sdk/ |
-| M5 | OpenHuman Production | 适配器 + manifest 就绪 |
-| M6 | D01 annotation | think_plugin 标注安全读路径 |
-| M7+M8 | D02+D03 | allowlist 已覆盖 |
-| M9 | RouteAudit | audit.go 增加路由审计 |
-| M10 | Security Model | docs/security/core_security_model_v1.md |
+| M5 | OpenHuman | 适配器就绪 |
+| M6 | D01 annotation | think_plugin 标注 |
+| M7+M8 | D02+D03 | allowlist 覆盖 |
+| M9 | RouteAudit | audit.go |
+| M10 | Security Model | docs/security/ |
 
 ### 项目最终统计
 
@@ -505,3 +505,18 @@ core_gate.sh:
 | 跟踪文件 | 358 |
 | 测试 | 全部 PASS |
 | Core Gate | 7/7 ✅ |
+
+### L1-L10（长期方案，待启动）
+
+| 编号 | 方案 | 说明 |
+|------|------|------|
+| L1 | RightFlower Protocol v1 | 冻结 v1 协议，schema/contract test |
+| L2 | OpenHuman Production | 3 个 method 真实可用 |
+| L3 | Core Observatory v1 | 完整可观测追踪 |
+| L4 | Workflow Engine Hardening | external_flower/timeout/retry |
+| L5 | Boundary Debt Burn-down | D01-D03 逐项清除 |
+| L6 | FangLab Absorption | 系统吸收 FangLab |
+| L7 | Core Eval Harness v1 | Core 自有评估体系 |
+| L8 | Security Model v1 | 正式安全模型 |
+| L9 | Plugin Registry v2 | 统一注册语义 |
+| L10 | Core Developer Kit | 第三方写右花 |
