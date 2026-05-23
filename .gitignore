@@ -19,3 +19,11 @@ repl
 claude_memory_backup/
 codex_backup/
 hermes_memory_backup/
+
+# Examples 编译产物
+examples/*/go_example
+examples/*/l3_echo_go
+
+# 个人文档（非项目文档）
+PERSONAL_KB_GUIDE.md
+PLAN_CODING_AGENT.md

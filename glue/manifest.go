@@ -15,7 +15,7 @@ import (
 type Manifest struct {
 	Name  string `json:"name"`  // 插件名，也是内核注册表中的名字
 	Entry string `json:"entry"` // 启动文件，相对于插件目录，如 "main.py"
-	Type  string `json:"type"`  // 插件类型，目前只支持 "python"
+	Type  string `json:"type"`  // 插件类型："python" 或 "go"
 }
 
 /* ScanDir 扫描插件目录，返回所有合法的 manifest。

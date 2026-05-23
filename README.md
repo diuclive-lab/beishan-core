@@ -37,8 +37,8 @@ LLM / L4 编排
 
 ### 前置条件
 
-- Go 1.21+（开发环境 Go 1.26）
-- DeepSeek API key（路由和 LLM 调用）
+- Go 1.26（`go.mod` 指定版本）
+- DeepSeek API key 或其他 LLM API key（见配置表）
 
 ### 启动
 
@@ -75,9 +75,15 @@ eval/scripts/run_legal_smoke.sh
 
 | 环境变量 | 必填 | 说明 |
 |----------|------|------|
-| `DEEPSEEK_API_KEY` | 是 | DeepSeek API key |
-| `TAVILY_API_KEY` | 否 | Tavily 搜索 API key |
+| `DEEPSEEK_API_KEY` | 是* | DeepSeek API key |
+| `LLM_API_KEY` | 否 | 通用 LLM API key（未设置时使用 DEEPSEEK_API_KEY） |
+| `LLM_PROVIDER` | 否 | LLM 提供商：`deepseek`（默认）、`openai`、`xiaomi`、`local` |
+| `LLM_MODEL` | 否 | 模型名（默认由提供商决定） |
+| `TAVILY_API_KEY` | 否 | Tavily 搜索 API key（增强搜索质量） |
 | `HERMES_HOME` | 否 | 知识库存储路径（默认 `~/.hermes`） |
+| `PORT` | 否 | HTTP 端口（默认 8013） |
+
+> *需要至少设置 `DEEPSEEK_API_KEY` 或 `LLM_API_KEY` 之一。
 
 ## 关键文档
 
