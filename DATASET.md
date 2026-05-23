@@ -478,3 +478,30 @@ core_gate.sh:
 | 跟踪文件 | 351 |
 | 测试 | 全部 PASS |
 | Core Gate | 7/7 ✅ |
+
+
+---
+
+## M1-M10：长期方案全部完成
+
+| 编号 | 交付 | 说明 |
+|------|------|------|
+| M1 | Protocol v1 freeze | RIGHT_FLOWER_PROTOCOL.md 标记 v1 |
+| M2 | Plugin Registry v2 | RegisterUnlisted 已有（S2） |
+| M3 | Core Eval Harness | cmd/core-eval 可运行 bench suites |
+| M4 | SDK Template | examples/right_flower_sdk/ |
+| M5 | OpenHuman Production | 适配器 + manifest 就绪 |
+| M6 | D01 annotation | think_plugin 标注安全读路径 |
+| M7+M8 | D02+D03 | allowlist 已覆盖 |
+| M9 | RouteAudit | audit.go 增加路由审计 |
+| M10 | Security Model | docs/security/core_security_model_v1.md |
+
+### 项目最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 247 |
+| Go 文件 | 117 |
+| 跟踪文件 | 358 |
+| 测试 | 全部 PASS |
+| Core Gate | 7/7 ✅ |
