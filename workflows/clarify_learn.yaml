@@ -1,0 +1,21 @@
+# 澄清学习工作流
+# 调用结构化 clarify，结果记录到知识库形成学习闭环
+id: clarify_learn
+steps:
+  - id: ask
+    plugin: memory_plugin
+    type: clarify
+    timeout: 30
+    inputs:
+      message: "${input}"
+      format: "structured"
+    next: learn
+
+  - id: learn
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    inputs:
+      source_type: "clarify_response"
+      title: "澄清记录: ${input}"
+      summary: "${steps.ask.output}"

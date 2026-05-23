@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"sync"
+
+	"beishan/internal/clarify"
 )
 
 /* ─── 用户习惯学习 ───────────────────────────────
@@ -168,6 +170,7 @@ func registerClarifyTools() {
 					"maxItems":    4,
 				},
 				"_input": stringParam("用户原始输入，用于自动推断（内部使用）"),
+			"format": stringParam("返回格式：plain（默认）或 structured"),
 			},
 		},
 		clarifyHandler,
@@ -214,6 +217,18 @@ func clarifyHandler(args map[string]interface{}) *ToolResult {
 		if intent, conf := clarifyPatterns.resolve(input); conf >= 1.0 && intent != "" {
 			return successResult(fmt.Sprintf("[自动推断] %s (置信度 %.0f%%)", intent, conf*100))
 		}
+	}
+
+	// 结构化返回格式
+	if format, ok := args["format"].(string); ok && format == "structured" {
+		req := clarify.Request{
+			NeedsClarify: true,
+			Question:     output,
+			Candidates:   choices,
+			Confidence:   0.0,
+		}
+		data, _ := json.Marshal(req)
+		return &ToolResult{Success: true, Output: string(data)}
 	}
 
 	return successResult(output)

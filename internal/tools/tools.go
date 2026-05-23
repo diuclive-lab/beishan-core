@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"beishan/internal/registry"
 )
 
 // Global state accessible by tools
@@ -256,6 +258,7 @@ func Init() {
 	registerUsageTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
+	registry.DefaultInstance.Lock()
 }
 
 func errorResult(msg string) *ToolResult {
