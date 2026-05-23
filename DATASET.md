@@ -73,3 +73,65 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 | 知识库治理 | 待执行 | embedding 批量补 + 重复合并（memory 中已有项目计划）|
 | code_security 规则扩展 | 持续 | 覆盖更多危险模式（SQL 注入检测、网络反弹 shell 等）|
 | hardening layer 完备性检验 | 待做 | 经过真实外部工具的端到端验证 |
+
+---
+
+## 2026-05-23 TwinFlower 融合执行（下午）
+
+### 1. observatory 决策追踪（internal/observatory/，+374 行）
+
+从 TwinFlower 全量迁移决策追踪模块，字段适配：
+- `Skill` → `Plugin`，`WhyRouted` → `RouteReason`，`BySkill` → `ByPlugin`
+- `TraceID` 复用 glue/protocol.go 现有字段
+
+文件：`trace.go`(187行)、`metrics.go`(135行)、`health.go`(52行)
+
+### 2. ErrorKind 错误分类（internal/workflow/gods_error.go，+73 行）
+
+6 类错误：timeout / transient / permission / dependency / input / internal
+- `ClassifyError()` 自动分类，`IsRetryable()` 判断是否可重试
+- `GoStep` 新增 `Fallback` 字段，降级尝试在重试循环内部
+- `callStep()` 重构抽离单次执行逻辑
+
+### 3. 文件安全 L3 工具（internal/tools/file_safe.go，+156 行）
+
+- `validate_file_op`：操作类型（读/写/删）+ 路径白名单校验
+- `lock_file` / `unlock_file`：基于互斥锁的并发保护
+- tools 注册数 93 → 96
+
+### 4. 中文歧义字典（internal/tools/search_disambiguate.json）
+
+从 TwinFlower search_skill 提取：苹果/小米/华为等歧义词对 + 消歧上下文词
+
+### 5. EWMA 衰减算法（internal/tools/clarify.go）
+
+- `userPattern` 新增 `LastSeen` 时间戳
+- `resolve()` 置信度超过 7 天未观察则衰减（`conf *= 0.5 * (7/days)`）
+- 向后兼容：旧 JSON 模式文件读入后 LastSeen=0，衰减不触发
+
+### 6. 修正的记录
+
+- Go-DSL resolveSource 对 `Field: "output"` 的处理：原来把 "output" 当字段路径取，改为直接返回 `StepResult.Output`
+- legal_review_go_dsl.go 的 Merge 字段补充完整（clause_analysis 和 write_report）
+- resolveSource 暴露 `state.results` map 供直接取值
+
+### 7. 测试验证
+
+| 测试项 | 结果 |
+|--------|------|
+| Go build ./... + vet | ✅ |
+| Health / Chat / Web | ✅ |
+| code_security_check（rm -rf 拦截）| ✅ |
+| validate_file_op（允许/拦截）| ✅ |
+| knowledge_search / add | ✅ |
+| todo_add / list | ✅ |
+| clarify / clarify_learn | ✅ |
+| YAML legal_review 4/4 | ✅ |
+| Go-DSL legal_review_v2 4/4 | ✅ |
+| 全量 15 项 | ✅ 100% PASS |
+
+### 8. 未完成（更新后）
+
+- 步骤 3 中的 `plugins/filesystem_plugin.go` 和 `plugins/search_skill_plugin.go` 未创建（低优先级，已有覆盖）
+- `internal/cognition/` 模板目录未创建（等 clarify 需要时再做）
+- docs/TWINFLOWER_MERGE_PLAN.md 已更新为已完成状态
