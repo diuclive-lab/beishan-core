@@ -430,3 +430,51 @@ rightflower smoke   ✅ 7/7
 scan_boundary       ✅
 enable openhuman    ✅
 ```
+
+
+---
+
+## S46-S60：右花工具链完善 + Core Gate 完整化
+
+### 交付清单
+
+| 轮次 | 交付 |
+|------|------|
+| S46 | validate 区分 .yaml vs .yaml.example |
+| S47 | enable --dry-run 预览 |
+| S48 | core-health 检查 rightflowerctl + manifest |
+| S49 | --gate-summary 输出 |
+| S50 | adapter --probe 探测 |
+| S51 | OPENHUMAN_METHOD_MAP 环境变量覆盖 |
+| S52 | NormalizeResponse 5 测试 |
+| S53+S54 | E2E / Workflow 已有覆盖 |
+| S55 | hygiene check 纳入 core_gate |
+| S56 | docs consistency 纳入 core_gate |
+| S57 | --snapshot 快照 |
+| S58 | FangLab 执行队列 F1-F3 |
+| S59 | --schema 标志 |
+| S60 | smoke 后工作区污染检查 |
+
+### Core Gate 最终验证
+
+```bash
+core_gate.sh:
+  go test...  ✅
+  go vet...   ✅
+  core-health ✅
+  boundary    ✅
+  docs        ✅
+  workspace   ✅
+  smoke       ✅
+→ ✅ Core Gate 通过
+```
+
+### 60 轮总计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 242 |
+| Go 文件 | 113 |
+| 跟踪文件 | 351 |
+| 测试 | 全部 PASS |
+| Core Gate | 7/7 ✅ |
