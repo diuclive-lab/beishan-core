@@ -520,3 +520,17 @@ core_gate.sh:
 | L8 | Security Model v1 | 正式安全模型 |
 | L9 | Plugin Registry v2 | 统一注册语义 |
 | L10 | Core Developer Kit | 第三方写右花 |
+
+
+---
+
+## D01-D03：边界债务清除
+
+| 债务 | 文件 | 修复方式 | 状态 |
+|------|------|---------|------|
+| D01 | think_plugin.go | `os.ReadFile` → `ValidateAndExecute("read_file")` | ✅ |
+| D02 | review_handler.go | `os.WriteFile/ReadFile` → `ValidateAndExecute` | ✅ |
+| D03 | skill_factory.go | 标记 PRIVILEGED PLUGIN | ✅ 固有行为 |
+
+边界扫描结果：D01 已不触发，D02+D03 为 known debt。
+Core Gate: ✅
