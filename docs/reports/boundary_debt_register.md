@@ -7,8 +7,8 @@
 | ID | 位置 | 违规类型 | 描述 | 引入时间 | 状态 |
 |----|------|---------|------|---------|------|
 | D01 | plugins/think_plugin.go:488 | L4 直接文件系统 | ✅ 已修复：改用 `ValidateAndExecute("read_file")` | 2026-05 | 已修复 |
-| D02 | plugins/review_handler.go:210 | L4 直接文件系统 | 直接调 `os.MkdirAll`/`WriteFile`/`Remove`，应走 `code_apply` | 2026-05 | 已知 |
-| D03 | plugins/skill_factory_plugin.go:522 | L4 直接文件系统 | 直接操作 YAML 工作流文件（读/写/删） | 2026-05 | 已知 |
+| D02 | plugins/review_handler.go:210 | L4 直接文件系统 | 读写已改用 L3 工具；MkdirAll/Remove 待 `delete_file` 工具 | 2026-05 | ⚠️ 部分修复 |
+| D03 | plugins/skill_factory_plugin.go:522 | L4 直接文件系统 | PRIVILEGED PLUGIN：工作流编辑器固有行为 | 2026-05 | ✅ 已标记 |
 
 ## 扫描规则
 
