@@ -22,7 +22,13 @@ func (p *Plugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		Sender:    msg.Sender,
 		Recipient: msg.Recipient,
 		Method:    msg.Type,
-		Params:    map[string]interface{}{"payload": string(msg.Payload)},
+		Params: func() map[string]interface{} {
+			obj := map[string]interface{}{}
+			if err := json.Unmarshal(msg.Payload, &obj); err == nil {
+				return obj
+			}
+			return map[string]interface{}{"payload": string(msg.Payload)}
+		}(),
 	}
 
 	resp, err := p.Client.Dispatch(p.Manifest.Endpoint, req)

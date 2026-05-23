@@ -121,7 +121,7 @@ steps:
 ### 底座启动时加载
 
 ```go
-// main.go（待实现）
+// main.go（已实现）
 flowerDir := "./right_flowers"
 registry.LoadRightFlowers(flowerDir)
 ```
