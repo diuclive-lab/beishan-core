@@ -235,6 +235,7 @@ func Init() {
 	registerTTSTool()
 	registerKnowledgeTools()
 	registerFileParseTools()
+	registerFileSafeTools()
 	registerNotifyTools()
 	registerCodexTools()
 	registerClaudeTools()
