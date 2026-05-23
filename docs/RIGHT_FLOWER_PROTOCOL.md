@@ -1,4 +1,4 @@
-# 右花接入协议 v0.1（草案）
+# 右花接入协议 v1.0
 
 > **⚠️ v0.1 基准已实现**：本协议基准（YAML 加载 + HTTP 客户端 + kernel.Plugin 注册）已实现。
 > external_flower 工作流步骤未实现，首个真实右花接入时细化。
@@ -141,9 +141,9 @@ registry.LoadRightFlowers(flowerDir)
 
 ## 五、协议版本
 
-当前 **v0.1（已实现基准）**。首个真实右花接入时细化。
+**v1.0** — 协议已冻结。当前实现基准：YAML 加载 + HTTP dispatch + JSON-RPC 2.0 + Bearer token auth。
 
-### 实现状态
+### 协议状态
 
 | 功能 | 状态 |
 |------|------|

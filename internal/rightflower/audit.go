@@ -39,3 +39,13 @@ func WriteAudit(record AuditRecord) {
 		f.Close()
 	}
 }
+
+
+// RouteAudit records a kernel route decision.
+func RouteAudit(flower, method string, latencyMs int64, status string) {
+	WriteAudit(AuditRecord{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Flower: flower, Method: method,
+		Status: status, LatencyMs: latencyMs,
+	})
+}
