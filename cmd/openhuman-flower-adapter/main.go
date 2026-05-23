@@ -100,7 +100,7 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(openReq)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	ohResp, err := httpClient.Post(openHumanEndpoint+"/api/rpc", "application/json", bytes.NewReader(body))
+	ohResp, err := httpClient.Post(openHumanEndpoint+"/rpc", "application/json", bytes.NewReader(body))
 	if err != nil {
 		resp := RightFlowerResponse{
 			ID: req.ID, Type: "response",
