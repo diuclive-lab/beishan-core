@@ -1,25 +1,26 @@
 package kernel
 
 import (
-	"encoding/json"
 	"testing"
 )
 
-func TestPayloadNotParsed(t *testing.T) {
+func TestKernelDoesNotParsePayload(t *testing.T) {
 	k := NewKernel("test-key")
+	original := []byte(`{"sensitive":"data"}`)
 	msg := Message{
-		Sender: "user", Recipient: "test_plugin", Type: "test",
-		Payload: json.RawMessage(`{"sensitive":"data"}`),
+		Sender: "user", Recipient: "test", Type: "test",
+		Payload: original,
 	}
 	if len(msg.Payload) == 0 {
 		t.Fatal("payload should not be empty")
 	}
-	var obj map[string]interface{}
-	if err := json.Unmarshal(msg.Payload, &obj); err != nil {
-		t.Fatal(err)
+	for i, b := range original {
+		if i < len(msg.Payload) && msg.Payload[i] != b {
+			t.Fatalf("payload modified at byte %d", i)
+		}
 	}
-	if obj["sensitive"] != "data" {
-		t.Fatal("payload content should be preserved")
+	if len(msg.Payload) != len(original) {
+		t.Fatal("payload length changed")
 	}
 	_ = k
 }

@@ -30,3 +30,6 @@ PLAN_CODING_AGENT.md
 
 # OpenHuman adapter 编译产物
 /openhuman-flower-adapter
+
+# Core health 编译产物
+/core-health

@@ -83,6 +83,20 @@ func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	log.Printf("[Kernel] 插件注册: %s", name)
 }
 
+// RegisterUnlisted 注册插件但不注入 Router 提示词，不参与首轮 AI 路由。
+// 用于右花等外部工具，仅支持通过 Recipient 显式调用。
+func (k *Kernel) RegisterUnlisted(name string, p Plugin, meta ...Meta) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.plugins[name] = p
+	m := Meta{}
+	if len(meta) > 0 {
+		m = meta[0]
+	}
+	k.metas[name] = m
+	log.Printf("[Kernel] 插件注册(不路由): %s", name)
+}
+
 func (k *Kernel) KnownPlugins() []string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()

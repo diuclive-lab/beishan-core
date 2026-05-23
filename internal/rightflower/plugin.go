@@ -66,8 +66,10 @@ func RegisterAll(k *kernel.Kernel, manifestDir string) error {
 		}
 		if m.RouteExposed {
 			meta.Types = m.Capabilities
+			k.Register(name, p, meta)
+		} else {
+			k.RegisterUnlisted(name, p, meta)
 		}
-		k.Register(name, p, meta)
 		fmt.Printf("[rightflower] 插件注册: %s\n", name)
 	}
 	return nil
