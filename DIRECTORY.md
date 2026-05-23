@@ -20,7 +20,8 @@
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
 | `eval/` | 烟雾测试：场景定义、运行脚本、测试结果 | 测试 |
-| `docs/` | 设计文档：架构决策、硬化层声明、已知限制、开发日志 | 文档 |
+| `docs/` | 设计文档：架构决策、硬化层声明、已知限制 | 文档 |
+| `docs/devlog/` | 开发日志，按日期记录内部开发过程 | 过程档案 |
 
 ## 关键设计决策
 

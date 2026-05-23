@@ -1,4 +1,4 @@
-# 开发日志
+# 变更日志
 
 ## 2026-05-20 记忆层：Agent 自动知识检索 + 双轨语义引擎
 
@@ -1644,3 +1644,27 @@ claude-for-legal（Anthropic 的法律 AI 智能体框架）：
 - 文档自动化模板（风险矩阵、法律意见书）
 - MCP 连接器接口定义
 - 本项目的 L4 法律编排插件设计受此项目启发
+
+## 2026-05-23 Go-DSL 工作流引擎 + 架构文档 + 目录重组
+
+### 新增
+
+- **Go-DSL 工作流引擎**（`internal/workflow/gods_executor.go`）：编译时安全的 L3/L4 静态硬化链，与 YAML 引擎共存。`NewGoToolPlugin` 构造时校验 Tool 注册表，未注册 panic
+- **三份核心架构文档**：`docs/HARDENING_LAYER.md`（硬化层能力边界表）、`docs/MERGE_DECISIONS.md`（7 项关键决策记录）、`docs/KNOWN_LIMITATIONS.md`（10 项已知设计边界）
+- **DIRECTORY.md**：目录结构声明，解释每层到每目录的映射
+- **Go-DSL 版 legal_review**（`cmd/beishan/legal_review_go_dsl.go`）：声明式四步法律审查编排
+
+### 重构
+
+- **main.go 迁入 `cmd/beishan/`**：Go 标准项目布局，preroute.go + web 资源同步迁移
+- **.gitignore 补全**：排除 `eval/run/logs/`、`eval/run/pids/`、`generated/`
+- **DEVLOG 移入 `docs/devlog/`**：CHANGELOG 留在根目录作为"对外名片"
+
+### 硬化层能力边界文档化
+
+硬化层保证格式安全、命令安全、路径安全，但不保证逻辑正确性、安全漏洞、架构质量。详见 `docs/HARDENING_LAYER.md`。
+
+### 代码审计
+
+文档-代码一致性核查：修正 6 处不准确声明（Router 校验机制、自修改防护范围、工作流数量等）。
+根目录存量文档（PERSONAL_KB_GUIDE.md、PLAN_CODING_AGENT.md）经核实信息准确，无需修改。
