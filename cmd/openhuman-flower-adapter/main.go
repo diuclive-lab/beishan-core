@@ -1,11 +1,5 @@
 // OpenHuman Flower Adapter — thin HTTP bridge between beishan-core Right Flower
 // Protocol and OpenHuman's local API.
-//
-// Usage:
-//   export OPENHUMAN_TOKEN="token-from-openhuman"
-//   go run ./cmd/openhuman-flower-adapter &
-//   mv right_flowers/openhuman.yaml.example right_flowers/openhuman.yaml
-//   restart Core.
 package main
 
 import (
@@ -47,6 +41,18 @@ type Finding struct {
 	Source   string `json:"source"`
 }
 
+var methodMap = map[string]string{
+	"memory.search":   "recall",
+	"memory.store":    "store",
+	"context.retrieve": "recall",
+	"code.review":     "code_review",
+}
+
+func translateMethod(flowerMethod string) (string, bool) {
+	oh, ok := methodMap[flowerMethod]
+	return oh, ok
+}
+
 var (
 	openHumanEndpoint string
 	openHumanToken    string
@@ -62,16 +68,15 @@ func probe() bool {
 	return resp.StatusCode == 200
 }
 
-func dispatchToOpenHuman(req *RightFlowerRequest) ([]byte, int, error) {
-	params := req.Params
+func dispatchToOpenHuman(method string, params map[string]any) ([]byte, int, error) {
 	if params == nil {
 		params = map[string]any{}
 	}
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
-		"method":  req.Method,
+		"method":  method,
 		"params":  params,
-		"id":      req.ID,
+		"id":      "1",
 	})
 	hc := &http.Client{Timeout: 30 * time.Second}
 	hreq, _ := http.NewRequest("POST", openHumanEndpoint+"/rpc", bytes.NewReader(body))
@@ -105,23 +110,29 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[openhuman-adapter] dispatch: method=%s id=%s", req.Method, req.ID)
 
-	if !probe() {
-		json.NewEncoder(w).Encode(findingResult(req.ID, "OpenHuman 不可用",
-			"OpenHuman 进程未运行或 API 不可达。请启动 OpenHuman 后重试。", "openhuman_adapter"))
+	ohMethod, ok := translateMethod(req.Method)
+	if !ok {
+		json.NewEncoder(w).Encode(findingResult(req.ID,
+			fmt.Sprintf("不支持的 method: %s", req.Method),
+			"支持的 methods: memory.search, memory.store, context.retrieve, code.review",
+			"openhuman_adapter"))
 		return
 	}
 
-	respBody, statusCode, err := dispatchToOpenHuman(&req)
+	if !probe() {
+		json.NewEncoder(w).Encode(findingResult(req.ID,
+			"OpenHuman 不可用", "OpenHuman 进程未运行或 API 不可达。请启动 OpenHuman 后重试。", "openhuman_adapter"))
+		return
+	}
+
+	respBody, statusCode, err := dispatchToOpenHuman(ohMethod, req.Params)
 	if err != nil {
 		json.NewEncoder(w).Encode(findingResult(req.ID, "OpenHuman 调用失败",
 			fmt.Sprintf("HTTP 请求失败: %v", err), "openhuman_adapter"))
 		return
 	}
 	if statusCode < 200 || statusCode >= 300 {
-		snip := string(respBody)
-		if len(snip) > 300 {
-			snip = snip[:300] + "..."
-		}
+		snip := truncate(string(respBody), 300)
 		json.NewEncoder(w).Encode(findingResult(req.ID,
 			fmt.Sprintf("OpenHuman 返回 HTTP %d", statusCode), snip, "openhuman_adapter"))
 		return
@@ -130,11 +141,17 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(RightFlowerResponse{
 		ID: req.ID, Type: "response",
 		Result: &Result{Findings: []Finding{{
-			Title: "OpenHuman 结果",
-			Summary: string(respBody[:min(len(respBody), 1000)]),
+			Title: "OpenHuman 结果", Summary: truncate(string(respBody), 1000),
 			Verified: false, Source: "openhuman",
 		}}},
 	})
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func handleProbe(w http.ResponseWriter, r *http.Request) {
@@ -157,12 +174,11 @@ func loadConfigFromEnv() config {
 	if endpoint == "" {
 		endpoint = defaultOpenHumanEndpoint
 	}
-	token := os.Getenv("OPENHUMAN_TOKEN")
 	addr := ":9529"
 	if p := os.Getenv("ADAPTER_PORT"); p != "" {
 		addr = ":" + p
 	}
-	return config{endpoint: endpoint, token: token, addr: addr}
+	return config{endpoint: endpoint, token: os.Getenv("OPENHUMAN_TOKEN"), addr: addr}
 }
 
 func main() {

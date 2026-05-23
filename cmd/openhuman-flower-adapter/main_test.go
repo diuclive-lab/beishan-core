@@ -8,12 +8,44 @@ import (
 	"testing"
 )
 
+func TestMethodMap_Known(t *testing.T) {
+	tests := []struct{ flower, want string }{
+		{"memory.search", "recall"},
+		{"memory.store", "store"},
+		{"context.retrieve", "recall"},
+		{"code.review", "code_review"},
+	}
+	for _, tc := range tests {
+		got, ok := translateMethod(tc.flower)
+		if !ok {
+			t.Errorf("translateMethod(%q) = _, false, want %q", tc.flower, tc.want)
+		}
+		if got != tc.want {
+			t.Errorf("translateMethod(%q) = %q, want %q", tc.flower, got, tc.want)
+		}
+	}
+}
+
+func TestMethodMap_Unknown(t *testing.T) {
+	_, ok := translateMethod("unknown.method")
+	if ok {
+		t.Fatal("expected false for unknown method")
+	}
+}
+
+func TestMethodMap_CaseSensitive(t *testing.T) {
+	_, ok := translateMethod("Memory.Search")
+	if ok {
+		t.Fatal("expected false for wrong case")
+	}
+}
+
 func TestParamsForwarding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		if body["method"] != "memory.search" {
-			t.Errorf("method = %v, want memory.search", body["method"])
+		if body["method"] != "recall" {
+			t.Errorf("method = %v, want recall", body["method"])
 		}
 		params := body["params"].(map[string]any)
 		if params["query"] != "test" {
@@ -23,13 +55,8 @@ func TestParamsForwarding(t *testing.T) {
 		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer ts.Close()
-
 	openHumanEndpoint = ts.URL
-	openHumanToken = ""
-	body, code, err := dispatchToOpenHuman(&RightFlowerRequest{
-		ID: "1", Method: "memory.search",
-		Params: map[string]any{"query": "test"},
-	})
+	body, code, err := dispatchToOpenHuman("recall", map[string]any{"query": "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +66,7 @@ func TestParamsForwarding(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(body, &resp)
 	if resp["ok"] != true {
-		t.Fatalf("unexpected response: %v", resp)
+		t.Fatalf("unexpected: %v", resp)
 	}
 }
 
@@ -53,10 +80,9 @@ func TestBearerToken(t *testing.T) {
 		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer ts.Close()
-
 	openHumanEndpoint = ts.URL
 	openHumanToken = "test-token"
-	dispatchToOpenHuman(&RightFlowerRequest{ID: "1", Method: "ping", Params: map[string]any{}})
+	dispatchToOpenHuman("ping", map[string]any{})
 	openHumanToken = ""
 }
 
@@ -66,9 +92,8 @@ func TestNon2xxStatus(t *testing.T) {
 		w.Write([]byte(`{"error":"unauthorized"}`))
 	}))
 	defer ts.Close()
-
 	openHumanEndpoint = ts.URL
-	body, code, err := dispatchToOpenHuman(&RightFlowerRequest{ID: "1", Method: "test"})
+	body, code, err := dispatchToOpenHuman("test", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,5 +143,14 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if cfg.addr != ":9999" {
 		t.Fatalf("addr = %q", cfg.addr)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if s := truncate("hello", 3); s != "hel..." {
+		t.Fatalf("got = %q", s)
+	}
+	if s := truncate("hello", 10); s != "hello" {
+		t.Fatalf("got = %q", s)
 	}
 }
