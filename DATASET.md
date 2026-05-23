@@ -248,3 +248,54 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 | YAML 工作流 | 33 |
 | 文档 | 13 份 |
 | 编译 | go build ./... ✅ |
+
+
+---
+
+## 2026-05-23 深夜：Core 稳定性修复 + 右花协议闭环
+
+### Core 稳定性修复（4 个 P2）
+
+| 问题 | 修复 |
+|------|------|
+| route_exposed=false 仍进首轮路由 | 新增 kernel.RegisterUnlisted，不调 AddKnownPlugin |
+| fake_example.yaml 默认启用 | → .yaml.example |
+| scan_boundary 无 known debt 区分 | 排除 _test.go + D01-D03 allowlist |
+| core-health 二进制进 git | git rm + .gitignore 追加 /core-health |
+
+### 10 轮方案全部完成
+
+| 轮次 | 交付 | 行数 |
+|------|------|------|
+| S1 | OpenHuman Method Mapping（4 方法 + 未知拒绝） | +84 |
+| S2+S3 | Enable Gate + Route Safety（enabled/route_exposed 字段） | +21 |
+| S4 | External Flower Workflow Step（test_right_flower.yaml） | +12 |
+| S5 | Evidence Contract（Kind/Flower/Method 字段） | +10 |
+| S6 | Core Health（cmd/core-health 轻量检查） | +80 |
+| S7 | Boundary Debt Register（docs/reports/boundary_debt_register.md） | +20 |
+| S8 | Kernel Payload Freeze Test（3 个 parseDecision 测试） | +45 |
+| S9 | FangLab Nutrient Inventory（吸收分类文档） | +25 |
+| S10 | OpenHuman Integration Record（边界/协议/安全文档） | +35 |
+
+### OpenHuman 适配器完整状态
+
+| 能力 | 状态 |
+|------|------|
+| JSON-RPC 2.0 协议 | ✅ |
+| Bearer token auth（OPENHUMAN_TOKEN） | ✅ |
+| 4 方法映射（memory.search/store/context.retrieve/code.review） | ✅ |
+| 未知 method 返回 unsupported | ✅ |
+| 非 2xx 分类为调用失败 | ✅ |
+| dispatch 时 probe 存活 | ✅ |
+| 单测 10 个 | ✅ |
+
+### 最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 217 |
+| Go 文件 | 105 |
+| 跟踪文件 | 317 |
+| 测试 | 21/21 PASS |
+| 根目录 | 0 未跟踪文件 |
+| 边界扫描 | ✅ 全部通过 |
