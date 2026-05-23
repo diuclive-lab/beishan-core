@@ -20,6 +20,8 @@ import (
 
 	"beishan/glue"
 	"beishan/internal/tools"
+	"beishan/internal/rightflower"
+
 	"beishan/internal/workflow"
 	"beishan/kernel"
 	"beishan/plugins"
@@ -256,6 +258,9 @@ func main() {
 	workflowDir := "./workflows"
 	workflowSummary := buildWorkflowSummary(workflowDir)
 	k.Router.SetWorkflowSummary(workflowSummary)
+
+	// 加载右花（外部工具注册）
+	rightflower.RegisterAll(k, "./right_flowers")
 
 	// 启动胶水层
 	gl := glue.New(k, "./plugins")

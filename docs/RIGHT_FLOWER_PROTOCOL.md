@@ -142,11 +142,15 @@ registry.LoadRightFlowers(flowerDir)
 
 ## 五、协议版本
 
-当前 **v0.1（草案）**。首个真实右花接入时 bump 到 v1.0。
+当前 **v0.1（已实现基准）**。首个真实右花接入时细化。
 
-### 待实现
+### 实现状态
 
-- glue/protocol.go 增加 external_flower 消息类型
-- right_flowers/ 目录扫描 + YAML 加载
-- 工作流支持 external_flower 步骤类型
-- 极简右花示例
+| 功能 | 状态 |
+|------|------|
+| right_flowers/ YAML 加载器 | ✅ 实现：internal/rightflower/manifest.go + client.go |
+| HTTP 右花客户端 | ✅ 实现：internal/rightflower/plugin.go + client.go |
+| kernel.Plugin 注册 | ✅ 实现：internal/rightflower/plugin.go:RegisterAll() |
+| 安全回收（unverified findings） | ✅ 实现：client.go:SecurityWrapper() |
+| 极简右花示例 | 📋 待首个真实右花接入 |
+| 工作流 external_flower 步骤 | 📋 待 v0.2 细化 |
