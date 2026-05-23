@@ -69,6 +69,18 @@ func probe() bool {
 	return resp.StatusCode == 200
 }
 
+func probeAuth() (bool, bool) {
+	// Returns: reachable, auth_ok
+	body, code, err := dispatchToOpenHuman("ping", map[string]any{})
+	if err != nil {
+		return false, false
+	}
+	if code == 401 || code == 403 {
+		return true, false
+	}
+	return code == 200, len(body) > 0
+}
+
 func dispatchToOpenHuman(method string, params map[string]any) ([]byte, int, error) {
 	if params == nil {
 		params = map[string]any{}
@@ -101,6 +113,25 @@ func findingResult(id, title, summary, source string) RightFlowerResponse {
 			{Title: title, Summary: summary, Verified: false, Source: source},
 		}},
 	}
+}
+
+func handleProbeMethods(w http.ResponseWriter, r *http.Request) {
+	reachable, authOk := probeAuth()
+	results := map[string]interface{}{"reachable": reachable, "auth_ok": authOk}
+	for rf, oh := range methodMap {
+		if !reachable {
+			results[rf] = map[string]interface{}{"status": "unreachable"}
+			continue
+		}
+		body, code, err := dispatchToOpenHuman(oh, map[string]any{})
+		if err != nil {
+			results[rf] = map[string]interface{}{"status": "error", "detail": err.Error()}
+		} else {
+			results[rf] = map[string]interface{}{"status": "responded", "code": code, "body": truncate(string(body), 200)}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
 }
 
 func handleDispatch(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +240,7 @@ func main() {
 	openHumanEndpoint = cfg.endpoint
 	openHumanToken = cfg.token
 	http.HandleFunc("/dispatch", handleDispatch)
+	http.HandleFunc("/probe-methods", handleProbeMethods)
 	http.HandleFunc("/health", handleProbe)
 	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s", cfg.addr, cfg.endpoint)
 	log.Fatal(http.ListenAndServe(cfg.addr, nil))

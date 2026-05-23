@@ -3,14 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 )
 
 func main() {
 	jsonFlag := flag.Bool("json", false, "output JSON")
 	flag.Parse()
 
-	root, _ := os.Getwd()
+	root, _ := findProjectRoot()
 	rep := BuildHealthReport(root, osRunner{})
 
 	if *jsonFlag {

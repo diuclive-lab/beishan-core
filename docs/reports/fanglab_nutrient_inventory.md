@@ -29,3 +29,12 @@
 |------|------|
 | RadixRoute | 语义路由与 beishan-core 的 DeepSeek 路由冲突 |
 | MCP server | 已有 glue IPC |
+
+
+## 近期吸收候选
+
+| 优先级 | 模块 | 来源 | 预计 |
+|--------|------|------|------|
+| P1 | health JSON summary | project-health | 2h |
+| P2 | eval runner | eval harness | 4h |
+| P3 | evidence contract | evidence system | 4h |

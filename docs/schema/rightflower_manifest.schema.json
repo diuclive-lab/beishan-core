@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RightFlower Manifest",
+  "type": "object",
+  "required": ["name", "protocol", "endpoint", "capabilities"],
+  "properties": {
+    "name": { "type": "string", "description": "右花名称" },
+    "type": { "type": "string", "description": "右花类型" },
+    "protocol": { "type": "string", "enum": ["http"], "description": "v0 仅支持 http" },
+    "endpoint": { "type": "string", "pattern": "^http://(localhost|127\\.0\\.0\\.1)", "description": "v0 仅 localhost" },
+    "enabled": { "type": "boolean", "default": false },
+    "route_exposed": { "type": "boolean", "default": false },
+    "capabilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "output_format": { "type": "string", "enum": ["diff", "json", "markdown"], "default": "diff" },
+    "safety_level": { "type": "string", "enum": ["sandbox", "restricted", "trusted"], "default": "sandbox" }
+  }
+}

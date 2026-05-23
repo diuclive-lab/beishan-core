@@ -21,6 +21,23 @@ type HealthReport struct {
 	Status            string   `json:"status"` // pass / warn / fail
 }
 
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found")
+		}
+		dir = parent
+	}
+}
+
 type runner interface {
 	Run(name string, args ...string) error
 	Output(name string, args ...string) (string, error)
@@ -37,6 +54,9 @@ func (osRunner) Output(name string, args ...string) (string, error) {
 }
 
 func BuildHealthReport(root string, r runner) HealthReport {
+	if root == "" {
+		root, _ = findProjectRoot()
+	}
 	rep := HealthReport{Status: "pass"}
 
 	// Git dirty

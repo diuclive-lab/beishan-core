@@ -36,3 +36,8 @@ PLAN_CODING_AGENT.md
 
 # rightflowerctl 编译产物
 /rightflowerctl
+
+# 编译产物
+/core-health
+/rightflowerctl
+/openhuman-flower-adapter

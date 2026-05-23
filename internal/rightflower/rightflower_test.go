@@ -103,6 +103,24 @@ func TestPayloadContract(t *testing.T) {
 	}
 }
 
+
+func TestEvidenceSink(t *testing.T) {
+	r := &Result{Findings: []Finding{{Title: "test"}}}
+	err := SecurityWrapper(r, "test_flower", "test_method")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Kind != "rightflower" {
+		t.Fatalf("Kind = %q", r.Kind)
+	}
+	if r.Flower != "test_flower" {
+		t.Fatalf("Flower = %q", r.Flower)
+	}
+	if r.Method != "test_method" {
+		t.Fatalf("Method = %q", r.Method)
+	}
+}
+
 func TestSecurityWrapper_VerifiedFalse(t *testing.T) {
 	r := &Result{Findings: []Finding{
 		{Title: "test", Verified: true},
