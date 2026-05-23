@@ -151,7 +151,7 @@ func (c *Client) Dispatch(endpoint string, req *Request) (*Response, error) {
 	return &resp, nil
 }
 
-// SecurityWrapper marks all findings as unverified and sets evidence fields.
+// AuditRecord is one right flower call log entry.
 func SecurityWrapper(result *Result, flower, method string) error {
 	if result == nil {
 		return nil

@@ -3,6 +3,7 @@ package rightflower
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"beishan/kernel"
 )
@@ -36,8 +37,12 @@ func (p *Plugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return kernel.Message{}, fmt.Errorf("右花 %s 失败: %w", p.Name, err)
 	}
 	if resp.Error != "" {
+		WriteAudit(AuditRecord{Flower: p.Name, Method: req.Method, Status: "fail", LatencyMs: 0,
+			Timestamp: time.Now().UTC().Format(time.RFC3339)})
 		return kernel.Message{}, fmt.Errorf("右花 %s 返回错误: %s", p.Name, resp.Error)
 	}
+	WriteAudit(AuditRecord{Flower: p.Name, Method: req.Method, Status: "ok", LatencyMs: 0,
+		Timestamp: time.Now().UTC().Format(time.RFC3339)})
 
 	if resp.Result != nil {
 		SecurityWrapper(resp.Result, p.Name, req.Method)

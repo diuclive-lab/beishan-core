@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -138,13 +139,8 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(RightFlowerResponse{
-		ID: req.ID, Type: "response",
-		Result: &Result{Findings: []Finding{{
-			Title: "OpenHuman 结果", Summary: truncate(string(respBody), 1000),
-			Verified: false, Source: "openhuman",
-		}}},
-	})
+	norm := NormalizeResponse(respBody, "openhuman")
+	json.NewEncoder(w).Encode(RightFlowerResponse{ID: req.ID, Type: "response", Result: &norm})
 }
 
 func truncate(s string, n int) string {
@@ -152,6 +148,33 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// NormalizeResponse converts raw bytes into a standardized Result.
+func NormalizeResponse(raw []byte, source string) Result {
+	s := strings.TrimSpace(string(raw))
+	if len(s) == 0 {
+		return Result{Findings: []Finding{{Title: "空响应", Summary: "右花返回了空响应", Verified: false, Source: source}}}
+	}
+	// Try JSON-RPC result
+	var rpc struct {
+		Result json.RawMessage `json:"result,omitempty"`
+		Error  *struct{ Message string `json:"message"` } `json:"error,omitempty"`
+	}
+	if json.Unmarshal(raw, &rpc) == nil && rpc.Error != nil {
+		return Result{Findings: []Finding{{Title: "OpenHuman 错误", Summary: rpc.Error.Message, Verified: false, Source: source}}}
+	}
+	if json.Unmarshal(raw, &rpc) == nil && len(rpc.Result) > 0 {
+		return Result{Findings: []Finding{{Title: "OpenHuman 结果", Summary: truncate(string(rpc.Result), 1000), Verified: false, Source: source}}}
+	}
+	// Plain JSON
+	var obj map[string]any
+	if json.Unmarshal(raw, &obj) == nil {
+		summary, _ := json.Marshal(obj)
+		return Result{Findings: []Finding{{Title: "JSON 响应", Summary: truncate(string(summary), 1000), Verified: false, Source: source}}}
+	}
+	// Plain text / markdown
+	return Result{Findings: []Finding{{Title: "文本响应", Summary: truncate(s, 1000), Verified: false, Source: source}}}
 }
 
 func handleProbe(w http.ResponseWriter, r *http.Request) {

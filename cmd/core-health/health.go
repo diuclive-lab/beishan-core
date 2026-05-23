@@ -1,0 +1,103 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+type HealthReport struct {
+	GitDirty          bool     `json:"git_dirty"`
+	DirtyFiles        []string `json:"dirty_files,omitempty"`
+	GoBuildOk         bool     `json:"go_build_ok"`
+	GoVetOk           bool     `json:"go_vet_ok"`
+	RightFlowers      int      `json:"right_flowers_enabled"`
+	HardeningInvariant bool    `json:"hardening_invariant_ok"`
+	Status            string   `json:"status"` // pass / warn / fail
+}
+
+type runner interface {
+	Run(name string, args ...string) error
+	Output(name string, args ...string) (string, error)
+}
+
+type osRunner struct{}
+
+func (osRunner) Run(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
+}
+func (osRunner) Output(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	return string(out), err
+}
+
+func BuildHealthReport(root string, r runner) HealthReport {
+	rep := HealthReport{Status: "pass"}
+
+	// Git dirty
+	out, _ := r.Output("git", "-C", root, "status", "--short")
+	rep.GitDirty = strings.TrimSpace(out) != ""
+	if rep.GitDirty {
+		for _, line := range strings.Split(string(out), "\n") {
+			if s := strings.TrimSpace(line); s != "" {
+				rep.DirtyFiles = append(rep.DirtyFiles, s)
+			}
+		}
+		rep.Status = "warn"
+	}
+
+	// Go build
+	rep.GoBuildOk = r.Run("go", "build", "./...") == nil
+	if !rep.GoBuildOk {
+		rep.Status = "fail"
+	}
+
+	// Go vet
+	rep.GoVetOk = r.Run("go", "vet", "./...") == nil
+	if !rep.GoVetOk {
+		rep.Status = "fail"
+	}
+
+	// Right flower count (YAML parse, not string contains)
+	entries, _ := os.ReadDir(filepath.Join(root, "right_flowers"))
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		data, _ := os.ReadFile(filepath.Join(root, "right_flowers", e.Name()))
+		var m struct {
+			Enabled bool `yaml:"enabled"`
+		}
+		if yaml.Unmarshal(data, &m) == nil && m.Enabled {
+			rep.RightFlowers++
+		}
+	}
+
+	// Hardening invariant
+	rep.HardeningInvariant = r.Run("bash", filepath.Join(root, "eval/scripts/check_hardening_invariants.sh")) == nil
+	if !rep.HardeningInvariant {
+		rep.Status = "fail"
+	}
+
+	return rep
+}
+
+func (h HealthReport) String() string {
+	s := fmt.Sprintf("Status: %s\n", h.Status)
+	s += fmt.Sprintf("Git dirty: %v (%d files)\n", h.GitDirty, len(h.DirtyFiles))
+	s += fmt.Sprintf("Go build: %v\n", h.GoBuildOk)
+	s += fmt.Sprintf("Go vet: %v\n", h.GoVetOk)
+	s += fmt.Sprintf("Right flowers enabled: %d\n", h.RightFlowers)
+	s += fmt.Sprintf("Hardening invariants: %v\n", h.HardeningInvariant)
+	return s
+}
+
+func (h HealthReport) JSON() string {
+	b, _ := json.MarshalIndent(h, "", "  ")
+	return string(b)
+}
