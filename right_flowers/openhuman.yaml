@@ -1,0 +1,10 @@
+name: "openhuman"
+type: "personal_context"
+protocol: "http"
+endpoint: "http://localhost:9529"
+capabilities:
+  - memory.search
+  - code.review
+  - context.retrieve
+output_format: "json"
+safety_level: "sandbox"

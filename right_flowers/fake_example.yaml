@@ -1,0 +1,9 @@
+name: "fake_example"
+type: "testing"
+protocol: "http"
+endpoint: "http://localhost:9528"
+capabilities:
+  - code.review
+  - code.generate
+output_format: "json"
+safety_level: "sandbox"
