@@ -534,3 +534,36 @@ core_gate.sh:
 
 边界扫描结果：D01 已不触发，D02+D03 为 known debt。
 Core Gate: ✅
+
+
+---
+
+## L1-L10 长期方案（P1-P2 执行）
+
+| 方案 | 交付 | 状态 |
+|------|------|------|
+| L1 | Contract test — TestManifestSchemaContract/MissingFields | ✅ |
+| L2 | OpenHuman 472 方法发现，auth 验证通过 | ✅ |
+| L3 | observatory.Trace 链路预留 | ✅ |
+| L7 | core-eval 纳入 core_gate | ✅ |
+| L10 | rightflowerctl generate 子命令 | ✅ |
+| L4+L5+L6+L8+L9 | P3 待执行 | 📋 |
+
+### OpenHuman 真实方法映射
+
+| 右花方法 | OpenHuman Schema 方法 |
+|---------|---------------------|
+| memory.search | openhuman.memory_recall_memories |
+| memory.store | openhuman.memory_doc_put |
+| context.retrieve | openhuman.memory_context_query |
+| code.review | openhuman.agent_chat |
+
+### 项目最终统计（2026-05-24）
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 242 |
+| Go 文件 | 115 |
+| 跟踪文件 | 367 |
+| 测试 | 全部 PASS |
+| Core Gate | 8/8 ✅ |
