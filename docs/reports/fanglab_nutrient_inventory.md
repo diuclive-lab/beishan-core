@@ -38,3 +38,12 @@
 | P1 | health JSON summary | project-health | 2h |
 | P2 | eval runner | eval harness | 4h |
 | P3 | evidence contract | evidence system | 4h |
+
+
+## 执行队列
+
+| 轮次 | 模块 | 风险 | 验收 |
+|------|------|------|------|
+| F1 | health JSON summary | low | core-health --json output |
+| F2 | eval runner | medium | go test -run Eval |
+| F3 | evidence contract | medium | evidence schema test |
