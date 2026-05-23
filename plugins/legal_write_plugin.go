@@ -76,8 +76,16 @@ func (p *LegalWritePlugin) handleGenerate(msg kernel.Message) (kernel.Message, e
 	// 解析分析报告
 	var report AnalysisReport
 	if err := json.Unmarshal(request.AnalysisReport, &report); err != nil {
+		// 兼容 workflow 引擎将 JSON 对象以字符串形式传递的情况
+		var rawStr string
+		if e2 := json.Unmarshal(request.AnalysisReport, &rawStr); e2 == nil {
+			if e3 := json.Unmarshal([]byte(rawStr), &report); e3 == nil {
+				goto afterParse
+			}
+		}
 		return kernel.Message{}, fmt.Errorf("legal_write: 分析报告解析失败: %w", err)
 	}
+afterParse:
 
 	// 选择文书模板
 	docType := request.DocumentType

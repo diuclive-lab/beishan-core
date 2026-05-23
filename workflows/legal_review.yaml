@@ -34,10 +34,10 @@ steps:
 
   - id: write_report
     plugin: legal_write_plugin
-    type: legal_write
+    type: legal_generate_report
     timeout: 30
     inputs:
-      contract: "${input}"
-      profile: "${steps.cold_start.output}"
-      analysis: "${steps.clause_analysis.output}"
+      analysis_report: "${steps.clause_analysis.output}"
+      document_type: "contract_review"
+      output_format: "markdown"
     next: done
