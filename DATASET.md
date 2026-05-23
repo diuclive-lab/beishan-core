@@ -173,3 +173,78 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 - 步骤 3 中的 `plugins/filesystem_plugin.go` 和 `plugins/search_skill_plugin.go` 未创建（低优先级，已有覆盖）
 - `internal/cognition/` 模板目录未创建（等 clarify 需要时再做）
 - docs/TWINFLOWER_MERGE_PLAN.md 已更新为已完成状态
+
+
+---
+
+## 2026-05-23 晚间：Core-R1/R2 硬化基线冻结 + 右花协议实现
+
+### Core-R1：硬化底座基线冻结
+
+**交付**：
+
+| 脚本 | 内容 |
+|------|------|
+| eval/scripts/check_hardening_invariants.sh | 8 项不变性测试（编译/vet/tools隔离/注册表/格式化） |
+| eval/scripts/scan_boundary.sh | 3 项边界扫描（tools.Execute/文件系统/Payload解析） |
+
+**扫描发现的遗留问题**（已知，非本次修复范围）：
+- think_plugin.go 直接 os.ReadFile — 应走 ValidateAndExecute
+- review_handler.go 直接 os.WriteFile — 应走 code_apply
+- skill_factory_plugin.go 直接操作 YAML 文件 — 工作流管理器固有行为
+
+### Core-R2：右花协议 v0 基准实现
+
+**交付**：internal/rightflower/ 包
+
+| 组件 | 文件 |
+|------|------|
+| 类型定义 | manifest.go（Manifest/Request/Response/Result/Finding） |
+| YAML 加载 + HTTP 客户端 | client.go（Registry.LoadDir + Client.Dispatch） |
+| kernel.Plugin 适配器 | plugin.go（Plugin.OnMessage + RegisterAll） |
+| 注册目录 | right_flowers/README.md |
+
+**集成**：main.go 启动时调用 rightflower.RegisterAll(k, "./right_flowers")
+
+### Core-R2-fix：右花协议契约硬化
+
+审查发现 5 项问题全部修复：
+
+| Finding | 修复 |
+|---------|------|
+| ValidateManifest 缺失 | 全量校验：protocol/endpoint/format/safety/capabilities，v0 仅 localhost |
+| HTTP 非 2xx 未处理 | HTTPError{StatusCode, Body} typed error |
+| Request 与文档不一致 | payload 传 json.RawMessage 而非 stringified JSON |
+| 文档仍写"未实现" | 改为"基准已实现，external_flower 步骤未实现" |
+| RegisterAll 错误被忽略 | log.Printf 错误，右花可选不影响启动 |
+
+### 术语修正
+
+| 文档 | 修正 |
+|------|------|
+| README.md | "架构三层" → "产品形态三分" + "代码架构四层"，首轮路由图补充 DeepSeek/Type 关系 |
+| DESIGN_PRINCIPLES.md | 铁律二改为"仅首轮"，"没有快捷方式"明确首轮路由语义 |
+| RIGHT_FLOWER_PROTOCOL.md | 顶部 ⚠️ v0.1 草案标记 |
+| L1 描述 | "注册 + 路由（强制 DeepSeek）" → "注册 + 首轮 AI 路由 + Type 转发" |
+
+### 文档一致性修复
+
+| 文档 | 更新内容 |
+|------|---------|
+| HARDENING_LAYER.md | +file_safe 工具条目 |
+| MERGE_DECISIONS.md | +4 项决策（Go-DSL/ErrorKind/TwinFlower融合/底座+双花） |
+| KNOWN_LIMITATIONS.md | +3 项（registry未启用/bench无自动化/右花协议未实现） |
+| 根目录 | 删除 PERSONAL_KB_GUIDE.md + PLAN_CODING_AGENT.md |
+
+### 最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 198 |
+| Go 文件 | 98 |
+| 跟踪文件 | 291 |
+| 注册工具 | 96 |
+| 插件 | 22 |
+| YAML 工作流 | 33 |
+| 文档 | 13 份 |
+| 编译 | go build ./... ✅ |
