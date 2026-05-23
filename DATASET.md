@@ -299,3 +299,9 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 | 测试 | 21/21 PASS |
 | 根目录 | 0 未跟踪文件 |
 | 边界扫描 | ✅ 全部通过 |
+
+
+### 后续可改（当前不阻塞）
+
+1. `scan_boundary.sh` allowlist 精确到行级/模式级，避免同一文件新增未知违规被当成已知债务
+2. `TestKernelDoesNotParsePayload` 改为 fake plugin `Kernel.Send` 回路测试，明确断言插件收到字节未变形
