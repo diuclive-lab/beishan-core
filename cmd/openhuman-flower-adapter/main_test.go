@@ -154,3 +154,33 @@ func TestTruncate(t *testing.T) {
 		t.Fatalf("got = %q", s)
 	}
 }
+
+func TestNormalizeResponseJSONRPCResult(t *testing.T) {
+	r := NormalizeResponse([]byte(`{"jsonrpc":"2.0","result":{"data":"test"}}`), "openhuman")
+	if len(r.Findings) == 0 { t.Fatal("expected findings") }
+	if r.Findings[0].Title != "OpenHuman 结果" { t.Fatalf("title=%q", r.Findings[0].Title) }
+	if r.Findings[0].Verified { t.Fatal("should be unverified") }
+}
+
+func TestNormalizeResponseJSONRPCError(t *testing.T) {
+	r := NormalizeResponse([]byte(`{"jsonrpc":"2.0","error":{"message":"not found"}}`), "openhuman")
+	if len(r.Findings) == 0 { t.Fatal("expected findings") }
+	if r.Findings[0].Title != "OpenHuman 错误" { t.Fatalf("title=%q", r.Findings[0].Title) }
+}
+
+func TestNormalizeResponsePlainText(t *testing.T) {
+	r := NormalizeResponse([]byte("hello world"), "test")
+	if r.Findings[0].Title != "文本响应" { t.Fatalf("title=%q", r.Findings[0].Title) }
+}
+
+func TestNormalizeResponseEmpty(t *testing.T) {
+	r := NormalizeResponse([]byte{}, "test")
+	if r.Findings[0].Title != "空响应" { t.Fatalf("title=%q", r.Findings[0].Title) }
+}
+
+func TestNormalizeResponseLongBody(t *testing.T) {
+	body := make([]byte, 2000)
+	for i := range body { body[i] = byte('a') }
+	r := NormalizeResponse(body, "test")
+	if len(r.Findings[0].Summary) > 1100 { t.Fatal("summary should be truncated") }
+}

@@ -42,12 +42,26 @@ type Finding struct {
 	Source   string `json:"source"`
 }
 
-var methodMap = map[string]string{
-	"memory.search":   "recall",
-	"memory.store":    "store",
-	"context.retrieve": "recall",
-	"code.review":     "code_review",
+func loadMethodMap() map[string]string {
+	m := map[string]string{
+		"memory.search":   "recall",
+		"memory.store":    "store",
+		"context.retrieve": "recall",
+		"code.review":     "code_review",
+	}
+	// ENV override: OPENHUMAN_METHOD_MAP=memory.search=recall:cust.method=custom
+	if env := os.Getenv("OPENHUMAN_METHOD_MAP"); env != "" {
+		for _, pair := range strings.Split(env, ":") {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) == 2 {
+				m[parts[0]] = parts[1]
+			}
+		}
+	}
+	return m
 }
+
+var methodMap = loadMethodMap()
 
 func translateMethod(flowerMethod string) (string, bool) {
 	oh, ok := methodMap[flowerMethod]

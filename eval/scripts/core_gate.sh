@@ -25,6 +25,9 @@ if ! $QUICK; then
   echo -n "  boundary scan... "
   if bash "$HERE/eval/scripts/scan_boundary.sh" 2>/dev/null | tail -1 | grep -q "通过"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 
+  echo -n "  workspace clean... "
+  if bash "$HERE"/eval/scripts/check_workspace_clean.sh 2>/dev/null | tail -1 | grep -q "整洁"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
+
   echo -n "  rightflower smoke... "
   if bash "$HERE/eval/scripts/rightflower_smoke.sh" $([ "$STRICT" = true ] && echo "--strict") 2>/dev/null | tail -1 | grep -q "通过"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 fi
