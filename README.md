@@ -4,6 +4,15 @@
 
 beishan-core 是一个基于"硬化层"架构的 AI Agent 框架。核心思路：LLM 只做文本生成，路由、校验、权限、编排全用确定性代码控制。
 
+**能力概览**：
+- 🔒 硬化层：ValidateAndExecute + code_security + isSafePath 五道防线
+- 🔍 L3 工具：96 个注册工具（搜索/文件/知识/代码/待办/天气/翻译/汇率等）
+- 🧠 双工作流引擎：YAML（AI 可修改）+ Go-DSL（编译时安全）
+- 📊 可观测性：决策追踪 + 健康检查 + 评估框架（bench）
+- 🧩 插件体系：22 个 L4 插件 + 33 个 YAML 工作流
+- 📝 澄清系统：结构化澄清契约 + EWMA 模式学习
+- 🏗️ 茎注册表：工具生命周期门控（PhaseInit→PhaseRunning）
+
 ```
 LLM / L4 编排
     │
@@ -29,7 +38,12 @@ LLM / L4 编排
 | L1 内核 | `kernel/` | 注册 + 路由（强制 DeepSeek）+ 消息转发 | 冻结 |
 | L2 胶水 | `glue/` | IPC + 子进程生命周期管理 | 可迭代 |
 | L3 工具 | `internal/tools/` | 工具注册 + Schema 校验 + 硬化执行 | 可迭代 |
+| L3 引擎 | `internal/workflow/` | YAML + Go-DSL 双工作流引擎 | 可迭代 |
+| L3 观测 | `internal/observatory/` | 决策追踪 + 健康检查 | 可迭代 |
+| L3 评估 | `internal/bench/` | 通用评估框架（suite + runner） | 可迭代 |
+| L3 注册 | `internal/registry/` | 工具生命周期门控 | 可迭代 |
 | L4 编排 | `plugins/` | 编排 L3 完成多步任务 | 随意改 |
+| L4 工作流 | `workflows/` | YAML 工作流定义（33 个） | AI 可改 |
 
 详见 [DIRECTORY.md](./DIRECTORY.md)（目录结构）和 [DESIGN_PRINCIPLES.md](./DESIGN_PRINCIPLES.md)（设计哲学）。
 

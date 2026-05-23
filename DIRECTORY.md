@@ -12,8 +12,12 @@
 | `cmd/repl/` | 实验性交互式 REPL，仅开发调试用 | — |
 | `kernel/` | 微内核：Plugin 接口、注册、消息路由、Router（DeepSeek 路由） | L1 |
 | `glue/` | IPC 通信：子进程管理、manifest 扫描、JSON 行协议 | L2 |
-| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查 | L3 |
-| `internal/workflow/` | 双工作流引擎：YAML 引擎（`engine.go`）+ Go-DSL 引擎（`gods_executor.go`） | L3 |
+| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（96 个工具） | L3 |
+| `internal/workflow/` | 双工作流引擎：YAML 引擎 + Go-DSL 引擎 | L3 |
+| `internal/observatory/` | 决策追踪 + 健康检查 + 因果证据图 | L3 |
+| `internal/bench/` | 通用评估框架（bench + runner + suites） | L3 |
+| `internal/clarify/` | 澄清契约数据结构（Request/Response/BuildQuestion） | L3 |
+| `internal/registry/` | 工具生命周期门控（PhaseInit→PhaseRunning）+ Profile 过滤 | L3 |
 | `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 | L3 |
 | `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、重排序 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
