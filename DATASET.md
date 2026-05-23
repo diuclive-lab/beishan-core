@@ -347,3 +347,64 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 | 测试包 | 4 |
 | 测试总数 | 29 |
 | 根目录未跟踪 | 0 |
+
+
+---
+
+## S25-S40：Core 稳定性完善 + 门禁体系
+
+### 交付清单
+
+| 轮次 | 交付 |
+|------|------|
+| S25 | findProjectRoot 子目录兼容 + buildHealthReport |
+| S26 | --fail-on-warn 退出码 |
+| S27 | (smoke v2 集成到 core_gate) |
+| S28 | docs/schema/rightflower_manifest.schema.json |
+| S29 | route exposure 回归测试（已有） |
+| S30+S31 | probeAuth + /probe-methods endpoint |
+| S32 | Response Normalizer 扩展 |
+| S33 | TestEvidenceSink（rightflower 8/8） |
+| S34 | (external_flower 已在 S4 完成) |
+| S35 | (Fake E2E 测试已有覆盖) |
+| S36 | check_workspace_clean.sh + .gitignore 聚合 |
+| S37 | check_docs_consistency.sh（4 项检查） |
+| S38 | FangLab inventory 吸收候选排序 |
+| S39 | --snapshot 快照输出 |
+| S40 | eval/scripts/core_gate.sh 统一门禁 |
+
+### Core Gate 验证
+
+```bash
+eval/scripts/core_gate.sh          # 全量: test/vet/health/boundary/smoke ✅
+eval/scripts/core_gate.sh --quick  # 快速: 仅 test ✅
+eval/scripts/check_workspace_clean.sh  # 工作区整洁 ✅
+eval/scripts/check_docs_consistency.sh # 文档一致性 4/4 ✅
+```
+
+### 10 个长期方案（L1-L10）
+
+| 编号 | 方案 | 目标 |
+|------|------|------|
+| L1 | RightFlower Protocol v1 | 右花从内部约定升级为稳定协议 |
+| L2 | OpenHuman Production Adapter | OpenHuman 成为第一个真实右花实例 |
+| L3 | Core Observatory v1 | Core 自带可观测性 |
+| L4 | Workflow Engine Hardening | workflow 成为可靠编排层 |
+| L5 | Boundary Debt Burn-down | 清掉 D01-D03 |
+| L6 | FangLab Capability Absorption | 系统吸收 FangLab |
+| L7 | Core Eval Harness v1 | Core 自有评估体系 |
+| L8 | Security Model v1 | 左花/右花/内核安全边界文档 |
+| L9 | Plugin Registry v2 | 统一左花和右花注册语义 |
+| L10 | Core Public Developer Kit | 第三方开发者可写右花 |
+
+### 项目最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 231 |
+| Go 文件 | 111 |
+| 跟踪文件 | 343 |
+| 测试包 | 6 |
+| 烟雾门禁 | 7/7 ✅ |
+| Core Gate | 通过 ✅ |
+| 工作区 | 整洁 |
