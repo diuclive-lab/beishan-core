@@ -305,3 +305,45 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 
 1. `scan_boundary.sh` allowlist 精确到行级/模式级，避免同一文件新增未知违规被当成已知债务
 2. `TestKernelDoesNotParsePayload` 改为 fake plugin `Kernel.Send` 回路测试，明确断言插件收到字节未变形
+
+
+---
+
+## 2026-05-23 S11-S20：Core 稳定性 + 右花完整闭环
+
+### 交付清单
+
+| 轮次 | 交付 | 测试 |
+|------|------|------|
+| S11 | Core Health Contract — BuildHealthReport + runner 接口 | 4 |
+| S12 | rightflowerctl — list/enable/disable/validate | 手动 |
+| S13 | Route Prompt Test — RegisterUnlisted 不在 prompt | 3 |
+| S14 | Precise Boundary Allowlist — eval/boundary_allowlist.yaml | 扫描器 |
+| S15 | Kernel Payload Behavior — fake plugin 回路验证 | 1 |
+| S16 | (预留 OpenHuman probe) | — |
+| S17 | Response Normalizer — JSON-RPC/JSON/文本识别 | 内置 |
+| S18 | Runtime Audit Log — ~/.hermes/runtime/rightflower/*.jsonl | 集成 |
+| S19 | FangLab Nutrient doc — 已记录 | — |
+| S20 | RightFlower Smoke Gate — 7/7 检查 | 7/7 |
+
+### 测试统计（最终）
+
+| 包 | 测试数 | 通过率 |
+|----|--------|--------|
+| kernel | 8 | 100% |
+| internal/rightflower | 7 | 100% |
+| cmd/openhuman-flower-adapter | 10 | 100% |
+| cmd/core-health | 4 | 100% |
+| 右花烟雾门禁 | 7项 | 100% |
+| 边界扫描 | 3项 | 通过 |
+
+### 项目最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 224 |
+| Go 文件 | 107 |
+| 跟踪文件 | 327 |
+| 测试包 | 4 |
+| 测试总数 | 29 |
+| 根目录未跟踪 | 0 |
