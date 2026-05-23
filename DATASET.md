@@ -76,6 +76,44 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 
 ---
 
+## 2026-05-23 TwinFlower 融合第二阶段（下午）
+
+### 交付统计
+
+| 模块 | 内容 | 行数 | 状态 |
+|------|------|------|------|
+| C: 澄清契约 | internal/clarify/types.go + clarifyHandler 结构化返回 | +67 | ✅ |
+| C: 澄清工作流 | workflows/clarify_learn.yaml | +8 | ✅ |
+| D1: bench 评估框架 | internal/bench/{bench,runner}.go | +318 | ✅ 框架就绪，suites 待补 |
+| D2: evidence 因果追踪 | internal/observatory/evidence.go | +210 | ✅ |
+| A: 茎注册表 | internal/registry/{registry,profile,toolset,metadata}.go | +389 | ✅ |
+| B: 3 个工具 | internal/tools/{weather,translate,currency}.go | +327 | ⚠️ 代码已迁入，未注册为 L3 工具 |
+| 合计 | 14 个文件 | +1,319 | — |
+
+### 未完成（Phase 2 剩余）
+
+- **B: 3 个工具 L3 注册** — weather/translate/currency 代码已迁入但尚未注册为 L3 工具（需要写适配器包装 `Run(ctx,args)→*ToolResult`，并在 tools.Init() 中调用 `Register()`）
+- **D1: bench suites 迁移** — TwinFlower 有 3 个现成的 eval suites（filesystem/search/clarify，共 160 行），尚未迁入 internal/bench/suites.go
+- **A: 茎注册表 Go-DSL 集成** — `Policy.Filter()` 可用于 Go-DSL 的运行时工具过滤，尚未接入 `validateGoStep`
+
+### 冲突处理
+
+| 预期冲突 | 实际情况 |
+|---------|---------|
+| registry.Register 签名与 tools.Register 不兼容 | 简化方案：只取 Lock()+Filter()，注册仍走 tools.Register |
+| weather 等工具的 Tool 类型名冲突 | 重命名 WeatherTool/TranslateTool/CurrencyTool |
+| clarify schema 拦截 format 字段 | 已加到 clarify 的 properties 中 |
+
+### 测试
+
+- clarify 纯文本返回 ✅
+- clarify structured JSON 返回（`needs_clarify=True`）✅
+- legal_review YAML 4/4 ✅
+- legal_review_v2 Go-DSL 4/4 ✅
+- 编译 `go build ./...` ✅
+
+---
+
 ## 2026-05-23 TwinFlower 融合执行（下午）
 
 ### 1. observatory 决策追踪（internal/observatory/，+374 行）
