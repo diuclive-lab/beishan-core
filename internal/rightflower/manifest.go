@@ -7,11 +7,13 @@ package rightflower
 type Manifest struct {
 	Name         string   `yaml:"name"`
 	Type         string   `yaml:"type"`
-	Protocol     string   `yaml:"protocol"`     // "http" or "ipc"
-	Endpoint     string   `yaml:"endpoint"`      // URL or IPC path
+	Protocol     string   `yaml:"protocol"`
+	Endpoint     string   `yaml:"endpoint"`
+	Enabled      bool     `yaml:"enabled"`
+	RouteExposed bool     `yaml:"route_exposed"`
 	Capabilities []string `yaml:"capabilities"`
-	OutputFormat string   `yaml:"output_format"` // "diff", "json", "markdown"
-	SafetyLevel  string   `yaml:"safety_level"`  // "sandbox", "restricted", "trusted"
+	OutputFormat string   `yaml:"output_format"`
+	SafetyLevel  string   `yaml:"safety_level"`
 }
 
 // Request is sent from base to a right flower.

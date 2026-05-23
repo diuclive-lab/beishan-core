@@ -63,7 +63,11 @@ func loadManifest(path string) (*Manifest, error) {
 }
 
 // ValidateManifest checks manifest fields against allowed values.
+// ValidateManifest checks manifest fields against allowed values.
 func ValidateManifest(m *Manifest) error {
+	if !m.Enabled {
+		return fmt.Errorf("manifest %q 未启用（enabled: false），跳过", m.Name)
+	}
 	if m.Name == "" {
 		return fmt.Errorf("name 不能为空")
 	}

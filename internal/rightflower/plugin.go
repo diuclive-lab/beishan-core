@@ -60,10 +60,14 @@ func RegisterAll(k *kernel.Kernel, manifestDir string) error {
 			Client:   client,
 			Manifest: m,
 		}
-		k.Register(name, p, kernel.Meta{
+		meta := kernel.Meta{
 			Description: fmt.Sprintf("右花: %s (%s)", m.Name, m.Type),
 			Tags:        []string{"rightflower", m.Type},
-		})
+		}
+		if m.RouteExposed {
+			meta.Types = m.Capabilities
+		}
+		k.Register(name, p, meta)
 		fmt.Printf("[rightflower] 插件注册: %s\n", name)
 	}
 	return nil

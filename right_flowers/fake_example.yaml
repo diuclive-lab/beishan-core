@@ -2,6 +2,8 @@ name: "fake_example"
 type: "testing"
 protocol: "http"
 endpoint: "http://localhost:9528"
+enabled: true
+route_exposed: true
 capabilities:
   - code.review
   - code.generate

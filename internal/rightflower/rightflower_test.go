@@ -13,7 +13,7 @@ func TestValidateManifest_Valid(t *testing.T) {
 	m := &Manifest{
 		Name: "test", Type: "testing", Protocol: "http",
 		Endpoint: "http://localhost:9528", Capabilities: []string{"test"},
-		OutputFormat: "json", SafetyLevel: "sandbox",
+		OutputFormat: "json", SafetyLevel: "sandbox", Enabled: true,
 	}
 	if err := ValidateManifest(m); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
