@@ -54,12 +54,17 @@
 Payload 对内核永远不透明。
 一旦内核稳定，不再修改。
 
-### 铁律二：强制 AI 路由
+### 铁律二：强制 AI 路由（仅首轮）
 
-每条消息必经 DeepSeek。
-不给"不走 AI 也能过"的快捷通道。
-DeepSeek 不可用时，系统不降级为规则匹配。
-要么 AI 路由，要么返回错误。
+**首轮路由必经 DeepSeek**。收到用户自然语言后，强制调用 DeepSeek 产出 recipient 和 type。
+不给"不走 AI 也能过"的快捷通道。DeepSeek 不可用时，系统不降级为规则匹配。
+
+**后续 L4 编排中的 Type 是硬编码的确定值**，不再走 DeepSeek。
+L4 编排器在代码中写死 `Type: "legal_generate_report"`，kernel 只看这个 Type 是否合法，不解析 Payload。
+
+两者不冲突：
+- 首轮：自然语言 → DeepSeek → recipient + type（LLM 决策）
+- 后续：L4 编排 → 硬编码 Type → kernel 校验转发（代码决策）
 
 ## Type 即意图，Payload 即数据
 
