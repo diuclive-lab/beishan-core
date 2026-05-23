@@ -55,7 +55,7 @@ if ! wait_for_service "$API_URL" 10; then
   fi
 
   cd "$PROJECT_ROOT"
-  go build -o "$OUT_DIR/beishan-core" . 2>&1 | tee "$OUT_DIR/build.log"
+  go build -o "$OUT_DIR/beishan-core" ./cmd/beishan/ 2>&1 | tee "$OUT_DIR/build.log"
   if [ ! -f "$OUT_DIR/beishan-core" ]; then
     die "编译失败，见 $OUT_DIR/build.log"
   fi

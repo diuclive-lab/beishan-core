@@ -59,7 +59,7 @@ if ! bash "$PROJECT_ROOT/eval/scripts/check_hardening.sh" 2>&1 | tee -a "$OUT_DI
     die "硬化层检查未通过"
 fi
 
-  go build -o "$OUT_DIR/beishan-core" . 2>&1 | tee "$OUT_DIR/build.log"
+  go build -o "$OUT_DIR/beishan-core" ./cmd/beishan/ 2>&1 | tee "$OUT_DIR/build.log"
   if [ ! -f "$OUT_DIR/beishan-core" ]; then
     die "编译失败，见 $OUT_DIR/build.log"
   fi

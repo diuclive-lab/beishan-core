@@ -13,7 +13,7 @@
 ```bash
 # 1. 确保 DEEPSEEK_API_KEY 已设置（.env 文件自动加载）
 # 2. 启动服务
-go run . &
+go run ./cmd/beishan/ &
 
 # 3. 运行测试
 bash eval/scripts/run_legal_smoke.sh --api http://127.0.0.1:8013
