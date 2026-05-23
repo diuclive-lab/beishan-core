@@ -7,7 +7,8 @@
 //
 // Usage:
 //   go run ./cmd/openhuman-flower-adapter &
-//   # Core loads right_flowers/openhuman.yaml.example → adapter → OpenHuman
+//   # Add right_flowers/openhuman.yaml with endpoint http://localhost:9529
+//   # restart Core.
 package main
 
 import (
@@ -25,9 +26,10 @@ const defaultOpenHumanEndpoint = "http://127.0.0.1:7788"
 
 // RightFlowerRequest comes from beishan-core's rightflower package.
 type RightFlowerRequest struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`
-	Method string `json:"method"`
+	ID     string         `json:"id"`
+	Type   string         `json:"type"`
+	Method string         `json:"method"`
+	Params map[string]any `json:"params"`
 }
 
 // RightFlowerResponse goes back to beishan-core.
@@ -50,10 +52,7 @@ type Finding struct {
 	Source   string `json:"source"`
 }
 
-var (
-	openHumanEndpoint string
-	openHumanOK       bool
-)
+var openHumanEndpoint string
 
 // probe checks if OpenHuman is reachable.
 func probe() bool {
@@ -75,7 +74,8 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[openhuman-adapter] dispatch: method=%s id=%s", req.Method, req.ID)
 
-	if !openHumanOK {
+	// 每次 dispatch 时重新 probe，支持 OpenHuman 后启动场景
+	if !probe() {
 		resp := RightFlowerResponse{
 			ID:   req.ID,
 			Type: "response",
@@ -90,10 +90,13 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch to OpenHuman
+	// Dispatch to OpenHuman with params forwarded from Core
 	openReq := map[string]interface{}{
 		"method": req.Method,
-		"params": map[string]interface{}{},
+		"params": req.Params,
+	}
+	if openReq["params"] == nil {
+		openReq["params"] = map[string]interface{}{}
 	}
 	body, _ := json.Marshal(openReq)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
@@ -112,7 +115,6 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 	defer ohResp.Body.Close()
 	respBody, _ := io.ReadAll(ohResp.Body)
 
-	// Return OpenHuman response as finding
 	resp := RightFlowerResponse{
 		ID: req.ID, Type: "response",
 		Result: &Result{
@@ -126,14 +128,13 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleProbe(w http.ResponseWriter, r *http.Request) {
-	status := "unreachable"
-	if probe() {
-		status = "reachable"
-		openHumanOK = true
+	status := "reachable"
+	if !probe() {
+		status = "unreachable"
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"adapter":  "openhuman",
+	json.NewEncoder(w).Encode(map[string]string{
+		"adapter":   "openhuman",
 		"openhuman": status,
 	})
 }
@@ -143,7 +144,6 @@ func main() {
 	if openHumanEndpoint == "" {
 		openHumanEndpoint = defaultOpenHumanEndpoint
 	}
-	openHumanOK = probe()
 
 	addr := ":9529"
 	if p := os.Getenv("ADAPTER_PORT"); p != "" {
@@ -153,7 +153,7 @@ func main() {
 	http.HandleFunc("/dispatch", handleDispatch)
 	http.HandleFunc("/health", handleProbe)
 
-	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s (reachable=%v)", addr, openHumanEndpoint, openHumanOK)
+	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s", addr, openHumanEndpoint)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
 	}
