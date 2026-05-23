@@ -50,8 +50,7 @@
 
 | 方式 | 适用场景 | 延迟 |
 |------|---------|------|
-| stdin/stdout JSON-RPC | Go 原生右花 | 低 |
-| HTTP localhost | Python/JS 等外部项目 | 中 |
+| HTTP localhost（v0 仅 HTTP，IPC 预留） | 所有右花 | 中 |
 
 #### 消息格式
 
