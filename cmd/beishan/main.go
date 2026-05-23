@@ -260,7 +260,9 @@ func main() {
 	k.Router.SetWorkflowSummary(workflowSummary)
 
 	// 加载右花（外部工具注册）
-	rightflower.RegisterAll(k, "./right_flowers")
+	if err := rightflower.RegisterAll(k, "./right_flowers"); err != nil {
+		log.Printf("[rightflower] 加载失败: %v（右花为可选能力，继续启动）", err)
+	}
 
 	// 启动胶水层
 	gl := glue.New(k, "./plugins")
