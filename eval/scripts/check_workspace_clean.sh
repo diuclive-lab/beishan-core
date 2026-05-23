@@ -9,10 +9,18 @@ echo ""
 cd "$HERE"
 
 echo -n "  [1/3] 根目录二进制... "
+GOT_BIN=0
 for f in beishan beishan-core beishan-core-dev repl core-health rightflowerctl openhuman-flower-adapter; do
-  if [ -f "$HERE/$f" ]; then echo "❌ $f 残留"; FAILED=1; fi
+  if [ -f "$HERE/$f" ]; then
+    if git check-ignore -q "$HERE/$f" 2>/dev/null; then
+      :  # gitignored, not a problem
+    else
+      echo "❌ $f 残留（未在 gitignore 中）"
+      GOT_BIN=1
+    fi
+  fi
 done
-echo "✅"
+if [ "$GOT_BIN" -eq 0 ]; then echo "✅"; else FAILED=1; fi
 
 echo -n "  [2/3] git 未跟踪文件... "
 UNTRACKED=$(git status --short 2>/dev/null | grep '^??' | wc -l | tr -d ' ')
