@@ -107,7 +107,7 @@ func TestSecurityWrapper_VerifiedFalse(t *testing.T) {
 	r := &Result{Findings: []Finding{
 		{Title: "test", Verified: true},
 	}}
-	SecurityWrapper(r)
+	SecurityWrapper(r, "test_flower", "test_method")
 	if r.Findings[0].Verified {
 		t.Fatal("expected Verified=false after SecurityWrapper")
 	}

@@ -36,9 +36,13 @@ type Response struct {
 
 // Result carries the right flower's output.
 type Result struct {
-	Diff     string        `json:"diff,omitempty"`
-	Findings []Finding     `json:"findings,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Diff      string                   `json:"diff,omitempty"`
+	Findings  []Finding                `json:"findings,omitempty"`
+	Metadata  map[string]interface{}   `json:"metadata,omitempty"`
+	Flower    string                   `json:"flower,omitempty"`
+	Method    string                   `json:"method,omitempty"`
+	Timestamp string                   `json:"timestamp,omitempty"`
+	Kind      string                   `json:"kind,omitempty"`  // "rightflower"
 }
 
 // Finding is an observation returned by the right flower.

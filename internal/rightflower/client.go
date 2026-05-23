@@ -151,11 +151,14 @@ func (c *Client) Dispatch(endpoint string, req *Request) (*Response, error) {
 	return &resp, nil
 }
 
-// SecurityWrapper marks all findings as unverified.
-func SecurityWrapper(result *Result) error {
+// SecurityWrapper marks all findings as unverified and sets evidence fields.
+func SecurityWrapper(result *Result, flower, method string) error {
 	if result == nil {
 		return nil
 	}
+	result.Kind = "rightflower"
+	result.Flower = flower
+	result.Method = method
 	for i := range result.Findings {
 		result.Findings[i].Verified = false
 	}

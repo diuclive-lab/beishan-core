@@ -40,7 +40,7 @@ func (p *Plugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	}
 
 	if resp.Result != nil {
-		SecurityWrapper(resp.Result)
+		SecurityWrapper(resp.Result, p.Name, req.Method)
 	}
 
 	payload, _ := json.Marshal(resp.Result)

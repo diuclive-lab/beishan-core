@@ -1,0 +1,11 @@
+# 测试右花调用工作流
+# 通过 L4 编排显式调用右花（不走 DeepSeek 首轮路由）
+# 触发: {"recipient":"workflow_plugin","type":"workflow_run","payload":{"workflow":"test_right_flower","input":"测试输入"}}
+id: test_right_flower
+steps:
+  - id: call_flower
+    plugin: fake_example
+    type: code.review
+    timeout: 30
+    inputs:
+      instruction: "${input}"
