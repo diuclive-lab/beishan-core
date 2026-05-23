@@ -10,10 +10,10 @@ import (
 
 func TestMethodMap_Known(t *testing.T) {
 	tests := []struct{ flower, want string }{
-		{"memory.search", "recall"},
-		{"memory.store", "store"},
-		{"context.retrieve", "recall"},
-		{"code.review", "code_review"},
+		{"memory.search", "openhuman.memory_recall_memories"},
+		{"memory.store", "openhuman.memory_doc_put"},
+		{"context.retrieve", "openhuman.memory_context_query"},
+		{"code.review", "openhuman.agent_chat"},
 	}
 	for _, tc := range tests {
 		got, ok := translateMethod(tc.flower)
@@ -44,7 +44,7 @@ func TestParamsForwarding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		if body["method"] != "recall" {
+		if body["method"] != "openhuman.memory_recall_memories" {
 			t.Errorf("method = %v, want recall", body["method"])
 		}
 		params := body["params"].(map[string]any)
@@ -56,7 +56,7 @@ func TestParamsForwarding(t *testing.T) {
 	}))
 	defer ts.Close()
 	openHumanEndpoint = ts.URL
-	body, code, err := dispatchToOpenHuman("recall", map[string]any{"query": "test"})
+	body, code, err := dispatchToOpenHuman("openhuman.memory_recall_memories", map[string]any{"query": "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
