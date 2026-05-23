@@ -82,3 +82,17 @@ func geocode(ctx context.Context, city string) (float64, float64, error) {
 	}
 	return result.Results[0].Lat, result.Results[0].Lon, nil
 }
+
+func registerWeatherTool() {
+	Register("weather", "查询天气（Open-Meteo，免费）",
+		map[string]interface{}{},
+		func(args map[string]interface{}) *ToolResult {
+			t := NewWeatherTool()
+			result, err := t.Run(context.TODO(), args)
+			if err != nil {
+				return errorResult(err.Error())
+			}
+			return successResult(result)
+		},
+	)
+}
