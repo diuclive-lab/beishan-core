@@ -69,7 +69,6 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if m.Protocol != "http" {
 		return fmt.Errorf("v0 仅支持 http 协议（当前: %s）", m.Protocol)
-		return fmt.Errorf("protocol 必须是 http 或 ipc（当前: %s）", m.Protocol)
 	}
 	if m.Endpoint == "" {
 		return fmt.Errorf("endpoint 不能为空")
