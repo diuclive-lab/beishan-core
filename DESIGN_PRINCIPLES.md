@@ -12,6 +12,7 @@
 | 已知限制——诚实的设计边界 | `docs/KNOWN_LIMITATIONS.md` |
 | 变更历史——面向用户的版本摘要 | `CHANGELOG.md` |
 | 开发日志——每日过程记录 | `docs/devlog/` |
+| 右花接入协议——外部工具如何连到底座 | `docs/RIGHT_FLOWER_PROTOCOL.md` |
 
 **新加入者建议阅读顺序**：`DIRECTORY.md` → 本文件 → `docs/HARDENING_LAYER.md` → `docs/MERGE_DECISIONS.md`
 
@@ -153,6 +154,16 @@ LLM 只做它擅长的事：生成文本。
 - 既需要编译时安全又需要 AI 修改 → YAML 定义步骤，Go-DSL 包装校验
 
 **共享类型**：两者共用 `StepResult`/`WorkflowResult`，不创造第二套状态类型。
+
+## 底座非左花
+
+beishan-core 是硬化底座，不是左花，不是右花。
+
+- **底座** = kernel/ + glue/ + internal/（硬化层 + 工具 + 引擎）
+- **左花** = plugins/ + workflows/（底座内置的生产执行侧）
+- **右花** = 遵循 RIGHT_FLOWER_PROTOCOL.md 的外部工具
+
+底座不替左花做决策，也不替右花做实验。底座只提供三件事：硬化层、工具集、路由。
 
 ## 文档硬化层
 

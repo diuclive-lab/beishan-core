@@ -2,7 +2,7 @@
 
 **确定性代码管住 LLM 的不可靠输出。**
 
-beishan-core 是一个基于"硬化层"架构的 AI Agent 框架。核心思路：LLM 只做文本生成，路由、校验、权限、编排全用确定性代码控制。
+beishan-core 是一个**硬化底座**——不是 AI Agent，而是 AI Agent 的安全执行环境。左花（内置插件和工作流）和右花（外部工具）都运行在这个底座之上。核心思路：LLM 只做文本生成，路由、校验、权限、编排全用确定性代码控制。
 
 **能力概览**：
 - 🔒 硬化层：ValidateAndExecute + code_security + isSafePath 五道防线
@@ -108,6 +108,7 @@ eval/scripts/run_legal_smoke.sh
 | [docs/HARDENING_LAYER.md](./docs/HARDENING_LAYER.md) | 硬化层能力边界 |
 | [docs/MERGE_DECISIONS.md](./docs/MERGE_DECISIONS.md) | 关键架构决策记录 |
 | [docs/KNOWN_LIMITATIONS.md](./docs/KNOWN_LIMITATIONS.md) | 已知设计边界 |
+| [docs/RIGHT_FLOWER_PROTOCOL.md](./docs/RIGHT_FLOWER_PROTOCOL.md) | 右花接入协议 |
 | [CHANGELOG.md](./CHANGELOG.md) | 版本更新摘要 |
 
 ## 许可证
