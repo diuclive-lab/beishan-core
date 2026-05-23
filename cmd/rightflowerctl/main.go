@@ -57,10 +57,17 @@ func validateDir(dir string) (int, error) {
 		if err := rightflower.ValidateManifest(&m); err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "未启用") {
+				if strings.HasSuffix(e.Name(), ".yaml") {
+					fmt.Printf("  ⚠️ %s: enabled=false（.yaml 文件建议启用或删除）\n", e.Name())
+					failed++
+				}
 				continue
 			}
 			fmt.Printf("  ❌ %s: %v\n", e.Name(), err)
 			failed++
+		}
+		if m.Enabled && strings.HasSuffix(e.Name(), ".yaml.example") {
+			fmt.Printf("  ⚠️ %s: .example 不应为 enabled=true\n", e.Name())
 		}
 	}
 	return failed, nil
@@ -98,6 +105,22 @@ func main() {
 			os.Exit(1)
 		}
 		name := os.Args[2]
+		dryRun := false
+		for _, a := range os.Args[3:] {
+			if a == "--dry-run" {
+				dryRun = true
+			}
+		}
+		examplePath := filepath.Join(dir, name+".yaml.example")
+		data, err := os.ReadFile(examplePath)
+		if dryRun {
+			if err != nil {
+				fmt.Printf("[dry-run] 未找到 %s.yaml.example\n", name)
+			} else {
+				fmt.Printf("[dry-run] 将写入 %s.yaml:\n%s\n", name, string(data))
+			}
+			os.Exit(0)
+		}
 		if err := enableFlower(dir, name); err != nil {
 			fmt.Println(err)
 			os.Exit(1)

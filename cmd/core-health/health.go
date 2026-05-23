@@ -17,6 +17,8 @@ type HealthReport struct {
 	GoBuildOk         bool     `json:"go_build_ok"`
 	GoVetOk           bool     `json:"go_vet_ok"`
 	RightFlowers      int      `json:"right_flowers_enabled"`
+	RightFlowerCtlOk   bool     `json:"rightflower_ctl_ok"`
+	ManifestValidateOk bool     `json:"manifest_validate_ok"`
 	HardeningInvariant bool    `json:"hardening_invariant_ok"`
 	Status            string   `json:"status"` // pass / warn / fail
 }
@@ -104,6 +106,14 @@ func BuildHealthReport(root string, r runner) HealthReport {
 		rep.Status = "fail"
 	}
 
+	rep.RightFlowerCtlOk = r.Run("go", "build", "./cmd/rightflowerctl/...") == nil
+	if !rep.RightFlowerCtlOk {
+		rep.Status = "fail"
+	}
+	rep.ManifestValidateOk = r.Run("go", "run", "./cmd/rightflowerctl", "validate") == nil
+	if !rep.ManifestValidateOk {
+		rep.Status = "warn"
+	}
 	return rep
 }
 
