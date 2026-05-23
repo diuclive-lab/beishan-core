@@ -1,14 +1,11 @@
 // OpenHuman Flower Adapter — thin HTTP bridge between beishan-core Right Flower
 // Protocol and OpenHuman's local API.
 //
-// Protocol: receives rightflower dispatch → translates → returns findings.
-// OpenHuman is NOT allowed to write files directly; all writes go through
-// beishan-core's hardening layer.
-//
 // Usage:
+//   export OPENHUMAN_TOKEN="token-from-openhuman"
 //   go run ./cmd/openhuman-flower-adapter &
-//   # Add right_flowers/openhuman.yaml with endpoint http://localhost:9529
-//   # restart Core.
+//   mv right_flowers/openhuman.yaml.example right_flowers/openhuman.yaml
+//   restart Core.
 package main
 
 import (
@@ -24,7 +21,6 @@ import (
 
 const defaultOpenHumanEndpoint = "http://127.0.0.1:7788"
 
-// RightFlowerRequest comes from beishan-core's rightflower package.
 type RightFlowerRequest struct {
 	ID     string         `json:"id"`
 	Type   string         `json:"type"`
@@ -32,7 +28,6 @@ type RightFlowerRequest struct {
 	Params map[string]any `json:"params"`
 }
 
-// RightFlowerResponse goes back to beishan-core.
 type RightFlowerResponse struct {
 	ID     string  `json:"id"`
 	Type   string  `json:"type"`
@@ -52,17 +47,54 @@ type Finding struct {
 	Source   string `json:"source"`
 }
 
-var openHumanEndpoint string
+var (
+	openHumanEndpoint string
+	openHumanToken    string
+)
 
-// probe checks if OpenHuman is reachable.
 func probe() bool {
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(openHumanEndpoint + "/health")
+	c := &http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get(openHumanEndpoint + "/health")
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == 200
+}
+
+func dispatchToOpenHuman(req *RightFlowerRequest) ([]byte, int, error) {
+	params := req.Params
+	if params == nil {
+		params = map[string]any{}
+	}
+	body, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  req.Method,
+		"params":  params,
+		"id":      req.ID,
+	})
+	hc := &http.Client{Timeout: 30 * time.Second}
+	hreq, _ := http.NewRequest("POST", openHumanEndpoint+"/rpc", bytes.NewReader(body))
+	hreq.Header.Set("Content-Type", "application/json")
+	if openHumanToken != "" {
+		hreq.Header.Set("Authorization", "Bearer "+openHumanToken)
+	}
+	ohResp, err := hc.Do(hreq)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer ohResp.Body.Close()
+	respBody, _ := io.ReadAll(ohResp.Body)
+	return respBody, ohResp.StatusCode, nil
+}
+
+func findingResult(id, title, summary, source string) RightFlowerResponse {
+	return RightFlowerResponse{
+		ID: id, Type: "response",
+		Result: &Result{Findings: []Finding{
+			{Title: title, Summary: summary, Verified: false, Source: source},
+		}},
+	}
 }
 
 func handleDispatch(w http.ResponseWriter, r *http.Request) {
@@ -71,60 +103,38 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
 		return
 	}
-
 	log.Printf("[openhuman-adapter] dispatch: method=%s id=%s", req.Method, req.ID)
 
-	// 每次 dispatch 时重新 probe，支持 OpenHuman 后启动场景
 	if !probe() {
-		resp := RightFlowerResponse{
-			ID:   req.ID,
-			Type: "response",
-			Result: &Result{
-				Findings: []Finding{
-					{Title: "OpenHuman 不可用", Summary: "OpenHuman 进程未运行或 API 不可达。请启动 OpenHuman 后重试。", Verified: false, Source: "openhuman_adapter"},
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		json.NewEncoder(w).Encode(findingResult(req.ID, "OpenHuman 不可用",
+			"OpenHuman 进程未运行或 API 不可达。请启动 OpenHuman 后重试。", "openhuman_adapter"))
 		return
 	}
 
-	// Dispatch to OpenHuman with params forwarded from Core
-	openReq := map[string]interface{}{
-		"method": req.Method,
-		"params": req.Params,
-	}
-	if openReq["params"] == nil {
-		openReq["params"] = map[string]interface{}{}
-	}
-	body, _ := json.Marshal(openReq)
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	ohResp, err := httpClient.Post(openHumanEndpoint+"/rpc", "application/json", bytes.NewReader(body))
+	respBody, statusCode, err := dispatchToOpenHuman(&req)
 	if err != nil {
-		resp := RightFlowerResponse{
-			ID: req.ID, Type: "response",
-			Result: &Result{Findings: []Finding{
-				{Title: "OpenHuman 调用失败", Summary: fmt.Sprintf("调用 OpenHuman 失败: %v", err), Verified: false, Source: "openhuman_adapter"},
-			}},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		json.NewEncoder(w).Encode(findingResult(req.ID, "OpenHuman 调用失败",
+			fmt.Sprintf("HTTP 请求失败: %v", err), "openhuman_adapter"))
 		return
 	}
-	defer ohResp.Body.Close()
-	respBody, _ := io.ReadAll(ohResp.Body)
-
-	resp := RightFlowerResponse{
-		ID: req.ID, Type: "response",
-		Result: &Result{
-			Findings: []Finding{
-				{Title: "OpenHuman 结果", Summary: string(respBody[:min(len(respBody), 1000)]), Verified: false, Source: "openhuman"},
-			},
-		},
+	if statusCode < 200 || statusCode >= 300 {
+		snip := string(respBody)
+		if len(snip) > 300 {
+			snip = snip[:300] + "..."
+		}
+		json.NewEncoder(w).Encode(findingResult(req.ID,
+			fmt.Sprintf("OpenHuman 返回 HTTP %d", statusCode), snip, "openhuman_adapter"))
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+
+	json.NewEncoder(w).Encode(RightFlowerResponse{
+		ID: req.ID, Type: "response",
+		Result: &Result{Findings: []Finding{{
+			Title: "OpenHuman 结果",
+			Summary: string(respBody[:min(len(respBody), 1000)]),
+			Verified: false, Source: "openhuman",
+		}}},
+	})
 }
 
 func handleProbe(w http.ResponseWriter, r *http.Request) {
@@ -133,10 +143,7 @@ func handleProbe(w http.ResponseWriter, r *http.Request) {
 		status = "unreachable"
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"adapter":   "openhuman",
-		"openhuman": status,
-	})
+	json.NewEncoder(w).Encode(map[string]string{"adapter": "openhuman", "openhuman": status})
 }
 
 func main() {
@@ -144,17 +151,13 @@ func main() {
 	if openHumanEndpoint == "" {
 		openHumanEndpoint = defaultOpenHumanEndpoint
 	}
-
+	openHumanToken = os.Getenv("OPENHUMAN_TOKEN")
 	addr := ":9529"
 	if p := os.Getenv("ADAPTER_PORT"); p != "" {
 		addr = ":" + p
 	}
-
 	http.HandleFunc("/dispatch", handleDispatch)
 	http.HandleFunc("/health", handleProbe)
-
 	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s", addr, openHumanEndpoint)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
