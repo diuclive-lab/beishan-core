@@ -4,7 +4,12 @@
 imports/
 .github/workflows/
 
-# Build artifacts
+# 运行时生成
+eval/run/logs/
+eval/run/pids/
+generated/
+
+# 编译产物
 beishan
 beishan-core
 beishan-core-dev
