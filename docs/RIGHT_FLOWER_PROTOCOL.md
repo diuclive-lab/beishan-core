@@ -1,117 +1,148 @@
-# 右花接入协议
+# 右花接入协议 v0.1（草案）
 
-> beishan-core 是硬化底座，不是左花也不是右花。
-> 左花和右花都运行在底座之上，通过本协议接入。
-
----
-
-## 一、概念
-
-```
-┌─────────────────────────────────────────┐
-│              右花（外部工具）              │
-│  Claude CLI / Cursor / 用户脚本 / ...   │
-└──────────────┬──────────────────────────┘
-               │  HTTP API :8013
-               ▼
-┌─────────────────────────────────────────┐
-│          beishan-core（硬化底座）          │
-│  硬化层 → 路由 → L3 工具 → 工作流引擎    │
-└─────────────────────────────────────────┘
-```
-
-**左花** = plugins/ + workflows/（底座内置的生产执行侧）
-**右花** = 任何遵循本协议的外部工具（不属于底座代码库）
-**底座** = kernel/ + glue/ + internal/（硬化层 + 工具 + 引擎）
+> beishan-core 是**硬化底座 + 左花执行侧**，右花是遵循本协议的任何第三方工具。
+> 左花负责稳定生产，右花负责探索实验——底座为两者提供硬化层保护。
 
 ---
 
-## 二、通信协议
+## 一、左右花协作流程
 
-右花通过 HTTP localhost API 与底座通信。
-
-### 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /health | 健康检查 |
-| POST | /api/chat | 消息路由（核心接口） |
-
-### 请求格式
-
-```json
-{
-  "message": "用户的自然语言输入",
-  "recipient": "指定插件（可选，为空则走 DeepSeek 路由）",
-  "type": "消息类型（可选）",
-  "payload": {},
-  "session_id": "会话 ID（可选）",
-  "async": false
-}
 ```
-
-### 响应格式
-
-```json
-{
-  "payload": "...",
-  "sender": "think_plugin",
-  "session_id": "abc123",
-  "type": "chat.response"
-}
+用户指令
+        │
+        ▼
+┌──────────────────────────────┐
+│     beishan-core（底座+左花）  │
+│  1. 知识检索                  │
+│  2. 上下文组装                │
+│  3. 调用右花——注入上下文       │
+└───────────┬──────────────────┘
+            │
+            ▼
+┌──────────────────────────────┐
+│      右花（外部工具）          │
+│  4. 基于上下文 + 指令生成结果  │
+│  5. 返回 diff / findings       │
+└───────────┬──────────────────┘
+            │
+            ▼
+┌──────────────────────────────┐
+│     beishan-core（底座+左花）  │
+│  6. 硬化层校验                │
+│     ├── code_security_check   │
+│     ├── code_diff             │
+│     └── code_apply（受控写入） │
+│  7. 发现回收                  │
+└──────────────────────────────┘
 ```
 
 ---
 
-## 三、安全契约
+## 二、三层契约
 
-右花**不能直接写文件、执行命令、修改系统状态**。所有副作用操作必须经过底座硬化层。
+### 契约 1：通信协议层
 
-| 规则 | 强制方式 | 说明 |
+两种接入方式：
+
+| 方式 | 适用场景 | 延迟 |
 |------|---------|------|
-| 文件写入必须经过 code_apply | 底座强制执行 | 右花只能返回 diff，底座执行写入 |
-| 命令执行必须经过 terminal_plugin | 底座强制执行 | 右花不能直接 spawn 进程 |
-| 代码变更必须经过 code_security_check | 底座强制执行 | 所有 diff 必须先过安全检查 |
-| 知识回传必须标记来源 | 协议约定 | 右花发现的洞察标记为"未验证" |
-| 上下文注入是单向的 | 底座控制 | 底座可给右花注入知识，右花不回写 |
+| stdin/stdout JSON-RPC | Go 原生右花 | 低 |
+| HTTP localhost | Python/JS 等外部项目 | 中 |
 
-### 安全流程
+#### 消息格式
 
+```json
+{
+  "id": "uuid",
+  "type": "dispatch | response | event",
+  "sender": "right-flower-name",
+  "recipient": "base",
+  "method": "code.generate | code.review | explore.search",
+  "params": {
+    "context": {},
+    "instruction": "",
+    "files": []
+  },
+  "result": {
+    "diff": "",
+    "findings": []
+  },
+  "error": ""
+}
 ```
-右花提议操作 → code_security_check → code_diff → code_apply → 返回结果
-```
 
----
+### 契约 2：安全契约层
 
-## 四、右花注册规范（占位）
+| 规则 | 实现方式 |
+|------|---------|
+| 文件写入必须经过 code_apply | 右花返回 diff，底座执行 |
+| 命令必须经过 code_security_check | 右花提议需经安全扫描 |
+| 知识回传标记"未验证" | findings 需带 verified: false |
+| 上下文注入单向 | 底座注入，右花不回写 |
 
-右花通过 YAML 声明自身能力，底座启动时扫描 right_flowers/ 目录加载。
+### 契约 3：发现与注册层
 
 ```yaml
-name: "我的编码助手"
+# right_flowers/my_tool.yaml
+name: "Claude CLI 编码花"
+type: "code_generator"
 protocol: "http"
 endpoint: "http://localhost:9528"
 capabilities:
   - code_generation
   - code_review
+required_context:
+  - knowledge_base
+  - file_list
 output_format: "unified_diff"
+safety_level: "sandbox"
 ```
-
-**此规范为占位定义**，待第一个真实右花接入时细化。
 
 ---
 
-## 五、与内置左花的关系
+## 三、底座集成
+
+### 工作流中调用右花
+
+```yaml
+steps:
+  - id: call_coding_flower
+    type: external_flower
+    flower: "claude_cli"
+    method: "code_generate"
+    inputs:
+      instruction: "${input}"
+```
+
+### 底座启动时加载
+
+```go
+// main.go（待实现）
+flowerDir := "./right_flowers"
+registry.LoadRightFlowers(flowerDir)
+```
+
+---
+
+## 四、左花 vs 右花
 
 | 维度 | 左花（内置） | 右花（外部） |
 |------|-------------|-------------|
 | 代码位置 | plugins/ + workflows/ | 外部项目 |
-| 部署方式 | 底座启动时自动注册 | 独立进程，HTTP 通信 |
-| 安全等级 | 完全信任（同进程） | 不可信任，必须经过硬化层 |
-| 变更频率 | 随底座版本发布 | 独立迭代 |
+| 部署 | 底座启动时注册 | 独立进程 |
+| 安全 | 完全信任 | 必须经过硬化层 |
+| 能力声明 | kernel.Meta 静态注册 | right_flowers/*.yaml |
+| 开发语言 | Go | 不限（HTTP）或 Go（IPC） |
 
 ---
 
-## 六、协议版本
+## 五、协议版本
 
-当前版本：**v0.1（草案）**。首个真实右花接入时 bump 到 v1.0。
+当前 **v0.1（草案）**。首个真实右花接入时 bump 到 v1.0。
+
+### 待实现
+
+- glue/protocol.go 增加 external_flower 消息类型
+- right_flowers/ 目录扫描 + YAML 加载
+- 工作流支持 external_flower 步骤类型
+- 极简右花示例
