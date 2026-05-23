@@ -614,3 +614,18 @@ Core Gate: ✅
 | L9 语义文档化 | P3 | Register/RegisterUnlisted 语义 |
 | M6-M10 | — | 中期方案剩余项 |
 | S56-S60 | — | 短期方案剩余轮次 |
+
+
+### 项目最终统计（截止 2026-05-24）
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 249 |
+| Go 文件 | 115 |
+| 跟踪文件 | 368 |
+| 测试包 | 5（全部 PASS） |
+| Core Gate | 8/8 ✅ |
+| 功能测试 | 15/15 ✅ |
+| 边界扫描 | known debt 仅 D02+D03 |
+| 根目录 md | 6 份（README/CHANGELOG/DATASET/DESIGN_PRINCIPLES/DIRECTORY/LICENSE） |
+| 文档总计 | 26 份 |
