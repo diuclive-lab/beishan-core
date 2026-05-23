@@ -1,5 +1,20 @@
 # 设计纪律
 
+## 文档导航
+
+本文件是项目的**核心设计哲学**。与其互补的文档：
+
+| 你想了解什么 | 看哪个文件 |
+|-------------|-----------|
+| 目录结构——代码物理布局 | `DIRECTORY.md` |
+| 硬化层能力边界——保证什么、不保证什么 | `docs/HARDENING_LAYER.md` |
+| 关键决策记录——为什么系统是这个样子 | `docs/MERGE_DECISIONS.md` |
+| 已知限制——诚实的设计边界 | `docs/KNOWN_LIMITATIONS.md` |
+| 变更历史——面向用户的版本摘要 | `CHANGELOG.md` |
+| 开发日志——每日过程记录 | `docs/devlog/` |
+
+**新加入者建议阅读顺序**：`DIRECTORY.md` → 本文件 → `docs/HARDENING_LAYER.md` → `docs/MERGE_DECISIONS.md`
+
 ## 四层架构
 
 | 层 | 包 | 职责 | 可修改性 |
