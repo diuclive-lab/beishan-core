@@ -408,3 +408,25 @@ eval/scripts/check_docs_consistency.sh # 文档一致性 4/4 ✅
 | 烟雾门禁 | 7/7 ✅ |
 | Core Gate | 通过 ✅ |
 | 工作区 | 整洁 |
+
+
+---
+
+## S41-S45：4 个 P2 修复 + core-health root
+
+| 轮次 | 修复 | 验证 |
+|------|------|------|
+| S41 | enable 先设 Enabled=true 再校验 | ✅ enable openhuman |
+| S42 | core_gate --strict 用 JSON 解析 status | ✅ Core Gate 通过 |
+| S43 | scan_boundary.sh 逐条解析 allowlist YAML | ✅ 扫描通过 |
+| S44 | audit 所有路径写真实 latency | ✅ 编译通过 |
+| S45 | main 传空 root 使用 findProjectRoot | ✅ 子目录运行 |
+
+### Core Gate 最终验证
+
+```bash
+core_gate --strict  ✅
+rightflower smoke   ✅ 7/7
+scan_boundary       ✅
+enable openhuman    ✅
+```
