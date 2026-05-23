@@ -27,3 +27,6 @@ examples/*/l3_echo_go
 # 个人文档（非项目文档）
 PERSONAL_KB_GUIDE.md
 PLAN_CODING_AGENT.md
+
+# OpenHuman adapter 编译产物
+/openhuman-flower-adapter

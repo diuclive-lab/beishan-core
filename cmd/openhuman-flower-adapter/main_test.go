@@ -100,11 +100,23 @@ func TestProbeUnreachable(t *testing.T) {
 	}
 }
 
-func TestEnvToken(t *testing.T) {
-	os.Setenv("OPENHUMAN_TOKEN", "env-token")
-	defer os.Unsetenv("OPENHUMAN_TOKEN")
-	// rely on init in main; no main call here but verifies env var path exists
-	if v := os.Getenv("OPENHUMAN_TOKEN"); v != "env-token" {
-		t.Fatalf("OPENHUMAN_TOKEN = %q", v)
+func TestLoadConfig(t *testing.T) {
+	os.Setenv("OPENHUMAN_ENDPOINT", "http://test:9999")
+	os.Setenv("OPENHUMAN_TOKEN", "test-token")
+	os.Setenv("ADAPTER_PORT", "9999")
+	defer func() {
+		os.Unsetenv("OPENHUMAN_ENDPOINT")
+		os.Unsetenv("OPENHUMAN_TOKEN")
+		os.Unsetenv("ADAPTER_PORT")
+	}()
+	cfg := loadConfigFromEnv()
+	if cfg.endpoint != "http://test:9999" {
+		t.Fatalf("endpoint = %q", cfg.endpoint)
+	}
+	if cfg.token != "test-token" {
+		t.Fatalf("token = %q", cfg.token)
+	}
+	if cfg.addr != ":9999" {
+		t.Fatalf("addr = %q", cfg.addr)
 	}
 }

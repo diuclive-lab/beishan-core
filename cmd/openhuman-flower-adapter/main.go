@@ -146,18 +146,31 @@ func handleProbe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"adapter": "openhuman", "openhuman": status})
 }
 
-func main() {
-	openHumanEndpoint = os.Getenv("OPENHUMAN_ENDPOINT")
-	if openHumanEndpoint == "" {
-		openHumanEndpoint = defaultOpenHumanEndpoint
+type config struct {
+	endpoint string
+	token    string
+	addr     string
+}
+
+func loadConfigFromEnv() config {
+	endpoint := os.Getenv("OPENHUMAN_ENDPOINT")
+	if endpoint == "" {
+		endpoint = defaultOpenHumanEndpoint
 	}
-	openHumanToken = os.Getenv("OPENHUMAN_TOKEN")
+	token := os.Getenv("OPENHUMAN_TOKEN")
 	addr := ":9529"
 	if p := os.Getenv("ADAPTER_PORT"); p != "" {
 		addr = ":" + p
 	}
+	return config{endpoint: endpoint, token: token, addr: addr}
+}
+
+func main() {
+	cfg := loadConfigFromEnv()
+	openHumanEndpoint = cfg.endpoint
+	openHumanToken = cfg.token
 	http.HandleFunc("/dispatch", handleDispatch)
 	http.HandleFunc("/health", handleProbe)
-	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s", addr, openHumanEndpoint)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Printf("[openhuman-adapter] 启动于 %s → OpenHuman: %s", cfg.addr, cfg.endpoint)
+	log.Fatal(http.ListenAndServe(cfg.addr, nil))
 }
