@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"sync"
 )
 
@@ -19,10 +20,11 @@ import (
 */
 
 type userPattern struct {
-	Keywords  []string `json:"keywords"`  // 触发 clarify 时的关键词
-	Intent    string   `json:"intent"`    // 用户最终指定的意图
-	Count     int      `json:"count"`     // 命中次数
-	Threshold int      `json:"threshold"` // 多少次后自动推断（默认 3）
+	Keywords  []string `json:"keywords"`   // 触发 clarify 时的关键词
+	Intent    string   `json:"intent"`     // 用户最终指定的意图
+	Count     int      `json:"count"`      // 命中次数
+	Threshold int      `json:"threshold"`  // 多少次后自动推断（默认 3）
+	LastSeen  int64    `json:"last_seen"`  // 最近一次观察的 Unix 时间戳（EWMA 衰减用）
 }
 
 type patternStore struct {
@@ -65,6 +67,7 @@ func (ps *patternStore) learn(input, intent string) {
 	for i := range ps.Patterns {
 		if matchKeywords(ps.Patterns[i].Keywords, keywords) && ps.Patterns[i].Intent == intent {
 			ps.Patterns[i].Count++
+			ps.Patterns[i].LastSeen = time.Now().Unix()
 			if ps.Patterns[i].Threshold == 0 {
 				ps.Patterns[i].Threshold = 3
 			}
@@ -78,6 +81,7 @@ func (ps *patternStore) learn(input, intent string) {
 		Intent:    intent,
 		Count:     1,
 		Threshold: 3,
+		LastSeen:  time.Now().Unix(),
 	})
 	ps.save()
 }
@@ -90,6 +94,12 @@ func (ps *patternStore) resolve(input string) (intent string, confidence float64
 	for _, p := range ps.Patterns {
 		if matchKeywords(p.Keywords, keywords) {
 			conf := float64(p.Count) / float64(p.Threshold)
+			if p.LastSeen > 0 {
+				daysSince := float64(time.Now().Unix()-p.LastSeen) / 86400
+				if daysSince > 7 {
+					conf *= 0.5 * (7.0 / daysSince)
+				}
+			}
 			if conf >= 1.0 {
 				return p.Intent, conf
 			}

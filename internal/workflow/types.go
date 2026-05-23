@@ -181,6 +181,7 @@ type GoStep struct {
 	// 韧性策略
 	MaxRetries int           `json:"max_retries,omitempty"`
 	RetryDelay time.Duration `json:"retry_delay,omitempty"`
+	Fallback   string        `json:"fallback,omitempty"` // 主工具失败后尝试的降级工具
 	OnError    ErrorStrategy `json:"on_error,omitempty"`
 
 	// 嵌套子步骤

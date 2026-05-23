@@ -289,6 +289,21 @@ func (ex *GoExecutor) resolveTemplate(tmpl string, state *StateStore) interface{
 
 // runGoStepWithRetry 执行步骤（带重试）
 func (ex *GoExecutor) runGoStepWithRetry(step GoStep, input map[string]interface{}) StepResult {
+	// Transform/Parallel/Chain 不走重试逻辑，直接执行
+	switch step.Type {
+	case GoStepTransform:
+		trCtx := GoContext{WorkflowName: "", StepID: step.ID, Kernel: ex.kernel}
+		data, err := step.TransformFn(trCtx, input)
+		if err != nil {
+			return StepResult{ID: step.ID, Error: err.Error()}
+		}
+		return stepResultFromData(step.ID, data)
+	case GoStepParallel:
+		return ex.runGoStepParallel(step, input)
+	case GoStepChain:
+		return ex.runGoStepChain(step, input)
+	}
+
 	maxRetry := step.MaxRetries
 	if maxRetry < 0 {
 		maxRetry = 0
@@ -300,55 +315,37 @@ func (ex *GoExecutor) runGoStepWithRetry(step GoStep, input map[string]interface
 
 	var lastErr error
 	var resp kernel.Message
+	fallbackTried := false
 
 	for attempt := 0; attempt <= maxRetry; attempt++ {
-		switch step.Type {
-		case GoStepTool:
-			// 通过 kernel.Call → L1 路由 → L3 Plugin → ValidateAndExecute
-			// Go-DSL 不做参数校验，信任 L3 硬化层
-			host, ok := ex.toolHost[step.Tool]
-			if !ok {
-				lastErr = fmt.Errorf("Go-DSL: 工具 %q 未配置宿主插件", step.Tool)
-				continue
-			}
-			resp, lastErr = ex.kernel.Call(kernel.Message{
-				Recipient: host,
-				Type:      step.Tool,
-				Payload:   toRawMessage(input),
-			}, step.PluginTimeout)
-
-		case GoStepPlugin:
-			resp, lastErr = ex.kernel.Call(kernel.Message{
-				Recipient: step.Recipient,
-				Type:      step.MsgType,
-				Payload:   toRawMessage(input),
-			}, step.PluginTimeout)
-
-		case GoStepTransform:
-			trCtx := GoContext{WorkflowName: "", StepID: step.ID, Kernel: ex.kernel}
-			var data map[string]interface{}
-			data, lastErr = step.TransformFn(trCtx, input)
-			if lastErr == nil {
-				return stepResultFromData(step.ID, data)
-			}
-			continue
-
-		case GoStepParallel:
-			return ex.runGoStepParallel(step, input)
-
-		case GoStepChain:
-			return ex.runGoStepChain(step, input)
-
-		default:
-			lastErr = fmt.Errorf("未知步骤类型 %s", step.Type)
-			continue
-		}
+		resp, lastErr = ex.callStep(step, input)
 
 		if lastErr == nil {
 			if resp.Type != "" && strings.HasSuffix(resp.Type, ".error") {
 				lastErr = fmt.Errorf("%s", string(resp.Payload))
 			} else {
 				break
+			}
+		}
+
+		// Fallback: 主工具失败后尝试降级工具（仅对不可重试错误）
+		if step.Fallback != "" && !fallbackTried {
+			if te := ClassifyError(step.Tool, lastErr); !te.Retryable {
+				fbStep := step
+				fbStep.Tool = step.Fallback
+				fbStep.Fallback = ""
+				var fbResp kernel.Message
+				fbResp, lastErr = ex.callStep(fbStep, input)
+				if lastErr == nil {
+					if fbResp.Type != "" && strings.HasSuffix(fbResp.Type, ".error") {
+						lastErr = fmt.Errorf("%s", string(fbResp.Payload))
+					} else {
+						resp = fbResp
+						lastErr = nil
+						break
+					}
+				}
+				fallbackTried = true
 			}
 		}
 
@@ -368,6 +365,30 @@ func (ex *GoExecutor) runGoStepWithRetry(step GoStep, input map[string]interface
 	return StepResult{
 		ID:     step.ID,
 		Output: string(resp.Payload),
+	}
+}
+
+// callStep executes a Tool or Plugin step once, without retry.
+func (ex *GoExecutor) callStep(step GoStep, input map[string]interface{}) (kernel.Message, error) {
+	switch step.Type {
+	case GoStepTool:
+		host, ok := ex.toolHost[step.Tool]
+		if !ok {
+			return kernel.Message{}, fmt.Errorf("Go-DSL: 工具 %q 未配置宿主插件", step.Tool)
+		}
+		return ex.kernel.Call(kernel.Message{
+			Recipient: host,
+			Type:      step.Tool,
+			Payload:   toRawMessage(input),
+		}, step.PluginTimeout)
+	case GoStepPlugin:
+		return ex.kernel.Call(kernel.Message{
+			Recipient: step.Recipient,
+			Type:      step.MsgType,
+			Payload:   toRawMessage(input),
+		}, step.PluginTimeout)
+	default:
+		return kernel.Message{}, fmt.Errorf("未知步骤类型 %s", step.Type)
 	}
 }
 

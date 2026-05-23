@@ -63,7 +63,13 @@ CHANGELOG.md  DIRECTORY.md  DESIGN_PRINCIPLES.md  go.mod  .gitignore
 
 ### 6. 未完成
 
-- 三项目融合（TwinFlower + FangLab）：已分析未执行
-- 插件开发指南：未创建
-- 模块名对齐（module beishan vs github.com/...）
-- workflows/parking/：4 个原型未决定去留
+| 事项 | 状态 | 说明 |
+|------|------|------|
+| 三项目融合（TwinFlower + FangLab） | 已分析未执行 | TwinFlower 认知层 low risk, 15-20 人天；FangLab high risk, 30-40 人天 |
+| 插件开发指南 | 未创建 | docs/PLUGIN_DEVELOPMENT.md，说明 L3/L4 插件开发规范 |
+| 模块名对齐 | 待决策 | go.mod 中 `module beishan` vs 仓库路径 `github.com/diuclive-lab/beishan-core`，修改涉及全部 import |
+| workflows/parking/ | 未决定 | 4 个原型工作流（parking_report、parking_stats、vehicle_entry/exit），清理或保留 |
+| 右花接入规范 | 讨论待执行 | 外部工具（Claude CLI、Cursor 等）通过硬化层接入的协议定义，等第一个真实接入方出现时再做 |
+| 知识库治理 | 待执行 | embedding 批量补 + 重复合并（memory 中已有项目计划）|
+| code_security 规则扩展 | 持续 | 覆盖更多危险模式（SQL 注入检测、网络反弹 shell 等）|
+| hardening layer 完备性检验 | 待做 | 经过真实外部工具的端到端验证 |
