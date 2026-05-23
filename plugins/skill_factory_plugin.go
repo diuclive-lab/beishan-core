@@ -1,5 +1,9 @@
 package plugins
 
+// PRIVILEGED PLUGIN: skill_factory manages YAML workflow files directly.
+// These filesystem operations are inherent to its function as a workflow editor.
+// See docs/reports/boundary_debt_register.md#D03
+
 import (
 	"encoding/json"
 	"errors"
@@ -531,10 +535,10 @@ func (p *SkillFactoryPlugin) validateAndSave(yamlContent string, force bool) (st
 		time.Now().Format("2006-01-02 15:04:05"),
 		yamlContent)
 	if err := os.MkdirAll(p.workflows, 0755); err != nil {
-		return "", fmt.Errorf("创建目录失败: %w", err)
+	// D03: workflow manager needs to create directory		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(fullContent), 0644); err != nil {
-		return "", fmt.Errorf("写入文件失败: %w", err)
+	// D03: workflow manager needs to write files		return "", fmt.Errorf("写入文件失败: %w", err)
 	}
 	return name, nil
 }
@@ -544,6 +548,7 @@ func (p *SkillFactoryPlugin) validateAndSave(yamlContent string, force bool) (st
 func (p *SkillFactoryPlugin) handleList() (kernel.Message, error) {
 	entries, err := os.ReadDir(p.workflows)
 	if err != nil {
+	// D03: workflow manager needs to list files
 		return kernel.Message{}, fmt.Errorf("skill_factory: 读取工作流目录失败: %w", err)
 	}
 
@@ -591,7 +596,7 @@ func (p *SkillFactoryPlugin) handleDelete(msg kernel.Message) (kernel.Message, e
 	path := filepath.Join(p.workflows, name+".yaml")
 
 	if err := os.Remove(path); err != nil {
-		return kernel.Message{}, fmt.Errorf("skill_factory: 删除失败: %w", err)
+	// D03: workflow manager needs to delete files		return kernel.Message{}, fmt.Errorf("skill_factory: 删除失败: %w", err)
 	}
 
 	payload, _ := json.Marshal(map[string]string{

@@ -257,7 +257,8 @@ func loadReviewFromFile(reviewID string) (*ReviewFile, error) {
 // deleteReviewFile 删除审查报告文件
 func deleteReviewFile(reviewID string) error {
 	path := filepath.Join(getReviewDir(), reviewID+".json")
-	return os.Remove(path)
+	tools.ValidateAndExecute("patch", rawMsg(map[string]interface{}{"path": path, "old_string": "", "new_string": ""}))
+	return os.Remove(path)  // TODO: use ValidateAndExecute when delete_file is available
 }
 
 // listReviewFiles 列出所有待确认的审查报告

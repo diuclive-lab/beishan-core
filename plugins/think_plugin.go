@@ -481,16 +481,23 @@ func stripRetrievalTrace(s string) string {
 
 // loadRecentSessionMessages 从会话文件加载最近 N 轮对话，用于多轮上下文。
 // role 映射：user → "user"，其他（插件响应）→ "assistant"。
+func rawMsg(v interface{}) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
+}
+
 func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 	if sessionID == "" || limit <= 0 {
 		return nil
 	}
-	home, _ := os.UserHomeDir()
-	path := filepath.Join(home, ".hermes", "memory", "sessions", sessionID+".json")
-	data, err := os.ReadFile(path)
-	if err != nil {
+	// 通过 L3 read_file 工具读取会话文件
+	res := tools.ValidateAndExecute("read_file", rawMsg(map[string]interface{}{
+		"path": filepath.Join(os.Getenv("HOME"), ".hermes", "memory", "sessions", sessionID+".json"),
+	}))
+	if !res.Success || res.Output == "" {
 		return nil
 	}
+	data := []byte(res.Output)
 	var session struct {
 		Messages []struct {
 			Role    string `json:"role"`

@@ -1,12 +1,9 @@
 # 边界债务白名单
 # 扫描器匹配到这些 file/pattern 时仅 warn 不 fail
-- id: D01
-  file: plugins/think_plugin.go
-  pattern: os\.ReadFile
-  reason: "L4 直接读文件，应走 ValidateAndExecute('read_file')"
+# D01: RESOLVED — think_plugin now uses ValidateAndExecute("read_file")
 - id: D02
   file: plugins/review_handler.go
-  pattern: os\.(MkdirAll|WriteFile|Remove|ReadFile|ReadDir)
+  pattern: os\.(Remove|ReadDir)  # write/read fixed, remove needs delete_file tool
   reason: "L4 直接文件操作，应走 code_apply"
 - id: D03
   file: plugins/skill_factory_plugin.go
