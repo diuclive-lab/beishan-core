@@ -1,6 +1,10 @@
 package workflow
 
-import "gopkg.in/yaml.v3"
+import (
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
 
 /*
 WorkflowDef 工作流定义，从 YAML 加载。
@@ -87,10 +91,116 @@ type StepResult struct {
 	ID        string
 	Output    string
 	Error     string
-	ElapsedMs int64 `json:"ElapsedMs,omitempty"` // 步骤耗时（毫秒）
+	ElapsedMs int64                      `json:"ElapsedMs,omitempty"` // 步骤耗时（毫秒）
+	Data      map[string]interface{}     `json:"-"`                  // Go-DSL 结构化数据（YAML 引擎不用）
+	SubResults []StepResult              `json:"-"`                  // 子步骤结果（chain/parallel）
 }
 
-/* WorkflowResult 整个工作流的执行结果。 */
+/* ═══════════════════════════════════════════════════════════
+   Go-DSL 工作流类型 — 编译时安全的静态硬化链
+   与上文的 StepResult/WorkflowResult 共享状态类型
+   ═══════════════════════════════════════════════════════════ */
+
+// StepStatus 执行状态（双引擎通用）
+type StepStatus string
+
+const (
+	StatusPending  StepStatus = "pending"
+	StatusRunning  StepStatus = "running"
+	StatusSuccess  StepStatus = "success"
+	StatusError    StepStatus = "error"
+	StatusSkipped  StepStatus = "skipped"
+)
+
+// GoStepType 步骤类型
+type GoStepType string
+
+const (
+	GoStepTool      GoStepType = "tool"      // → kernel.Call(L3 插件)，零校验
+	GoStepPlugin    GoStepType = "plugin"    // → kernel.Call(指定插件)
+	GoStepChain     GoStepType = "chain"     // 顺序子步骤
+	GoStepParallel  GoStepType = "parallel"  // 并发子步骤
+	GoStepTransform GoStepType = "transform" // TransformFn 纯数据变换
+)
+
+// ErrorStrategy 步骤失败时的处理策略
+type ErrorStrategy string
+
+const (
+	ErrorFailStep     ErrorStrategy = "fail_step"     // 标记错误，继续执行
+	ErrorFailWorkflow ErrorStrategy = "fail_workflow" // 立即终止
+	ErrorContinue     ErrorStrategy = "continue"      // 跳过，继续
+)
+
+// GoStepInput 如何为步骤构建输入参数
+type GoStepInput struct {
+	Merge  []GoInputSource          `json:"merge,omitempty"`
+	From   string                   `json:"from,omitempty"` // 引用另一步骤全部输出
+	Static map[string]interface{}   `json:"static,omitempty"`
+
+	// RawInputKeys 从原始输入映射字段：{"contract": "input"}
+	// 等价于 InputSource{Key:"contract", Value:"${input}"}
+	RawInputKeys map[string]string `json:"raw_input_keys,omitempty"`
+}
+
+// GoInputSource 合并输入源中的单个条目
+type GoInputSource struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"` // 模板引用 ${input} / ${steps.x.output.y}
+	Step  string `json:"step,omitempty"`  // 步骤输出中提取
+	Field string `json:"field,omitempty"`
+}
+
+// GoStep Go-DSL 工作流中的单个步骤
+type GoStep struct {
+	ID   string     `json:"id"`
+	Type GoStepType `json:"type"`
+	Name string     `json:"name,omitempty"`
+
+	// 工具步骤 — 通过 kernel.Call 找宿主插件执行，零校验
+	Tool          string        `json:"tool,omitempty"`
+
+	// 插件步骤 — 直接 kernel.Call 到指定插件
+	Recipient     string        `json:"recipient,omitempty"`
+	MsgType       string        `json:"msg_type,omitempty"`
+	PluginTimeout time.Duration `json:"timeout,omitempty"`
+
+	// 变换步骤 — 纯 Go 函数，约定不做 I/O
+	TransformFn func(ctx GoContext, input map[string]interface{}) (map[string]interface{}, error) `json:"-"`
+
+	// 🛡️ 中间件钩子 — 包裹在任何 StepType 前后（约定不做 I/O）
+	BeforeExecute func(ctx GoContext, input map[string]interface{}) (map[string]interface{}, error) `json:"-"`
+	AfterExecute  func(ctx GoContext, input map[string]interface{}, result *StepResult) (*StepResult, error) `json:"-"`
+
+	// 输入构建
+	Input *GoStepInput `json:"input,omitempty"`
+
+	// 状态注册
+	OutputVar string `json:"output_var,omitempty"`
+
+	// 韧性策略
+	MaxRetries int           `json:"max_retries,omitempty"`
+	RetryDelay time.Duration `json:"retry_delay,omitempty"`
+	OnError    ErrorStrategy `json:"on_error,omitempty"`
+
+	// 嵌套子步骤
+	SubSteps []GoStep `json:"sub_steps,omitempty"`
+}
+
+// GoWorkflow Go-DSL 工作流定义
+type GoWorkflow struct {
+	Name       string        `json:"name"`
+	Steps      []GoStep      `json:"steps"`
+	Timeout    time.Duration `json:"timeout,omitempty"` // 全局超时
+	ResultStep string        `json:"result_step,omitempty"` // 取哪步输出为最终结果，空=最后一步
+}
+
+// GoContext 执行时注入的环境
+type GoContext struct {
+	WorkflowName string
+	StepID       string
+	Kernel       interface{} // *kernel.Kernel，运行时注入
+}
 type WorkflowResult struct {
 	WorkflowID  string       `json:"WorkflowID"`
 	Steps       []StepResult `json:"Steps"`

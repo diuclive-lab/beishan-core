@@ -218,7 +218,31 @@ func main() {
 		Tags:        []string{"legal", "write"},
 		Types:       []string{"legal_generate_report", "legal_write_opinion"},
 	})
+	// ─── Go-DSL 工作流注册 ─────────────────────────
+	// toolHost: tool 名 → 宿主插件名
+	toolHost := map[string]string{
+		"web_search":   "search_plugin",
+		"web_fetch":    "search_plugin",
+		"web_extract":  "search_plugin",
+		"web_render":   "search_plugin",
+		"write_file":   "write_plugin",
+		"read_file":    "write_plugin",
+		"search_files": "write_plugin",
+		"patch":        "write_plugin",
+		"file_parse":   "write_plugin",
+	}
+	ensureTool := func(name string) bool {
+		_, ok := tools.GetToolSchema(name)
+		return ok
+	}
 
+	// 示例：用 NewGoToolPlugin 注册简单 L3 插件
+	_ = workflow.NewGoToolPlugin(k, toolHost, ensureTool, map[string]string{
+		"web_search": "web_search",
+	})
+
+	// 注册 Go-DSL legal_review（等价于 YAML 版 legal_review）
+	registerLegalReviewGoDSL(k, toolHost, ensureTool)
 	// 工作流引擎
 	wfEngine := workflow.New(k, "./workflows")
 	k.Register("workflow_plugin", &plugins.WorkflowPlugin{Engine: wfEngine}, kernel.Meta{

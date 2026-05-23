@@ -6,6 +6,8 @@ imports/
 
 # Build artifacts
 beishan
+beishan-core
+beishan-core-dev
 
 # Backup directories
 claude_memory_backup/
