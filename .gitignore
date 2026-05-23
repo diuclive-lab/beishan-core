@@ -2,7 +2,7 @@
 .DS_Store
 .gocache/
 imports/
-.github/workflows/
+# .github/workflows/ 已被跟踪，CI 配置对外可见
 
 # 运行时生成
 eval/run/logs/
@@ -13,6 +13,7 @@ generated/
 beishan
 beishan-core
 beishan-core-dev
+repl
 
 # Backup directories
 claude_memory_backup/
