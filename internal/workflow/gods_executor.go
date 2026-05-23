@@ -250,11 +250,16 @@ func (ex *GoExecutor) resolveGoStepInput(input *GoStepInput, state *StateStore) 
 
 func (ex *GoExecutor) resolveSource(src GoInputSource, state *StateStore) interface{} {
 	if src.Step != "" {
-		fieldPath := src.Field
-		if fieldPath == "" {
-			fieldPath = "output"
+		if src.Field == "" || src.Field == "output" {
+			if r, ok := state.results[src.Step]; ok {
+				if r.Data != nil {
+					return r.Data
+				}
+				return r.Output
+			}
+			return nil
 		}
-		path := src.Step + "." + fieldPath
+		path := src.Step + "." + src.Field
 		if v, ok := state.Get(path); ok {
 			return v
 		}

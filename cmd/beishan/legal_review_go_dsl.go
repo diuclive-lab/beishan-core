@@ -48,6 +48,9 @@ func registerLegalReviewGoDSL(k *kernel.Kernel, toolHost map[string]string, ensu
 				PluginTimeout: 30 * time.Second,
 				Input: &workflow.GoStepInput{
 					Merge: []workflow.GoInputSource{
+						{Key: "contract", Value: "${input}"},
+						{Key: "profile", Step: "cold_start", Field: "output"},
+						{Key: "laws", Step: "legal_search", Field: "output"},
 					},
 				},
 				OutputVar: "clause_analysis",
@@ -61,6 +64,9 @@ func registerLegalReviewGoDSL(k *kernel.Kernel, toolHost map[string]string, ensu
 				PluginTimeout: 30 * time.Second,
 				Input: &workflow.GoStepInput{
 					Merge: []workflow.GoInputSource{
+						{Key: "analysis_report", Step: "clause_analysis", Field: "output"},
+						{Key: "document_type", Value: "contract_review"},
+						{Key: "output_format", Value: "markdown"},
 					},
 				},
 				OutputVar: "write_report",
