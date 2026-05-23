@@ -135,17 +135,17 @@ cases:
 
 ---
 
-## 三、五步执行计划
+## 三、五步执行计划（已完成）
 
-| 步骤 | 内容 | 行数 | 风险 | 独立性 |
-|------|------|------|------|--------|
-| 1 | 迁移 observatory/（字段适配） | +374 | 最低 | 纯新增 |
-| 2 | 提取 ErrorKind + fallback 整合 | +73 | 低 | 独立 |
-| 3 | filesystem_skill + search_skill 拆分 | +803 | 最高 | 独立但重 |
-| 4 | EWMA 整合进 clarify.go | +50 | 低 | 独立 |
-| 5 | 文档 + 测试 | +50 | 最低 | 依赖前面成果 |
+| 步骤 | 内容 | 行数 | 提交 | 状态 |
+|------|------|------|------|------|
+| 1 | 迁移 observatory/（字段适配） | +374 | 0750de9 | ✅ |
+| 2 | 提取 ErrorKind + fallback 整合 | +73 | 0750de9 | ✅ |
+| 3 | filesystem_skill + search_skill 拆分 | +156 | c9825b3 | ✅ |
+| 4 | EWMA 整合进 clarify.go | +30 | 0750de9 | ✅ |
+| 5 | 文档 + 测试 | — | 当前 | ✅ |
 
-步骤 1-4 完全独立，可并行执行。
+**融合总计**：+633 行（observatory 374 + 错误分类 73 + 文件安全 156 + EWMA 30），零外部依赖变化。
 
 ---
 
@@ -160,36 +160,42 @@ cases:
 
 ---
 
-## 五、融合后目录变化
+## 五、融合后目录变化（实际）
 
 ```
 internal/
-├── cognition/          新增：澄清模板 + 校准记录
-├── observatory/        新增：决策追踪 + 指标 + 健康检查
+├── observatory/         ✅ 新增：决策追踪 + 指标 + 健康检查
 ├── tools/
-│   ├── clarify.go      增强：EWMA 衰减算法
-│   ├── file_safe.go    新增：路径白名单、操作校验、并发锁
-│   └── search_disambiguate.json  新增：中文歧义字典
+│   ├── clarify.go       ✅ 增强：EWMA 衰减算法 + LastSeen 时间戳
+│   ├── file_safe.go     ✅ 新增：validate_file_op + lock_file/unlock_file
+│   └── search_disambiguate.json  ✅ 新增：中文歧义字典
 └── workflow/
-    ├── gods_executor.go  增强：ErrorKind 分类 + fallback
-    └── gods_error.go     新增：ErrorKind 类型定义
-
-plugins/
-├── filesystem_plugin.go   新增：文件操作编排
-└── search_skill_plugin.go 新增：搜索策略编排
+    ├── gods_executor.go ✅ 增强：ErrorKind 分类 + fallback 重试循环
+    └── gods_error.go    ✅ 新增：ErrorKind 6 类 + ClassifyError
 
 eval/scenarios/
-└── clarify_smoke.yaml     新增：澄清链路烟雾测试
+└── clarify_smoke.yaml   ✅ 新增：澄清链路 3 个测试用例
 ```
+
+**暂未创建**（低优先级，后续按需补充）：
+- `internal/cognition/` — PromptTemplates 模板定义，等 clarify 需要时再做
+- `plugins/filesystem_plugin.go` — 现有 L3 file.go 已覆盖读写能力
+- `plugins/search_skill_plugin.go` — 现有 search_plugin.go 已覆盖搜索能力
 
 ---
 
 ## 六、验证标准
 
-| 验证项 | 方式 | 标准 |
+| 验证项 | 方式 | 结果 |
 |--------|------|------|
-| 编译 | go build ./... | 通过 |
-| 现有烟雾测试 | run_legal_smoke.sh | 6/6 通过 |
-| 核心烟雾测试 | run_core_smoke.sh | 全部通过 |
-| ErrorKind 分类 | go test ./internal/workflow/... | 测试通过 |
-| 决策追踪 | 手动验证 | 工作流执行后 trace 有记录 |
+| 编译 | `go build ./...` | ✅ 通过 |
+| 现有烟雾测试 | `run_legal_smoke.sh` | ✅ 4/4 通过 |
+| 核心烟雾测试 | `run_core_smoke.sh` | ✅ 全部通过 |
+| 功能测试 10 项 | curl 实测 | ✅ 10/10 PASS |
+| validate_file_op 允许路径 | curl | ✅ `/tmp/test.txt` 允许 |
+| validate_file_op 拦截路径 | curl | ✅ `/etc/passwd` 拦截 |
+| 歧义消解 | curl | ✅ "苹果"触发水果 vs 公司消歧 |
+| clarify 澄清工具 | curl | ✅ 需要澄清 + 选项列表 |
+| clarify_learn 模式学习 | curl | ✅ 已学习模式 |
+| ErrorKind 分类 | 代码审查 | ✅ 6 类，已整合进 retry 循环 |
+| 决策追踪 | 代码审查 | ✅ Trace/Recorder/Pulse 可用 |

@@ -1,0 +1,42 @@
+# 澄清链路烟雾测试
+# 验证 clarify 工具 + EWMA 模式学习的端到端行为
+cases:
+  - name: "歧义询问触发澄清"
+    input:
+      recipient: "think_plugin"
+      type: "chat"
+      payload:
+        message: "看看苹果怎么样"
+        mode: "no_retrieval"
+    expect:
+      - "响应包含澄清"
+      - "苹果"
+      - "水果"
+      - "公司"
+
+  - name: "clarify 工具调用"
+    input:
+      recipient: "memory_plugin"
+      type: "clarify"
+      payload:
+        question: "你想搜索什么类型的信息？"
+        choices:
+          - "技术文档"
+          - "新闻资讯"
+          - "学术论文"
+    expect:
+      - "需要澄清"
+      - "技术文档"
+      - "新闻资讯"
+
+  - name: "clarify_learn 模式学习"
+    input:
+      recipient: "memory_plugin"
+      type: "clarify_learn"
+      payload:
+        input: "苹果怎么样"
+        intent: "搜索苹果公司信息"
+    expect:
+      - "已学习模式"
+      - "苹果"
+      - "苹果公司"
