@@ -1,0 +1,133 @@
+# ═══════════════════════════════════════════════════════════
+# 右花吸收工作流 — 将右花已验证能力内化到底座
+# ═══════════════════════════════════════════════════════════
+#
+# 出处：DESIGN_PRINCIPLES.md → 双花进化闭环
+# 首次执行：2026-05-24 OpenHuman memory.context_query → P0 向量语义检索
+#
+# 用法：
+#   1. 右花已通车，选中待吸收能力
+#   2. 执行此工作流
+#   3. 每步完成后标记结果，不通过时终止或调整
+#
+# 字段说明：
+#   check:       检查项描述
+#   pass_criteria: 通过标准（满足才可进入下一步）
+#   fail_action:   不通过时的处理方式
+#   output:       本步骤产生的文档/产出
+#
+# ═══════════════════════════════════════════════════════════
+
+id: absorb_right_flower
+
+info:
+  title: "右花吸收工作流"
+  description: "将右花已验证能力内化到底座的标准化流程。六步：探→评→吸→测→补→记"
+  source: "DESIGN_PRINCIPLES.md 双花进化闭环"
+  first_run: "2026-05-24 OpenHuman memory.search"
+
+# ── Step 1: 探 — 全量实测右花能力 ─────────────
+steps:
+  - id: probe
+    title: "探测右花能力"
+    description: "通过 probe-methods 和直接 RPC 测试，摸清右花全部能力"
+    checks:
+      - "列出所有可用 method（adapter methodMap + 右花原生 RPC）"
+      - "每个 method 实测：正确参数、错误参数、边界情况"
+      - "记录响应格式、认证方式、延迟特征"
+      - "区分『通过协议调用』和『值得吸收内化』"
+    pass_criteria:
+      - "能力地图完整（所有 method 标注 ✅/⚠️/❌）"
+      - "每个标注有实测依据而非猜测"
+    fail_action: "返回探测，补全遗漏的 method"
+    output: "docs/reports/<right_flower>_capability_map.md"
+
+  # ── Step 2: 评 — 评估吸收价值 ───────────────
+  - id: evaluate
+    title: "评估吸收价值"
+    description: "对照吸收四条件，判断哪些能力值得内化到底座"
+    checks:
+      - "条件1：稳定运行 > 2 周，无重大事故？"
+      - "条件2：协议格式已固化，不随版本频繁变化？"
+      - "条件3：有明确硬化层校验方案？"
+      - "条件4：不增加内核冻结区域复杂度？"
+      - "深度：能力本身完整可用吗？"
+      - "广度：谁调用它？它调用谁？数据流向？"
+    pass_criteria:
+      - "至少满足条件 1-4 才进入吸阶段"
+      - "不满足但价值高 → 标记为 P2 保留，等待稳定"
+      - "不满足且价值低 → 关闭吸收，保持协议调用"
+    fail_action: "标记为『保持协议调用』，记录理由"
+    output: "吸收评估表（inline in capability_map.md）"
+
+  # ── Step 3: 吸 — 深度实现 ───────────────────
+  - id: absorb
+    title: "深度实现"
+    description: "将选中能力内化到 internal/ 或 plugins/，硬化层验收覆盖"
+    checks:
+      - "改动只涉及 internal/ 或 plugins/？kernel/ 是否零接触？"
+      - "吸收的代码是否经过硬化层验收？"
+      - "是否有对应的单元测试？"
+      - "原有协议调用是否保留（不因内化而失效）？"
+    pass_criteria:
+      - "go build ./... ✅"
+      - "go vet ./... ✅"
+      - "新增测试通过 ✅"
+      - "kernel/ 零改动 ✅"
+    fail_action: "如果是 kernel 改动，需要用户审批（见铁律一）"
+    output: "internal/ 或 plugins/ 中的代码改动"
+
+  # ── Step 4: 测 — 单元验证 + 全链路验证 ──────
+  - id: verify
+    title: "全链路验证"
+    description: "确保吸收的代码在单元和全链路层面都工作"
+    checks:
+      - "单元测试通过（go test ./...）"
+      - "HTTP API 调用新链路，返回正确结果"
+      - "旧行为未破坏（向后兼容）"
+      - "embedding/auth/fallback 各路径均覆盖"
+    pass_criteria:
+      - "go test ./... 100% ✅"
+      - "全链路实测有明确响应 ✅"
+      - "错误路径（无 API key、服务不可用）不崩溃 ✅"
+    fail_action: "返回 Step 3 修正"
+
+  # ── Step 5: 补 — 广度补全 ───────────────────
+  - id: breadth
+    title: "广度补全"
+    description: "检查所有调用链：被谁调用、调用谁、数据流向。这是最容易被跳过的步骤，也是产生孤岛的根源"
+    checks:
+      - "直接调用者：检查所有调用了修改函数的地方"
+      - "间接调用链：数据从入口到出口经过哪些层"
+      - "工具注册入口：如果修改了检索逻辑，对应的 tool registration handler 也改了吗？"
+      - "是否存在另一条路径做同样的事（新旧函数并行）？"
+      - "文档中的调用图/描述是否需要更新？"
+    pass_criteria:
+      - "所有调用链覆盖 ✅"
+      - "不存在『改了 A 但 B 还在走旧路』的情况 ✅"
+    fail_action: "有一个孤岛就返回 Step 3"
+
+  # ── Step 6: 记 — 文档化吸收来源 ──────────────
+  - id: document
+    title: "文档化吸收来源"
+    description: "在 DESIGN_PRINCIPLES.md 参考项目部分标注吸收来源"
+    checks:
+      - "DESIGN_PRINCIPLES.md 参考项目已更新？"
+      - "MERGE_DECISIONS.md 新增决策记录？"
+      - "吸收了什么：具体能力和内化位置"
+      - "没吸收什么及原因：保持透明"
+      - "右花是协议而非单一项目——文档中明确标注"
+    pass_criteria:
+      - "DESIGN_PRINCIPLES.md 参考项目已更新 ✅"
+      - "MERGE_DECISIONS.md 决策记录已写入 ✅"
+    fail_action: "标记为 TODO，阻塞 PR"
+
+# ── 完成确认 ──────────────────────────────────
+final_check:
+  title: "吸收完成确认"
+  items:
+    - "右花该能力仍可通过协议调用（双通道不冲突）"
+    - "底座未因吸收而膨胀（kernel/ 零改动）"
+    - "吸收来源可追溯（参考项目义务）"
+    - "广度检查确认零孤岛"
+  sign_off: "需要用户确认吸收完成"
