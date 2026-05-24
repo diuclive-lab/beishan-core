@@ -5,10 +5,10 @@ beishan-core 全量审查报告
 
 | 指标 | 数值 |
 |------|------|
-| 提交数 | 236 |
-| Go 文件 |      112 |
-| 跟踪文件 |      323 |
-| 文档 |       24 |
+| 提交数 | 238 |
+| Go 文件 |      115 |
+| 跟踪文件 |      326 |
+| 文档 |       26 |
 | 核心工程师 | 1 |
 
 
@@ -16,18 +16,19 @@ beishan-core 全量审查报告
 
 | 层 | 目录 | 职责 | 文件数 |
 |---|------|------|--------|
-| L1 内核 | kernel/ | 注册 + 首轮 AI 路由 + Type 转发 |        4 |
+| L1 内核 | kernel/ | 注册 + 首轮 AI 路由 + Type 转发 + LocalRouteStrategy |        5 |
 | L2 胶水 | glue/ | IPC + 子进程管理 |        3 |
 | L3 工具 | internal/tools/ | 96 个注册工具 + Schema 校验 |       43 |
 | L3 工作流 | internal/workflow/ | YAML + Go-DSL 双引擎 |        4 |
-| L3 观测 | internal/observatory/ | 决策追踪 + 健康检查 |        4 |
+| L3 观测 | internal/observatory/ | 决策追踪 + 健康检查 + 故障分类 |        4 |
+| L3 发现 | internal/discovery/ | 本地引擎扫描 + 策略状态机 + 故障切换 |        5 |
 | L3 评估 | internal/bench/ | 评估框架 + 3 套件 |        3 |
 | L3 注册 | internal/registry/ | 生命周期门控 |        4 |
 | L3 右花 | internal/rightflower/ | HTTP 客户端 + 审计 |        5 |
 | L3 澄清 | internal/clarify/ | 结构化契约 |        1 |
 | L4 编排 | plugins/ | 22 个内置插件 |       22 |
 | L4 工作流 | workflows/ | 34 个 YAML 工作流 |       34 |
-| 入口 | cmd/beishan/ | HTTP 服务 :8013 |        3 |
+| 入口 | cmd/beishan/ | HTTP 服务 :8013，故障切换监控 |        3 |
 | 入口 | cmd/core-health/ | 健康检查 |        3 |
 | 入口 | cmd/rightflowerctl/ | 右花管理 CLI |        2 |
 | 入口 | cmd/openhuman-flower-adapter/ | OpenHuman 桥接 |        2 |
@@ -40,7 +41,7 @@ beishan-core 全量审查报告
 |------|------|
 | go build ./... | ✅ |
 | go vet ./... | ✅ |
-| go test ./... (5 包) | ✅ |
+| go test ./... (26 包) | ✅ |
 | 功能测试 (12 项) | 12/12 ✅ |
 | Core Gate | 7/7 ✅ |
 | 边界扫描 | ✅ (D01-D03 known debt) |
@@ -52,7 +53,9 @@ beishan-core 全量审查报告
 | 包 | 测试数 | 覆盖内容 |
 |----|--------|---------|
 | kernel | 8 | Payload 冻结、parseDecision 三层校验、RegisterUnlisted、路由回路 |
+| internal/discovery | 15 | 11 引擎扫描 + StrategyState 全链路(e2e/防抖动/状态/回切) |
 | internal/rightflower | 8 | Manifest 校验(4)、HTTP 错误、payload contract、evidence、security |
+| internal/llm | 3 | RouterPrompt、ModelDefault、ProviderName |
 | cmd/openhuman-flower-adapter | 16 | Method 映射(3)、params/bearer/status、config、probe、normalizer(5) |
 | cmd/core-health | 4 | clean/dirty/build fail/status |
 | cmd/rightflowerctl | 3 | enable/remote reject/disable |
@@ -158,23 +161,40 @@ beishan-core 全量审查报告
 - reason: "YAML 工作流管理器固有行为"
 
 
-## 10. 汇总评分
+## 10. 新能力：本地模型故障切换
+
+2026-05-24 完成 API→本地模型自动降级方案的全链路实现：
+
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| 11 引擎扫描器 | ✅ | `internal/discovery/engines.go` — Ollama/llama.cpp/LM Studio 等 |
+| 策略状态机 | ✅ | `StrategyState.Decide()` — API↔local 切换 + 2 次滞后防抖 |
+| 健康检测扩展 | ✅ | `observatory.Check()` 读取 api_reachable / local_model_available |
+| Provider 切换 | ✅ | `llm.SetProvider()` — 线程安全运行时切换 LLM 供应商 |
+| LocalRouteStrategy | ✅ | `kernel/local_route.go` — 本地模型路由 + parseDecision 硬化 |
+| 启动集成 | ✅ | `cmd/beishan/main.go` — 启动扫描 + monitorFailover goroutine |
+| 降级矩阵文档 | ✅ | `docs/reports/local_model_degradation_matrix.md` |
+| 全链路 e2e 测试 | ✅ | `TestFailoverFullChain` / `TestNoFlapping` / `TestStatusFields` |
+
+**CI 改进：** smoke 测试无 API key 时走 offline 模式（exit 0），非直接失败。
+
+## 11. 汇总评分
 
 | 维度 | 评级 | 说明 |
 |------|------|------|
 | 代码质量 | 🟢 稳定 | 测试全部通过，边界扫描干净 |
-| 架构一致性 | 🟢 清晰 | L1-L4 + 底座/左花/右花 |
+| 架构一致性 | 🟢 清晰 | L1-L4 + 底座/左花/右花 + 故障切换 |
 | 硬化层 | 🟢 可靠 | 8 项不变性 + 5 道防线 |
 | 可观测性 | 🟡 发展中 | observatory + audit 已就绪 |
+| 本地模型故障切换 | 🟢 完整 | 扫描→健康监测→自动切换→滞后回切 全链路 |
 | 右花协议 | 🟢 可用 | v1 协议冻结，6 个 cmd 入口 |
-| 文档 | 🟡 完整 | 24 份文档，已对齐代码 |
-| 测试覆盖 | 🟡 增长中 | 39 个单元测试 + 12 功能测试 |
+| 文档 | 🟡 完整 | 26 份文档，已对齐代码 |
+| 测试覆盖 | 🟡 增长中 | 47+ 单元测试 + 12 功能测试 |
 | 安全模型 | 🟢 已文档化 | v1 安全模型就位 |
 | 右花生态 | 🟡 草案 | 协议已定义，无真实右花接入 |
 | 长期规划 | 🟢 明确 | L1-L10 已记录待启动 |
 
 
 ---
-
-*报告生成时间: 2026-05-23 23:49:23*
-*提交: bf2743b166ab333f0feab0fe10e7920a66135309*
+*报告生成时间: 2026-05-24 21:30:00*
+*提交: 4236dd4*

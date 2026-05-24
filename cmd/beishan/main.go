@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"beishan/glue"
+	"beishan/internal/discovery"
+	"beishan/internal/llm"
 	"beishan/internal/tools"
 	"beishan/internal/rightflower"
 
@@ -262,6 +264,21 @@ func main() {
 	// 加载右花（外部工具注册）
 	if err := rightflower.RegisterAll(k, "./right_flowers"); err != nil {
 		log.Printf("[rightflower] 加载失败: %v（右花为可选能力，继续启动）", err)
+	}
+
+	// ─── 本地引擎扫描 + 自动故障切换 ────────────────
+	engines := discovery.ScanWithModel(2 * time.Second)
+	if len(engines) > 0 {
+		engine, ok := selectFallbackEngine(engines)
+		if ok {
+			log.Printf("[main] 发现本地推理引擎:%s", discovery.Summary(engines))
+			log.Printf("[main] 故障切换候选: %s (%s)", engine.Name, engine.Endpoint)
+
+			state := discovery.NewStrategyState()
+			go monitorFailover(k, state, engine)
+		}
+	} else {
+		log.Println("[main] 未发现本地推理引擎，故障切换不可用")
 	}
 
 	// 启动胶水层
@@ -575,4 +592,76 @@ func buildWorkflowSummary(dir string) string {
 	})
 
 	return sb.String()
+}
+
+// ─── 本地模型故障切换 ─────────────────────────
+
+// selectFallbackEngine picks the best engine for API failover.
+// Prefers OpenAI-compatible engines which support /v1/chat/completions.
+func selectFallbackEngine(engines []discovery.Engine) (discovery.Engine, bool) {
+	for _, e := range engines {
+		if e.Type == "openai" || e.Type == "llamacpp" {
+			return e, true
+		}
+	}
+	if len(engines) > 0 {
+		return engines[0], true
+	}
+	return discovery.Engine{}, false
+}
+
+func checkAPIReachable() bool {
+	client := &http.Client{Timeout: 5 * time.Second}
+	u := llm.ChatEndpoint()
+	u = u[:len(u)-len("/chat/completions")] + "/models"
+	resp, err := client.Get(u)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+func checkEngineReachable(endpoint string) bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(endpoint + "/v1/models")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+// monitorFailover periodically checks API/local health and switches provider/strategy.
+// Uses hysteresis to prevent flapping (2 consecutive successes to switch back).
+func monitorFailover(k *kernel.Kernel, state *discovery.StrategyState, engine discovery.Engine) {
+	log.Printf("[failover] 监控启动，候选引擎: %s (%s)", engine.Name, engine.Endpoint)
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		apiOK := checkAPIReachable()
+		localOK := checkEngineReachable(engine.Endpoint)
+		decision := state.Decide(apiOK, localOK)
+
+		switch {
+		case decision == "local" && state.OnAPI():
+			// API → local 切换
+			log.Printf("[failover] API 不可用，切换到本地模型 (%s)", engine.Name)
+			os.Setenv("LLM_BASE_URL", engine.Endpoint)
+			if engine.Model != "" {
+				os.Setenv("LLM_MODEL", engine.Model)
+			}
+			llm.SetProvider("local")
+			k.Router.SetStrategy(kernel.NewLocalRouteStrategy(k.Router, engine.Endpoint, engine.Model))
+
+		case decision == "api" && !state.OnAPI():
+			// local → API 恢复回切
+			log.Println("[failover] API 恢复，切回 DeepSeek")
+			os.Unsetenv("LLM_BASE_URL")
+			os.Unsetenv("LLM_MODEL")
+			llm.SetProvider("")
+			k.Router.SetStrategy(nil)
+		}
+	}
 }

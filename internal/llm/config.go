@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -113,6 +114,21 @@ type Provider struct {
 	RouterPrompt string
 }
 
+var (
+	overrideProvider string
+	providerMu       sync.RWMutex
+)
+
+// SetProvider overrides the active LLM provider. Use "" to revert to LLM_PROVIDER env.
+func SetProvider(name string) {
+	providerMu.Lock()
+	defer providerMu.Unlock()
+	overrideProvider = name
+}
+
+// FailoverProvider switches to the local provider for fallback.
+func FailoverProvider() { SetProvider("local") }
+
 var providers = map[string]Provider{
 	"deepseek": {
 		Name:    "deepseek",
@@ -187,6 +203,14 @@ Available plugins:
 }
 
 func activeProvider() Provider {
+	providerMu.RLock()
+	override := overrideProvider
+	providerMu.RUnlock()
+	if override != "" {
+		if p, ok := providers[override]; ok {
+			return p
+		}
+	}
 	name := os.Getenv("LLM_PROVIDER")
 	if p, ok := providers[name]; ok {
 		return p
