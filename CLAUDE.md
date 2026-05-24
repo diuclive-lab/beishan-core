@@ -107,6 +107,7 @@ kernel.Kernel  ─── 按 recipient 转发
 | ❌ Don't skip gap analysis | Every absorption MUST document omissions. |
 | ❌ Don't assume "design decision" without proof | If 3 lines can fix it, it's an omission. |
 | ❌ Don't skip breadth check | Changing A without checking B creates islands. |
+| ❌ Don't forget to update docs | After any code change, update relevant MD files. CI will check. |
 | ❌ Don't add dependencies lightly | Zero external Go deps except stdlib. |
 
 ## Build & Test
