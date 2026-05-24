@@ -282,35 +282,15 @@ func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
 }
 
 func KnowledgeSearch(keyword string) *ToolResult {
-	initKnowledgeDir()
-	entries, _ := os.ReadDir(knowledgeDir)
-
-	var results []string
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".embed.json") {
-			continue
-		}
-		entry := loadKnowledge(strings.TrimSuffix(e.Name(), ".json"))
-		if entry == nil {
-			continue
-		}
-
-		kw := strings.ToLower(keyword)
-		if strings.Contains(strings.ToLower(entry.Title), kw) ||
-			strings.Contains(strings.ToLower(entry.Summary), kw) ||
-			strings.Contains(strings.ToLower(entry.Content), kw) ||
-			matchesTag(entry.Tags, kw) ||
-			matchesTag(entry.Topics, kw) {
-			results = append(results, fmt.Sprintf("[%s] %s | %s", entry.ID, entry.Title, truncateStr(entry.Summary, 120)))
-		}
-	}
-
+	results := SearchMemoryFull(keyword, 5, nil)
 	if len(results) == 0 {
 		return successResult("未找到匹配的知识条目。")
 	}
-
-	sort.Strings(results)
-	return successResult(strings.Join(results, "\n"))
+	var lines []string
+	for _, r := range results {
+		lines = append(lines, fmt.Sprintf("[%s] %s | %s", r.EntryID, r.Title, truncateStr(r.Summary, 120)))
+	}
+	return successResult(strings.Join(lines, "\n"))
 }
 
 /* ─── ScoredEntry 加权检索结果 ────────────── */
@@ -566,7 +546,17 @@ func tryEmbedding(text string) ([]float64, bool) {
 	if err != nil {
 		return nil, false
 	}
-	resp, err := http.Post(embeddingEndpoint(), "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", embeddingEndpoint(), bytes.NewReader(body))
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if k := os.Getenv("EMBEDDING_API_KEY"); k != "" {
+		req.Header.Set("Authorization", "Bearer "+k)
+	} else if k := os.Getenv("LOCAL_API_KEY"); k != "" {
+		req.Header.Set("Authorization", "Bearer "+k)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, false
 	}
