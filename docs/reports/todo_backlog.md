@@ -6,7 +6,8 @@
 
 | 项 | 说明 | 预估 |
 |----|------|------|
-| L2 OpenHuman method 参数对齐 | 472 schema 方法已发现，参数形状待对齐 | 2h |
+| L2 OpenHuman method 参数对齐 | 4 method 已映射对齐，472 范围过大暂不跟进 | ✅ |
+| 右花进化闭环文档化 | ✅ 已写入 DESIGN_PRINCIPLES.md + MERGE_DECISIONS.md | ✅ |
 
 ## P2 — 协议与测试
 
@@ -21,11 +22,11 @@
 |----|------|------|
 | L4 external_flower 步骤 | 当前 via plugin: name，缺独立步骤类型 | 4h |
 | L5 D02 残留 | MkdirAll/Remove 已标注 TODO | 1h |
-| L6 FangLab F1-F3 | ✅ F1-F3 完成 | 9h |
-| L8 Security Gate | ✅ 已纳入 core_gate (9/9) | 1h |
-| L9 语义文档化 | ✅ 已写入 DESIGN_PRINCIPLES.md | 2h |
-| OpenHuman 适配器联调 | cmd/openhuman-flower-adapter 联调 | 2h |
-| SDK 三步跑通文档 | ✅ QUICK_START.md v2 | 1h |
+| L6 FangLab F1-F3 | ✅ F1-F3 完成 | ✅ |
+| L8 Security Gate | ✅ 已纳入 core_gate (9/9) | ✅ |
+| L9 语义文档化 | ✅ 已写入 DESIGN_PRINCIPLES.md | ✅ |
+| OpenHuman 适配器联调 | ✅ 全链路通车 + launchd 部署 | ✅ |
+| SDK 三步跑通文档 | ✅ QUICK_START.md v2 | ✅ |
 
 ## 边界债务
 

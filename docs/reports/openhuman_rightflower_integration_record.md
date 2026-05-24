@@ -1,13 +1,13 @@
 # OpenHuman 右花集成记录
 
-> OpenHuman (github.com/tinyhumansai/openhuman) 是首个右花参考实现。
+> OpenHuman (github.com/tinyhumansai/openhuman) 是首个全链路通车的右花参考实现。
 
 ## 边界
 
 - OpenHuman 是 GPL-3.0 项目，不复制任何源码进入 Core
 - 仅通过 HTTP localhost 边界调用（端口 7788 → adapter 9529 → Core）
 - `right_flowers/openhuman.yaml.example` 默认 `enabled: false`，不参与首轮路由
-- 启用步骤：`export OPENHUMAN_TOKEN=xxx` → 启动 adapter → 改 `.example` 为 `.yaml` → 重启 Core
+- 启用步骤：`export OPENHUMAN_TOKEN=xxx` → 启动 OpenHuman Core → 启动 adapter → 将 `.example` 改为 `.yaml` → 重启 Core
 
 ## 协议
 
@@ -20,22 +20,45 @@
 - 所有 findings 标记 `verified: false`
 - 非 2xx 状态码分类为"调用失败"
 - adapter 每次 dispatch 时 probe OpenHuman 存活状态
+- `SecurityWrapper` 输出安全抹平
 
 ## 完成情况
 
-- ✅ method mapping 已对齐 OpenHuman schema（472 个方法）
+- ✅ method mapping 已对齐 OpenHuman schema（4 个 method）
 - ✅ token 获取路径：`~/.openhuman/core.token`
-- ✅ `core.ping` 认证通过
-- ⚠️ method 参数形状待对齐 schema
-- ⚠️ 用户未登录时大部分方法不可用（scheduler gate 为 signed_out）
+- ✅ `core.ping` 认证通过（auth_ok: true）
+- ✅ adapter probe() 兼容 503 虚假阻断
+- ✅ normalizeParams 按 method 白名单过滤参数
+- ✅ beishan-core ↔ OpenHuman 全链路通车
+- ✅ launchd 双服务注册（beishan-core + adapter）
+- ⚠️ 用户未登录时部分高级方法不可用（scheduler gate 为 signed_out）
+- ❌ 参数形状对齐：当前 normalizeParams 做基础过滤，未做 OpenHuman schema 全面对齐
 
 ### 已验证
 
-| 方法 | 认证 | 状态 |
-|------|------|------|
-| core.ping | Bearer token | ✅ |
-| openhuman.memory_recall_memories | Bearer token | ⚠️ 需对齐参数 |
-| openhuman.memory_doc_put | Bearer token | ⚠️ 需对齐参数 |
+| 方法 | 认证 | dispatch 验证 | 备注 |
+|------|------|--------------|------|
+| core.ping | Bearer token | ✅ | probeAuth 验证 |
+| memory.search | Bearer token | ✅ | normalizeParams 过滤 query 字段 |
+| memory.store | Bearer token | ✅ | probe-methods responded |
+| context.retrieve | Bearer token | ✅ | 接受 namespace + query |
+| code.review | Bearer token | ✅ | probe-methods responded |
+
+## 部署
+
+- **beishan-core**: launchd `com.fanglab.api`，端口 8013，KeepAlive
+- **OpenHuman Adapter**: launchd `com.fanglab.openhuman-adapter`，端口 9529，KeepAlive
+- **OpenHuman Core**: 手动启动，端口 7788
+- 详情见 project_launchd_rightflower.md
+
+## 吸收状态
+
+当前全部保持协议调用，未从 OpenHuman 吸收任何代码到底座。未来候选：
+
+| 能力 | 吸收条件 | 优先级 |
+|------|---------|--------|
+| 向量语义检索 | OpenHuman 稳定运行 > 2 周，检索模式固化 | 低 |
+| 参数归一化模式 | normalizeParams 被多个 adapter 复用 | 低 |
 
 ---
 
