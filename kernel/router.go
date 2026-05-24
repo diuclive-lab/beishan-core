@@ -18,11 +18,12 @@ import (
    例如用户说"搜索新闻"→ Route 返回 {Recipient:"search_plugin", MsgType:"web_search"}。
 */
 type Decision struct {
-	Recipient  string           `json:"recipient"`
-	MsgType    string           `json:"msg_type,omitempty"`
-	Payload    json.RawMessage  `json:"payload,omitempty"`
-	Reason     string           `json:"reason"`
-	Confidence float64          `json:"confidence"`
+	Recipient       string           `json:"recipient"`
+	MsgType         string           `json:"msg_type,omitempty"`
+	Payload         json.RawMessage  `json:"payload,omitempty"`
+	Reason          string           `json:"reason"`
+	Confidence      float64          `json:"confidence"`
+	SearchSuggestion string          `json:"search_suggestion,omitempty"`
 }
 
 /* pluginEntry 存储插件名 + 描述，用于构建路由 prompt。 */

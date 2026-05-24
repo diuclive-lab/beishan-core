@@ -143,6 +143,12 @@ func findingResult(id, title, summary, source string) RightFlowerResponse {
 	}
 }
 
+func availableMethods() []string {
+	keys := make([]string, 0, len(methodMap))
+	for k := range methodMap { keys = append(keys, k) }
+	return keys
+}
+
 func normalizeParams(method string, params map[string]any) map[string]any {
 	p := make(map[string]any, len(params)+1)
 	for k, v := range params { p[k] = v }
@@ -180,7 +186,7 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 	ohMethod, ok := translateMethod(req.Method)
 	if !ok {
 		json.NewEncoder(w).Encode(findingResult(req.ID,
-			fmt.Sprintf("不支持的 method: %s", req.Method),
+			fmt.Sprintf("不支持的 method: %s。可用: " + strings.Join(availableMethods(), ", "), req.Method),
 			"支持的 methods: memory.search, memory.store, context.retrieve, code.review",
 			"openhuman_adapter"))
 		return
