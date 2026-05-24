@@ -2,52 +2,129 @@
 
 硬化底座 + 左花（内置插件）+ 右花（外部协议）。Go 1.26。
 
+## Project Snapshot (live)
+
+- **git**: `main`, clean, no uncommitted changes
+- **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
+- **health**: `go run ./cmd/core-health` → pass
+- **tools**: 99 registered (97 init + spawn_subagent + spawn_parallel + per-agent delegation)
+- **plugins**: 23 L4 + 33 YAML workflows
+- **right flowers**: 1 (OpenHuman, all 4 methods responded)
+- **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
+
 ## Architecture
 
+### Layer map
+
 ```
-kernel/ (L1)  → glue/ (L2)  → internal/ (L3)  → plugins/ (L4)
-                └── rightflower/ → HTTP dispatch → 右花 adapter
+User Request
+  │
+  ▼ POST /api/chat
+cmd/beishan/main.go  ─── HTTP handler
+  │
+  ▼ kernel.Send(msg)
+kernel/router.go  ─── RouteStrategy → LLM Router → parseDecision
+  │                   ↓                           ↑
+  │              (LLM decides recipient      (hardening:
+  │               from natural language)      JSON + confidence
+  │                                           + knownPlugin)
+  ▼
+kernel.Kernel  ─── 按 recipient 转发
+  │
+  ├──► L4 plugins/ (think_plugin, search_plugin, etc.)
+  │     └── kernel.Call → L3 tools (ValidateAndExecute)
+  │
+  ├──► L2 glue/ (Python subprocess IPC)
+  │     └── stdin/stdout JSON lines
+  │
+  └──► rightflower/ ─── HTTP → adapter → 右花 Core
 ```
 
-| Layer | Dir | Frozen? | Purpose |
-|-------|-----|---------|---------|
-| L1 | kernel/ | ✅ YES | Plugin interface, message routing, Router (LLM) |
-| L2 | glue/ | No | Subprocess IPC, right flower health monitoring |
-| L3 | internal/tools/ | No | 99 registered tools with hardening |
-| L3 | internal/agent/ | No | Sub-agent delegation (spawn_subagent, spawn_parallel) |
-| L3 | internal/observatory/ | No | Decision traces, health checks, event bus |
-| L3 | internal/llm/ | No | LLM provider config, thread-safe provider switching |
-| L3 | internal/discovery/ | No | Local engine scanner + failover strategy |
-| L3 | internal/rightflower/ | No | Manifest loading, HTTP dispatch, audit |
-| L3 | internal/retrieval/ | No | Vector search (L0 keyword + L1 semantic + L0.5 graph) |
-| L3 | internal/workflow/ | No | YAML + Go-DSL dual engine |
-| L4 | plugins/ | No | 23 orchestration plugins |
-| L4 | workflows/ | No | 33 YAML workflow definitions |
+### Layer details
 
-## Key Design Rules (from DESIGN_PRINCIPLES.md)
+| Layer | Dir | Frozen? | Purpose | Dependencies |
+|-------|-----|---------|---------|--------------|
+| L1 | kernel/ | ✅ YES | Plugin interface, message routing, Router | only llm package |
+| L2 | glue/ | No | Subprocess IPC, manifest scan, right flower health | kernel, observatory |
+| L3 | internal/tools/ | No | Tool registry + ValidateAndExecute (99 tools) | registry |
+| L3 | internal/agent/ | No | Sub-agent delegation (spawn_subagent/parallel) | llm, tools, observatory |
+| L3 | internal/observatory/ | No | Trace recorder, health Pulse, event bus (PublishEvent) | — |
+| L3 | internal/llm/ | No | LLM provider config + thread-safe SetProvider | — |
+| L3 | internal/discovery/ | No | Local engine scanner + API→local failover | — |
+| L3 | internal/rightflower/ | No | Manifest loading, HTTP dispatch, audit | kernel |
+| L3 | internal/retrieval/ | No | L0 keyword + L1 semantic + L0.5 graph search | tools |
+| L3 | internal/workflow/ | No | YAML engine + Go-DSL engine | kernel, tools |
+| L4 | plugins/ | No | 23 orchestration plugins | kernel, tools |
+| L4 | workflows/ | No | 33 YAML workflow definitions | workflow_plugin |
+
+## Key Design Rules
 
 1. **Kernel frozen** — never modify kernel/ once stable. Only register, route, forward.
-2. **Hardening layer** — tools go through ValidateAndExecute. Never call tools.Execute directly.
+2. **Hardening layer** — tools go through ValidateAndExecute. NEVER call tools.Execute directly.
 3. **Type = intent, Payload = data** — routing only reads msg.Type, never Payload.
-4. **Right flower = protocol, not integration** — manifest yaml + HTTP dispatch.
+4. **Right flower = protocol, not integration** — manifest yaml + HTTP dispatch. No right flower code in the base.
 5. **Gap analysis required** — every absorption must document what was NOT absorbed and why.
 6. **Design decision vs omission** — if 3 lines can fix it, it was an omission, not a decision.
+
+## Right Flower Protocol (concrete example)
+
+```json
+// beishan-core → adapter (HTTP POST http://localhost:9529/dispatch)
+{
+  "id": "req_abc123",
+  "type": "dispatch",
+  "method": "memory.search",
+  "params": {"namespace": "personal"}
+}
+
+// adapter → OpenHuman Core (JSON-RPC 2.0 over HTTP)
+{
+  "jsonrpc": "2.0",
+  "method": "openhuman.memory_recall_memories",
+  "params": {"namespace": "personal"},
+  "id": "1"
+}
+
+// Response back through chain
+{
+  "sender": "openhuman",
+  "type": "memory.search.result",
+  "payload": {"findings": [...], "flower": "openhuman", "method": "memory.search", "kind": "rightflower"}
+}
+```
+
+**adapter endpoint**: http://localhost:9529/dispatch (manifest → rightflower.Plugin.OnMessage → Client.Dispatch)
+**probe**: GET http://localhost:9529/health → `{"adapter":"openhuman","openhuman":"reachable"}`
+**method map**: memory.search, memory.store, context.retrieve, code.review
+
+## AI Guardrails (what NOT to do)
+
+| Don't | Because |
+|-------|---------|
+| ❌ Don't modify kernel/ | It's frozen. Only register, route, forward. |
+| ❌ Don't call tools.Execute directly | Bypasses hardening. Use ValidateAndExecute. |
+| ❌ Don't add right flower code to the base | Right flower = protocol. Code goes in adapter. |
+| ❌ Don't skip gap analysis | Every absorption MUST document omissions. |
+| ❌ Don't assume "design decision" without proof | If 3 lines can fix it, it's an omission. |
+| ❌ Don't skip breadth check | Changing A without checking B creates islands. |
+| ❌ Don't add dependencies lightly | Zero external Go deps except stdlib. |
 
 ## Build & Test
 
 ```bash
-go build ./...          # full build
-go vet ./...            # static analysis
-go test ./...           # all tests (21 packages)
-go run ./cmd/core-health  # system health check
-go run ./cmd/beishan/   # start server (port :8013)
+go build ./...                # full build
+go vet ./...                  # static analysis
+go test ./...                 # 21 packages
+go run ./cmd/core-health      # health check
+go run ./cmd/beishan/         # start (port :8013)
+go build ./... && go vet ./... && go test ./...  # full CI check
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `cmd/beishan/main.go` | Entry point, plugin registration, agent setup |
+| `cmd/beishan/main.go` | Entry point, plugin + agent registration |
 | `internal/tools/knowledge.go` | Knowledge search (L0+L1+L0.5 pipeline) |
 | `internal/tools/code_security.go` | Security check + code_ai_review |
 | `internal/agent/runner.go` | Sub-agent execution loop |
@@ -55,56 +132,87 @@ go run ./cmd/beishan/   # start server (port :8013)
 | `internal/observatory/trace.go` | Decision traces + default recorder |
 | `internal/llm/config.go` | LLM provider config + SetProvider |
 | `kernel/router.go` | LLM router + parseDecision hardening |
-| `glue/glue.go` | IPC subprocess manager + right flower health |
-| `cmd/openhuman-flower-adapter/main.go` | OpenHuman bridge adapter |
+| `glue/glue.go` | IPC manager + right flower health monitoring |
+| `cmd/openhuman-flower-adapter/main.go` | OpenHuman bridge |
 
 ## Key Env Vars
 
+| Var | Required | Default | Notes |
+|-----|----------|---------|-------|
+| DEEPSEEK_API_KEY | ✅ Yes | — | At least one API key needed |
+| LLM_API_KEY | No | same as DEEPSEEK | Fallback if DEEPSEEK not set |
+| EMBEDDING_ENDPOINT | No | — | Enables semantic search (not configured yet) |
+| RIGHTFLOWER_ENDPOINT | No | localhost:9529/dispatch | Right flower dispatch |
+| LLM_PROVIDER | No | deepseek | deepseek / openai / xiaomi / local |
+| PORT | No | 8013 | HTTP server port |
+
+## Recent State
+
+**Last 5 commits** (2026-05-25):
 ```
-DEEPSEEK_API_KEY       — required LLM API key
-EMBEDDING_ENDPOINT     — vector embedding API (enables semantic search)
-EMBEDDING_API_KEY      — embedding auth key
-RIGHTFLOWER_ENDPOINT   — right flower dispatch URL
-LLM_PROVIDER           — deepseek (default), openai, xiaomi, local
-PORT                   — HTTP server port (default 8013)
+dd22219 docs: AI 可读性升级 — 文档索引 + AI Summary
+b4cf2af docs: README 文档索引补 CLAUDE.md
+6bb42ee docs: CLAUDE.md + 开发日志完整总结
+8c02cb0 docs: devlog 补充深度吸收
+cb554b4 feat: 子智能体自动暴露为独立工具
 ```
 
-## Recent Milestones (2026-05-24/25)
+**Key milestones (May 24-25)**:
+- Right flower OpenHuman 全链路通车 ✅
+- 三次吸收完成（P0 向量检索 / P1 代码审查 / P2 Agent 委派）✅
+- 事件总线 + 对话持久化 ✅
+- 缺口分析 + 设计纪律更新 ✅
+- delegate_to_\* 工具自动注册 ✅
 
-| What | Status |
-|------|--------|
-| Right flower通车 (OpenHuman) | ✅ Full chain: dispatch → probe → memory search |
-| P0: Vector semantic search | ✅ L1 parallel embedding + hybrid scoring |
-| P1: AI code review | ✅ code_ai_review tool + SESSION_EXPIRED fallback |
-| P2: Agent delegation | ✅ spawn_subagent/parallel + delegate_to_* tools |
-| Event bus | ✅ observatory.PublishEvent + Subscribe |
-| Conversation persistence | ✅ agent.complete → eval/run/conversations/ |
-| L2 right flower health | ✅ glue.RegisterRightFlower + unified Pulse |
-| Design docs | ✅ DESIGN_PRINCIPLES + MERGE_DECISIONS + KNOWN_LIMITATIONS |
-| Gap analysis | ✅ openhuman_capability_map.md Step 2.5 |
+**Unfinished** (ask user before implementing):
+- Embedding endpoint (was Qwen 27B — too heavy, use gemma-4-E4B next)
+- LLM function calling API (currently text-mode JSON parsing)
+- Cross-platform deploy (launchd is macOS-only)
+- Event subscribers (log-only, no automated reactions)
 
-## Key Documents (for AI agents)
+## Logs & Debugging
+
+```
+# Server logs (launchd):
+tail -f ~/Library/Logs/FangLab/api.err.log
+tail -f ~/Library/Logs/FangLab/api.log
+
+# Agent events:
+tail -f eval/run/events/events_$(date +%Y%m%d).jsonl
+
+# Agent conversations:
+ls eval/run/conversations/
+
+# Embedding model (llama.cpp on port 8090):
+curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-dev" ...
+```
+
+## When to Ask the User
+
+| Situation | Action |
+|-----------|--------|
+| New right flower project to absorb | Propose plan, wait for approval |
+| kernel/ change needed | STOP — must get explicit approval |
+| Adding a new dependency | Ask first (zero deps policy) |
+| Changing launchd config | Ask first (system-level) |
+| Everything else | Proceed, report when done |
+
+## Key Documents
 
 | Read this | When you need... |
 |-----------|-----------------|
-| README.md | Project overview, quick start, env vars |
-| DESIGN_PRINCIPLES.md | Design philosophy, rules, why the system is this way |
-| MERGE_DECISIONS.md | Past architecture decisions and rejected alternatives |
+| README.md | Project overview, quick start |
+| DESIGN_PRINCIPLES.md | Design philosophy, why it's this way |
+| MERGE_DECISIONS.md | Past decisions and rejected alternatives |
 | KNOWN_LIMITATIONS.md | Design boundaries and unresolved issues |
-| HARDENING_LAYER.md | What hardening guarantees and what it doesn't |
-| DIRECTORY.md | Code layout, which package does what |
-| RIGHT_FLOWER_PROTOCOL.md | How to connect an external tool as a right flower |
-| CHANGELOG.md | Recent changes in chronological order |
+| HARDENING_LAYER.md | What hardening guarantees |
+| DIRECTORY.md | Code layout |
+| RIGHT_FLOWER_PROTOCOL.md | How to connect external tools |
+| CHANGELOG.md | Chronological change history |
+| `workflows/absorb_right_flower.yaml` | Absorption process (Step 2.5 gap analysis) |
 
 **Quick lookup**:
 - "Why is X this way?" → DESIGN_PRINCIPLES.md
 - "Has this been decided before?" → MERGE_DECISIONS.md
-- "Is this a known limitation?" → KNOWN_LIMITATIONS.md
+- "Is this known broken?" → KNOWN_LIMITATIONS.md
 - "Where does this code live?" → DIRECTORY.md
-
-## Unfinished
-
-- Embedding endpoint not configured (was Qwen 27B — too heavy)
-- LLM function calling API (text-mode JSON parsing instead)
-- Cross-platform deploy (launchd is macOS-only, needs systemd for Linux)
-- Event subscribers are log-only (no automated reactions yet)
