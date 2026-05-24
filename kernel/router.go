@@ -32,6 +32,11 @@ type pluginEntry struct {
 	example     string
 }
 
+/* RouteStrategy 路由策略接口。可替换实现用于测试或降级。 */
+type RouteStrategy interface {
+	Route(msg Message) (*Decision, error)
+}
+
 /* Router 封装 DeepSeek API 调用。
 
    职责只有一个：根据消息内容，返回应该发给哪个插件。
@@ -42,6 +47,7 @@ type pluginEntry struct {
    无需手动调用 SetPlugins。
 */
 type Router struct {
+	strategy        RouteStrategy
 	apiKey          string
 	client          *http.Client
 	knownPlugins    []pluginEntry
@@ -62,6 +68,8 @@ func (r *Router) AddKnownPlugin(name, description, example string) {
 func (r *Router) SetWorkflowSummary(summary string) {
 	r.workflowSummary = summary
 }
+
+func (r *Router) SetStrategy(s RouteStrategy) { r.strategy = s }
 
 func NewRouter(apiKey string) *Router {
 	return &Router{
@@ -105,6 +113,9 @@ func (r *Router) buildPluginList() string {
    所有逻辑判断在硬化层（parseDecision）里做。
 */
 func (r *Router) Route(msg Message) (*Decision, error) {
+	if r.strategy != nil {
+		return r.strategy.Route(msg)
+	}
 	pluginList := r.buildPluginList()
 
 		promptTmpl := llm.RouterPrompt()
