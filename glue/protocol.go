@@ -21,7 +21,7 @@ import "encoding/json"
 */
 
 type ProtocolMessage struct {
-	Type    string          `json:"type"`              // register | dispatch | response | shutdown
+	Type    string          `json:"type"`              // register | dispatch | response | event | shutdown
 	Name    string          `json:"name,omitempty"`    // register 时的插件名
 	ID      string          `json:"id,omitempty"`      // dispatch 时的请求 ID，用于配对
 	TraceID string          `json:"trace_id,omitempty"` // 全链路追踪 ID

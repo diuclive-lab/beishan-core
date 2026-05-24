@@ -285,6 +285,24 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	return kernel.Message{}, nil
 }
 
+// readEvents 持续读取子进程 stdout，识别 event 类型消息并处理。
+func (g *GlueLayer) readEvents(p *proc) {
+	for p.stdout.Scan() {
+		var msg ProtocolMessage
+		if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
+			continue
+		}
+		if msg.Type == "event" {
+			log.Printf("[Glue] 事件: %s | %s", p.name, msg.Payload)
+			// event 消息不参与 dispatch-response 配对
+			continue
+		}
+		// 非 event 消息（response）由 readResponse 处理
+		// 这里不做处理，避免竞争
+		_ = msg
+	}
+}
+
 // healthCheckLoop 定期检查子进程存活状态，异常时自动重启。
 func (g *GlueLayer) healthCheckLoop() {
 	ticker := time.NewTicker(healthCheckIntv)
@@ -375,15 +393,22 @@ func (g *GlueLayer) readResponse(p *proc, timeout time.Duration) (*ProtocolMessa
 	errCh := make(chan error, 1)
 
 	go func() {
-		if p.stdout.Scan() {
+		for {
+			if !p.stdout.Scan() {
+				errCh <- fmt.Errorf("子进程 stdout 关闭")
+				return
+			}
 			var msg ProtocolMessage
 			if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
 				errCh <- fmt.Errorf("解析 response 失败: %w", err)
 				return
 			}
+			if msg.Type == "event" {
+				log.Printf("[Glue] 事件 %s: %s", p.name, string(msg.Payload))
+				continue
+			}
 			done <- &msg
-		} else {
-			errCh <- fmt.Errorf("子进程 stdout 关闭")
+			break
 		}
 	}()
 
