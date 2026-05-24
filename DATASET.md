@@ -666,3 +666,45 @@ Core Gate: 10/10 test/vet/health/boundary/eval/docs/workspace/security/smoke/aud
 | 跟踪文件 | 395 |
 | 测试包 | 8 |
 | Core Gate | ✅ |
+
+
+---
+
+## 2026-05-24 测试覆盖补齐 + 孤岛修复
+
+### 测试覆盖
+
+17 个无测试包全部补齐，+43 测试：
+
+| 包 | 测试数 | 覆盖内容 |
+|----|--------|---------|
+| internal/workflow | 7 | ErrorKind/StateStore/GoStep |
+| glue | 3 | ProtocolMessage 5 种类型 |
+| internal/registry | 4 | Phase/Lock/Get/Names |
+| internal/retrieval | 3 | FormatForPrompt |
+| internal/bench | 5 | 3 suites + RunSuite + RunAll |
+| internal/clarify | 2 | BuildQuestion/NewResponse |
+| internal/llm | 3 | RouterPrompt/Model/Provider |
+| plugins | 5 | 5 插件 Plugin 接口 |
+| internal/notify | 4 | channel/payload |
+| cmd/beishan | 6 | preroute/escape/sessionID |
+| cmd/core-eval | 1 | 编译 |
+
+### 孤岛修复
+
+| 问题 | 修复 |
+|------|------|
+| metrics 11 标准指标零引用 | CollectMetrics() |
+| clarify.Request 字符串拼装 | 改用结构化类型 |
+| bus.Publish 无 Subscribe | SubscribeToBus 占位 |
+| legacy aliases 无线程入 | adapter 内联别名表 |
+
+### 项目最终统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 268 |
+| Go 文件 | 124 |
+| 跟踪文件 | 414 |
+| 测试包 | 20（全部 PASS） |
+| Core Gate | ✅ |
