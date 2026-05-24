@@ -12,12 +12,15 @@ type Pulse struct {
 	Provider      string    `json:"provider"`       // "healthy", "degraded", "down"
 	ToolCount     int       `json:"tool_count"`
 	KnowledgeSize int       `json:"knowledge_size"` // stored entries
-	TraceCount    int       `json:"trace_count"`    // decision traces recorded
+	TraceCount    int              `json:"trace_count"`
+	Failure       FailureTaxonomy  `json:"failure,omitempty"`    // decision traces recorded
 	LastError     string    `json:"last_error,omitempty"`
 	UptimeHours   float64   `json:"uptime_hours"`
 }
 
-func Check(providerOK bool, toolCount, knowledgeSize, traceCount int, lastErr string, uptime time.Duration) Pulse {
+func Check(providerOK bool, toolCount, knowledgeSize, traceCount int, lastErr string, uptime time.Duration, metrics ...map[string]float64) Pulse {
+	var ft FailureTaxonomy
+	if len(metrics) > 0 { ft = Classify(metrics[0]) }
 	provider := "healthy"
 	if !providerOK {
 		provider = "down"
@@ -30,6 +33,7 @@ func Check(providerOK bool, toolCount, knowledgeSize, traceCount int, lastErr st
 		TraceCount:    traceCount,
 		LastError:     lastErr,
 		UptimeHours:   uptime.Hours(),
+		Failure:       ft,
 	}
 }
 

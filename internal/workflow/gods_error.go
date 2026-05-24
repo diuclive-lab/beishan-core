@@ -58,6 +58,18 @@ func ClassifyError(toolName string, err error) *ToolError {
 	}
 }
 
+// ToTaxonomyFlag converts ErrorKind to a FailureTaxonomy flag.
+func (k ErrorKind) ToTaxonomyFlag() string {
+	switch k {
+	case KindTimeout: return "timeout_error"
+	case KindTransientBackend: return "transient_backend"
+	case KindPermissionDenied: return "permission_denied"
+	case KindDependencyMissing: return "dependency_missing"
+	case KindInputMismatch: return "input_mismatch"
+	default: return "internal_error"
+	}
+}
+
 // IsRetryable checks if an error qualifies for retry.
 func IsRetryable(err error) bool {
 	if te, ok := err.(*ToolError); ok {
