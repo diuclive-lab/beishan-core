@@ -125,6 +125,7 @@ curl -X POST http://localhost:8013/api/chat \\
 
 | 文档 | 内容 |
 |------|------|
+| [CLAUDE.md](./CLAUDE.md) | AI 协助者项目上下文（结构化速查） |
 | [DIRECTORY.md](./DIRECTORY.md) | 目录结构与物理布局 |
 | [DESIGN_PRINCIPLES.md](./DESIGN_PRINCIPLES.md) | 设计哲学与铁律 |
 | [docs/HARDENING_LAYER.md](./docs/HARDENING_LAYER.md) | 硬化层能力边界 |
