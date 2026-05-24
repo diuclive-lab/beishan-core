@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"beishan/internal/llm"
@@ -48,6 +49,7 @@ type RouteStrategy interface {
    无需手动调用 SetPlugins。
 */
 type Router struct {
+	mu       sync.RWMutex
 	strategy        RouteStrategy
 	apiKey          string
 	client          *http.Client
@@ -70,7 +72,7 @@ func (r *Router) SetWorkflowSummary(summary string) {
 	r.workflowSummary = summary
 }
 
-func (r *Router) SetStrategy(s RouteStrategy) { r.strategy = s }
+func (r *Router) SetStrategy(s RouteStrategy) { r.mu.Lock(); defer r.mu.Unlock(); r.strategy = s }
 
 func NewRouter(apiKey string) *Router {
 	return &Router{
@@ -114,6 +116,8 @@ func (r *Router) buildPluginList() string {
    所有逻辑判断在硬化层（parseDecision）里做。
 */
 func (r *Router) Route(msg Message) (*Decision, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if r.strategy != nil {
 		return r.strategy.Route(msg)
 	}
