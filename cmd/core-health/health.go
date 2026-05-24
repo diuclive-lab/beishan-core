@@ -19,6 +19,9 @@ type HealthReport struct {
 	RightFlowers      int      `json:"right_flowers_enabled"`
 	RightFlowerCtlOk   bool     `json:"rightflower_ctl_ok"`
 	ManifestValidateOk bool     `json:"manifest_validate_ok"`
+	EvalOk             bool     `json:"eval_ok"`
+	HardeningScore     string   `json:"hardening_score"`
+	EvidenceTraceCount int      `json:"evidence_trace_count"`
 	HardeningInvariant bool    `json:"hardening_invariant_ok"`
 	Status            string   `json:"status"` // pass / warn / fail
 }
@@ -112,6 +115,25 @@ func BuildHealthReport(root string, r runner) HealthReport {
 	}
 	rep.ManifestValidateOk = r.Run("go", "run", "./cmd/rightflowerctl", "validate") == nil
 	if !rep.ManifestValidateOk {
+		rep.Status = "warn"
+	}
+	// Eval suites
+	rep.EvalOk = r.Run("go", "run", "./cmd/core-eval/", "--suite", "smoke") == nil
+	if !rep.EvalOk {
+		rep.Status = "warn"
+	}
+	// Hardening score
+	out2, _ := r.Output("bash", "./eval/scripts/check_hardening_invariants.sh")
+	passCount := 0
+	for _, line := range strings.Split(out2, "\n") {
+		if strings.Contains(line, "✅") {
+			passCount++
+		}
+	}
+	if passCount > 0 {
+		rep.HardeningScore = fmt.Sprintf("%d/%d", passCount, passCount+1)
+	} else {
+		rep.HardeningScore = "0/?"
 		rep.Status = "warn"
 	}
 	return rep

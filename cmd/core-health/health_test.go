@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,9 @@ func (m mockRunner) Run(name string, args ...string) error {
 func (m mockRunner) Output(name string, args ...string) (string, error) {
 	if name == "git" {
 		return m.gitOut, nil
+	}
+	if name == "bash" && len(args) > 0 && strings.Contains(args[0], "check_hardening") {
+		return "  [1] ✅\n  [2] ✅\n", nil
 	}
 	return "", nil
 }
