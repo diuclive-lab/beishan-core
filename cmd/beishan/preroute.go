@@ -146,6 +146,9 @@ func preRoute(msg *kernel.Message) bool {
 	if msg.Recipient != "" {
 		return false // 已指定收件人，跳过
 	}
+	// 记录匹配结果用于通知
+	var matchedPattern string
+	_ = matchedPattern // reserved for routing notification
 
 	// 从 payload 提取用户文本
 	userText := extractUserText(msg.Payload)
