@@ -168,8 +168,14 @@ cb554b4 feat: 子智能体自动暴露为独立工具
 **Unfinished** (ask user before implementing):
 - Embedding endpoint (was Qwen 27B — too heavy, use gemma-4-E4B next)
 - LLM function calling API (currently text-mode JSON parsing)
-- Cross-platform deploy (launchd is macOS-only)
+- Cross-platform deploy (launchd is macOS-only, needs systemd/Docker)
 - Event subscribers (log-only, no automated reactions)
+
+**Known friction** (future improvements):
+- **Learning curve**: "hardening layer", "dual flower", "right flower protocol" — too many concepts. Needs a 5-min walkthrough.
+- **Missing demo**: 99 tools, 33 workflows — but no end-to-end example showing "what beishan-core can do for you".
+- **Right flower cold-start**: Only 1 right flower. Needs 2-3 more to prove protocol generality.
+- **DeepSeek dependency**: Router prompt is DeepSeek-optimized. Provider switching is untested for routing with non-DeepSeek models.
 
 ## Logs & Debugging
 
