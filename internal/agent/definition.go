@@ -21,17 +21,57 @@ import (
 	"sync"
 )
 
+// MAX_SPAWN_DEPTH is the maximum nesting level for sub-agents.
+// Prevents infinite recursion when a sub-agent spawns another sub-agent.
+const MAX_SPAWN_DEPTH = 10
+
+// currentSpawnDepth tracks nesting depth via task-local storage.
+// Implemented as a simple counter, incremented on each spawn.
+// Zero means we're in the root agent, not a sub-agent.
+var currentSpawnDepth int
+
+// IncSpawnDepth increments and returns the new depth.
+// Returns error if depth would exceed MAX_SPAWN_DEPTH.
+func IncSpawnDepth() (int, error) {
+	currentSpawnDepth++
+	if currentSpawnDepth > MAX_SPAWN_DEPTH {
+		currentSpawnDepth--
+		return 0, fmt.Errorf("spawn depth exceeded: max %d", MAX_SPAWN_DEPTH)
+	}
+	return currentSpawnDepth, nil
+}
+
+// DecSpawnDepth decrements the spawn depth counter.
+func DecSpawnDepth() {
+	if currentSpawnDepth > 0 {
+		currentSpawnDepth--
+	}
+}
+
+// ModelSpec controls which model a sub-agent uses.
+type ModelSpec struct {
+	// Provider overrides the global LLM provider for this agent.
+	// Empty string means inherit the parent's provider.
+	// Examples: "deepseek", "local", "xiaomi"
+	Provider string `json:"provider,omitempty"`
+	// Model overrides the model name.
+	// Empty string means use the provider's default model.
+	Model string `json:"model,omitempty"`
+	// Temperature overrides the sampling temperature.
+	// Zero means use the agent's default (0.7).
+	Temperature float64 `json:"temperature,omitempty"`
+}
+
 // Definition specifies a sub-agent archetype: its identity, prompt, and tool scope.
 type Definition struct {
-	ID           string   `json:"id"`           // unique identifier, e.g. "researcher"
-	DisplayName  string   `json:"display_name"` // human-readable name
-	Description  string   `json:"description"`  // when to use this agent (shown to delegator LLM)
-	SystemPrompt string   `json:"system_prompt"` // base system prompt
-	Tools        []string `json:"tools"`         // allowed tool names (empty = all tools)
-	Model        string   `json:"model,omitempty"` // optional model override
-	Temperature  float64  `json:"temperature,omitempty"` // 0.0-1.0
-	MaxTokens    int      `json:"max_tokens,omitempty"` // max response tokens
-	MaxIterations int     `json:"max_iterations,omitempty"` // max tool call rounds (default 10)
+	ID           string   `json:"id"`
+	DisplayName  string   `json:"display_name,omitempty"`
+	Description  string   `json:"description"`
+	SystemPrompt string   `json:"system_prompt"`
+	Tools        []string `json:"tools"`          // allowed tool names (empty = all)
+	ModelSpec    `json:"model_spec,omitempty"`    // model/provider override
+	MaxTokens    int      `json:"max_tokens,omitempty"`
+	MaxIterations int     `json:"max_iterations,omitempty"` // default 10
 }
 
 // Registry holds all registered agent definitions.

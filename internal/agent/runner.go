@@ -38,6 +38,17 @@ type ParallelTask struct {
 func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duration) SubagentResult {
 	start := time.Now()
 
+	// Check spawn depth to prevent infinite recursion
+	_, err := IncSpawnDepth()
+	if err != nil {
+		return SubagentResult{
+			TaskID: taskID, AgentID: def.ID,
+			Error:     fmt.Sprintf("spawn depth exceeded: possible infinite recursion"),
+			ElapsedMs: time.Since(start).Milliseconds(),
+		}
+	}
+	defer DecSpawnDepth()
+
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
@@ -55,17 +66,29 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 		{Role: "user", Content: taskPrompt},
 	}
 
+	// Use model/provider override if specified
+	useProvider := ""
+	if def.Provider != "" {
+		useProvider = def.Provider
+	}
+
 	iterations := 0
 	var lastOutput string
 
 	for iterations < maxIter {
 		iterations++
 
-		reply, _, err := llm.ChatCompletionWithUsage(messages, timeout)
-		if err != nil {
+		var reply string
+		var llmErr error
+		if useProvider != "" {
+			reply, _, llmErr = llm.ChatCompletionWithProvider(useProvider, messages, timeout)
+		} else {
+			reply, _, llmErr = llm.ChatCompletionWithUsage(messages, timeout)
+		}
+		if llmErr != nil {
 			return SubagentResult{
 				TaskID: taskID, AgentID: def.ID,
-				Error:     fmt.Sprintf("LLM call failed: %v", err),
+				Error:     "LLM call: " + llmErr.Error(),
 				ElapsedMs: time.Since(start).Milliseconds(),
 			}
 		}
