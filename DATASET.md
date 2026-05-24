@@ -708,3 +708,35 @@ Core Gate: 10/10 test/vet/health/boundary/eval/docs/workspace/security/smoke/aud
 | 跟踪文件 | 414 |
 | 测试包 | 20（全部 PASS） |
 | Core Gate | ✅ |
+
+
+---
+
+## 2026-05-24 关键发现：结构化意图表达通道缺失
+
+### 根本问题
+
+硬化层原则被过度执行——"LLM 不决策"演变成了"LLM 连表达意图的通道都没有"。  
+LLM 能意识到需要调用工具，但输出通道只有纯文本，无法触发实际执行。
+
+### 修复模式
+
+```
+之前: LLM → 纯文本 → 用户 → 再发指令
+之后: LLM → 结构化意图（tool_suggestion）→ 硬化层校验 → 执行
+```
+
+### 类似缺失审计
+
+| 编号 | 位置 | 修复 | 模式 |
+|------|------|------|------|
+| D01 | think_plugin → 工具调用 | parseToolSuggestions | LLM 提议 + 硬化层决策 |
+| D02 | Router → 搜索建议 | Decision.SearchSuggestion | 路由结果 + 补充建议 |
+| D03 | rightflower → 方法建议 | availableMethods() | 错误 + 可用列表 |
+| D04 | preroute → 用户反馈 | ⏭️ | 静默路由 |
+| D05 | validate_file_op → 替代路径 | ⏭️ | 拒绝 + 替代建议 |
+
+### 核心纪律
+
+**后续所有优化都必须检查**：添加功能时，系统是否有"LLM/外部工具表达意图"的通道？  
+如果没有，这不是硬化层的胜利，是过度执行。通道可以设卡（硬化层校验），但不能堵死。
