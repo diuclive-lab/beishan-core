@@ -188,9 +188,11 @@ type CheckFn func() bool
 
 // RegisteredTool holds a tool's definition and handler.
 type RegisteredTool struct {
-	Definition ToolDefinition
-	Handler    ToolHandler
-	CheckFn    CheckFn // nil = always available
+	Definition        ToolDefinition
+	Handler           ToolHandler
+	CheckFn           CheckFn // nil = always available
+	Deprecated        bool   // tool is deprecated
+	DeprecationNotice string // shown when called
 }
 
 // Registry holds all registered tools.
@@ -204,6 +206,15 @@ func HasTool(name string) bool {
 
 // Register adds a tool to the registry (always available).
 func Register(name, description string, params interface{}, handler ToolHandler) {
+	register(name, description, params, handler, "", false)
+}
+
+// RegisterDeprecated registers a deprecated tool. Calls to it will log a warning.
+func RegisterDeprecated(name, description, deprecationNotice string, params interface{}, handler ToolHandler) {
+	register(name, description, params, handler, deprecationNotice, true)
+}
+
+func register(name, description string, params interface{}, handler ToolHandler, deprecationNotice string, deprecated bool) {
 	RegisterWithCheck(name, description, params, handler, nil)
 }
 
