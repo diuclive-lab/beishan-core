@@ -129,6 +129,13 @@ func findingResult(id, title, summary, source string) RightFlowerResponse {
 	}
 }
 
+func normalizeParams(method string, params map[string]any) map[string]any {
+	p := make(map[string]any, len(params)+1)
+	for k, v := range params { p[k] = v }
+	if _, has := p["namespace"]; !has { p["namespace"] = "personal" }
+	return p
+}
+
 func handleProbeMethods(w http.ResponseWriter, r *http.Request) {
 	reachable, authOk := probeAuth()
 	results := map[string]interface{}{"reachable": reachable, "auth_ok": authOk}

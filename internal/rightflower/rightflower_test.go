@@ -150,3 +150,29 @@ func TestManifestSchemaMissingFields(t *testing.T) {
 		t.Fatal("expected error for empty name")
 	}
 }
+
+
+func TestManifestEndpointRequired(t *testing.T) {
+	m := &Manifest{Name: "test", Protocol: "http", Capabilities: []string{"x"}, OutputFormat: "json", SafetyLevel: "sandbox", Enabled: true}
+	if err := ValidateManifest(m); err == nil {
+		t.Fatal("expected error for empty endpoint")
+	}
+}
+
+func TestManifestCapabilitiesRequired(t *testing.T) {
+	m := &Manifest{Name: "test", Protocol: "http", Endpoint: "http://localhost:1", Enabled: true}
+	if err := ValidateManifest(m); err == nil {
+		t.Fatal("expected error for empty capabilities")
+	}
+}
+
+func TestSecurityWrapperUnverified(t *testing.T) {
+	r := &Result{Findings: []Finding{{Title: "t", Verified: true}}}
+	SecurityWrapper(r, "f", "m")
+	if r.Findings[0].Verified {
+		t.Fatal("expected false")
+	}
+	if r.Kind != "rightflower" {
+		t.Fatalf("kind=%q", r.Kind)
+	}
+}
