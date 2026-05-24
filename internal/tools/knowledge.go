@@ -1347,6 +1347,15 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 		}
 	}
 
+	// 分数归一化：关键词分数 (1-15) 与语义分数 (40-100) 尺度不同。
+	// 将非语义来源的分数乘以 6 映射到 0-90 范围，使排序公平。
+	if embeddingEnabled() {
+		for i, r := range expanded {
+			if r.Source != retrieval.KindSemantic && r.Score < 40 {
+				expanded[i].Score = r.Score * 6
+			}
+		}
+	}
 	// ── 排序 + 低分过滤 + 截断 ─────────────────────
 	sort.Slice(expanded, func(i, j int) bool {
 		if expanded[i].Score == expanded[j].Score {
