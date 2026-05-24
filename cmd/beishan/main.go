@@ -287,6 +287,40 @@ func main() {
 		MaxIterations: 4,
 	})
 	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
+	// Register per-agent delegation tools (delegate_to_researcher, etc.)
+	for _, aid := range agent.List() {
+		def, _ := agent.Get(aid)
+		tname := def.ToolName()
+		tdesc := def.ToolDescription()
+		tools.Register(tname, tdesc,
+			map[string]interface{}{
+				"type":     "object",
+				"required": []string{"prompt"},
+				"properties": map[string]interface{}{
+					"prompt": map[string]interface{}{
+						"type":        "string",
+						"description": "Clear task description with all necessary context",
+					},
+				},
+			},
+			func(args map[string]interface{}) *tools.ToolResult {
+				prompt := ""
+				if p, ok := args["prompt"].(string); ok {
+					prompt = p
+				}
+				def, ok := agent.Get(aid)
+				if !ok {
+					return tools.ErrorResult("agent not found: " + aid)
+				}
+				result := agent.RunSubagent("delegate-"+aid, prompt, def, 120*time.Second)
+				if result.Error != "" {
+					return tools.ErrorResult(result.Error)
+				}
+				return tools.SuccessResult(result.Output)
+			},
+		)
+		log.Printf("[agent] delegation tool registered: %s", tname)
+	}
 
 	// Register agent event subscriber for conversation persistence
 	observatory.Subscribe("agent.complete", func(evt observatory.Event) {

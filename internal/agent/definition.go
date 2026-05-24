@@ -74,6 +74,19 @@ type Definition struct {
 	MaxIterations int     `json:"max_iterations,omitempty"` // default 10
 }
 
+// ToolName returns the L3 tool name for delegating to this agent.
+func (d *Definition) ToolName() string { return "delegate_to_" + d.ID }
+
+// ToolDescription returns the description for the delegation tool.
+func (d *Definition) ToolDescription() string {
+	desc := d.Description
+	if desc == "" {
+		desc = "Delegate a task to " + d.ID
+	}
+	desc += ". Pass a clear prompt with all necessary context."
+	return desc
+}
+
 // Registry holds all registered agent definitions.
 type Registry struct {
 	mu    sync.RWMutex
