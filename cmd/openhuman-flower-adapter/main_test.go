@@ -33,10 +33,13 @@ func TestMethodMap_Unknown(t *testing.T) {
 	}
 }
 
-func TestMethodMap_CaseSensitive(t *testing.T) {
-	_, ok := translateMethod("Memory.Search")
-	if ok {
-		t.Fatal("expected false for wrong case")
+func TestMethodMap_CaseInsensitive(t *testing.T) {
+	got, ok := translateMethod("Memory.Search")
+	if !ok {
+		t.Fatal("expected true for case-insensitive")
+	}
+	if got != "openhuman.memory_recall_memories" {
+		t.Fatalf("got %q, expected openhuman.memory_recall_memories", got)
 	}
 }
 
