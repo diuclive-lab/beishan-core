@@ -21,7 +21,7 @@
 |----|------|------|
 | L4 external_flower 步骤 | 当前 via plugin: name，缺独立步骤类型 | 4h |
 | L5 D02 残留 | MkdirAll/Remove 已标注 TODO | 1h |
-| L6 FangLab F1-F3 | health/eval/evidence 吸收队列 | 9h |
+| L6 FangLab F1-F3 | ✅ F1-F3 完成 | 9h |
 | L8 Security Gate | ✅ 已纳入 core_gate (9/9) | 1h |
 | L9 语义文档化 | ✅ 已写入 DESIGN_PRINCIPLES.md | 2h |
 | OpenHuman 适配器联调 | cmd/openhuman-flower-adapter 联调 | 2h |
