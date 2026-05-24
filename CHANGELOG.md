@@ -1,5 +1,44 @@
 # 变更日志
 
+## 2026-05-24 右花全链路通车 + 双花吸收三连 + Agent 委派
+
+### 新增
+
+- **L3: internal/discovery/** — 本地推理引擎扫描器（11 引擎 + 5 测试 + 策略状态机）
+- **L3: internal/observatory/** — SetDefaultRecorder / RecordTrace 全局接口
+- **L3: internal/tools/** — 工具数 96→99：code_ai_review + spawn_subagent + spawn_parallel
+- **L3: internal/agent/** — 子智能体委派：AgentDefinition 注册表 + MAX_SPAWN_DEPTH + ModelSpec
+- **L3: internal/llm/** — 线程安全 SetProvider/FailoverProvider 运行时切换
+- **L3: kernel/local_route.go** — LocalRouteStrategy 本地模型路由 + System Prompt 硬化
+- **L3: glue/** — RegisterRightFlower + RightFlowerStatus + 统一健康检查
+- **L2: glue/healthCheckLoop** — 统一检测子进程 + 右花，上报 observatory Pulse
+- **右花协议** — OpenHuman 全链路通车（adapter 9529 + Core 7788 + probe-methods）
+- **右花吸收工作流** — `workflows/absorb_right_flower.yaml`（探→评→缺口分析→吸→测→补→记）
+- **P0 吸收** — 向量语义检索（L1 并行 + 混合评分）
+- **P1 吸收** — AI 代码审查（code_ai_review L3 工具）
+- **P2 吸收** — Agent 委派（spawn_subagent + spawn_parallel）
+- **P1 bench** — 检索质量评估套件（15 测试：L0/L1/混合/边界/一致性/排序）
+- **launchd 部署** — beishan-core + openhuman-adapter 双服务注册
+
+### 修复
+
+- **评分归一化** — 关键词分数 (1-15) 与语义分数 (40-100) 同尺度排序
+- **KnowledgeSearch 广度补全** — L2 语义回退 → L1 并行语义检索
+- **tryEmbedding Auth** — 增加 Bearer token（EMBEDDING_API_KEY / LOCAL_API_KEY）
+- **smoke 测试** — 无 API key 时走 offline 模式（exit 0 而非直接失败）
+- **extractFieldFromValue** — 负索引防护
+- **glue TCC** — macOS Desktop 路径权限容错
+
+### 文档
+
+- **DESIGN_PRINCIPLES.md** — 双花进化闭环 + 四项吸收条件 + 参考项目义务
+- **docs/MERGE_DECISIONS.md** — 决策 #11 双花进化闭环
+- **docs/KNOWN_LIMITATIONS.md** — #12 右花协议状态更新 + #14 L2 感知跨平台
+- **workflows/absorb_right_flower.yaml** — 三次吸收经验 + 缺口分析 Step 2.5
+- **docs/reports/openhuman_capability_map.md** — 全量实测 + 缺口分析
+
+---
+
 ## 2026-05-24 债务清除 + 长期方案 P1-P2 + Core Gate 硬化
 
 ### 新增

@@ -12,14 +12,17 @@
 | `cmd/repl/` | 实验性交互式 REPL，仅开发调试用 | — |
 | `kernel/` | 微内核：Plugin 接口、注册、消息路由、Router（DeepSeek 路由） | L1 |
 | `glue/` | IPC 通信：子进程管理、manifest 扫描、JSON 行协议 | L2 |
-| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（96 个工具） | L3 |
+| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（99 个工具） | L3 |
 | `internal/workflow/` | 双工作流引擎：YAML 引擎 + Go-DSL 引擎 | L3 |
 | `internal/observatory/` | 决策追踪 + 健康检查 + 因果证据图 | L3 |
 | `internal/bench/` | 通用评估框架（bench + runner + suites） | L3 |
+| `internal/discovery/` | 本地推理引擎扫描 + 策略状态机 + 故障切换 | L3 |
+| `internal/agent/` | 子智能体委派：AgentDefinition 注册表 + spawn_subagent/spawn_parallel | L3 |
 | `internal/clarify/` | 澄清契约数据结构（Request/Response/BuildQuestion） | L3 |
 | `internal/registry/` | 工具生命周期门控（PhaseInit→PhaseRunning）+ Profile 过滤 | L3 |
-| `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 | L3 |
-| `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、重排序 | L3 |
+| `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 + 线程安全 provider 切换 | L3 |
+| `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索（L0关键词+L1语义+L0.5图扩展） | L3 |
+| `internal/rightflower/` | 右花协议：Manifest 加载、HTTP dispatch、审计日志 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
