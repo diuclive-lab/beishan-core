@@ -172,7 +172,7 @@ internal/tools/knowledge.go
 | 未吸收项 | 原因 | 后果 | 补救 | 决策 |
 |---------|------|------|------|------|
 | 工具调用原生 API | 太复杂 — 需 provider 支持 function calling | JSON 解析可能失败 | parseToolCall 有容错 | 临时 — LLM 支持 function calling 时升级 |
-| 子智能体对话持久化 | 冲突 — 硬化层原则不允许自动持久化 | 调试困难，不可回溯 | 本轮 messages 储存在内存中 | 永久 |
+| 子智能体对话持久化 | ✅ 已实现 — agent.complete 事件携带消息快照，subscriber 写入 conversations/ | — | — | — |
 | 嵌套深度超限通知 | 已实现 — MAX_SPAWN_DEPTH=10 | — | — | — |
 | 不同模型 | 已实现 — ModelSpec.Provider | — | — | — |
 | 进度事件 | 不值得 — 底座无事件总线 | 无法实时观察进度 | log.Printf 替代 | 永久 |
@@ -186,4 +186,4 @@ internal/tools/knowledge.go
 |------|--------|--------|--------|
 | 向量检索 | 核心检索管线 | 评分/进度通知 | 评分已有 bench |
 | 代码审查 | L3 工具 + dispatch | 结构化/认证重试 | 认证重试下次补 |
-| Agent 委派 | 注册表 + 执行循环 + 事件 | 持久化/裁剪 | 事件已实现，持久化待 subscriber |
+| Agent 委派 | 注册表 + 执行循环 + 事件 + 持久化 | 裁剪 | 全部已实现 |
