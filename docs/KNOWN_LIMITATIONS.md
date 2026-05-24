@@ -148,14 +148,18 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ## 12. 右花协议未实现
 
-`docs/RIGHT_FLOWER_PROTOCOL.md` 已定义三层契约（通信/安全/注册），但代码层未实现：
+`docs/RIGHT_FLOWER_PROTOCOL.md` 已定义三层契约（通信/安全/注册）。
+
+**代码层已实现（2026-05-24）**：
+- `internal/rightflower/plugin.go` — RegisterAll 扫描 `right_flowers/` 目录 ✅
+- `right_flowers/openhuman.yaml` — 首个右花 manifest 已激活 ✅
+- adapter 桥接 + dispatch + probe-methods 已贯通 ✅
+
+**未实现**：
 - glue/protocol.go 无 `external_flower` 消息类型
-- 无 `right_flowers/` 目录扫描
 - 工作流不支持 `external_flower` 步骤类型
 
-**影响**：右花接入协议目前是纸面文档，无法实际操作。
-
-**缓解**：等第一个真实右花接入时实现。
+**缓解**：右花的 glue 集成目前通过 `RegisterRightFlower` 健康监控实现，协议层的完整步骤类型待后续。
 
 ---
 
@@ -174,12 +178,13 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 ## 14. L2 胶水层对右花无感知（已缓解）
 
 L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC 生命周期。
-右花使用 HTTP 通信 + launchd 管理，完全独立于 glue 的监控范围。
+右花使用 HTTP 通信，生命周期由**平台进程管理器**负责（macOS 上为 launchd，Linux 上为 systemd），
+完全独立于 glue 的监控范围。
 
 **影响**：
 - 右花不可用时 glue 不感知，无自动恢复
 - observatory Pulse 不包含右花健康数据
-- 运维人员需要分别查看 launchd + glue 两层状态
+- 运维人员需要分别查看进程管理器 + glue 两层状态
 
 **缓解**（2026-05-24 实现）：
 - glue 新增 `RegisterRightFlower(name, healthEndpoint)` — 右花注册接口
@@ -187,4 +192,8 @@ L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC
 - `healthCheckLoop` 统一检查子进程 + 右花，报告到 observatory Pulse
 - 主启动流程自动注册 OpenHuman adapter 到 glue
 
-**残余限制**：glue 不管理右花生命周期（重启仍由 launchd 负责），仅做状态感知和报告。
+**设计边界**：glue 不管理右花生命周期（由平台进程管理器负责），仅做状态感知和报告。
+这是明确的分工——进程管理器保证进程活着（进程级），glue 保证健康可见（应用级）。
+
+**跨平台注意**：如果你的部署环境无进程管理器（如裸容器），需要外部 watchdog 或
+Docker restart policy (`--restart=always`) 来保证右花的进程级可用性。
