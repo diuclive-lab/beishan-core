@@ -63,9 +63,23 @@ func loadMethodMap() map[string]string {
 
 var methodMap = loadMethodMap()
 
+// translateMethod resolves method name with case-insensitive fallback.
 func translateMethod(flowerMethod string) (string, bool) {
-	oh, ok := methodMap[flowerMethod]
-	return oh, ok
+	// Direct match
+	if oh, ok := methodMap[flowerMethod]; ok { return oh, ok }
+	// Legacy aliases (formerly in internal/legacy)
+	legacyAliases := map[string]string{
+		"memory.search": "openhuman.memory_recall_memories",
+		"memory.store":  "openhuman.memory_doc_put",
+	}
+	if canonical, ok := legacyAliases[flowerMethod]; ok {
+		if _, ok := methodMap[canonical]; ok { return methodMap[canonical], true }
+	}
+	// Case-insensitive fallback
+	for k, v := range methodMap {
+		if strings.EqualFold(k, flowerMethod) { return v, true }
+	}
+	return "", false
 }
 
 var (

@@ -22,6 +22,7 @@ type HealthReport struct {
 	EvalOk             bool     `json:"eval_ok"`
 	HardeningScore     string   `json:"hardening_score"`
 	EvidenceTraceCount int      `json:"evidence_trace_count"`
+	RightFlowerAuditOk bool     `json:"rightflower_audit_ok"`
 	HardeningInvariant bool    `json:"hardening_invariant_ok"`
 	Status            string   `json:"status"` // pass / warn / fail
 }
@@ -115,6 +116,11 @@ func BuildHealthReport(root string, r runner) HealthReport {
 	}
 	rep.ManifestValidateOk = r.Run("go", "run", "./cmd/rightflowerctl", "validate") == nil
 	if !rep.ManifestValidateOk {
+		rep.Status = "warn"
+	}
+	// RightFlower audit
+	rep.RightFlowerAuditOk = r.Run("test", "-f", "internal/rightflower/audit.go") == nil
+	if !rep.RightFlowerAuditOk {
 		rep.Status = "warn"
 	}
 	// Eval suites

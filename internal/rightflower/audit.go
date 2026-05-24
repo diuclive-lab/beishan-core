@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"beishan/internal/bus"
 )
 
 type AuditRecord struct {
@@ -24,6 +25,7 @@ func init() {
 }
 
 func WriteAudit(record AuditRecord) {
+	bus.DefaultBus.Publish("rightflower.audit", record)
 	if auditDisabled {
 		return
 	}
