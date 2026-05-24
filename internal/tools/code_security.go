@@ -1,8 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -222,4 +225,108 @@ func registerCodeSecurityTools() {
 		},
 		CodeSecurityCheckHandler,
 	)
+
+	// code_ai_review — 基于右花的 AI 代码审查。先试右花，失败则回退规则检查。
+	Register("code_ai_review", "AI 代码审查（通过右花）。分析安全/性能/可维护性问题。",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"code"},
+			"properties": map[string]interface{}{
+				"code":     stringParam("要审查的源代码"),
+				"language": stringParam("编程语言（可选）"),
+				"fallback": stringParam("设为 'never' 跳过规则回退"),
+			},
+		},
+		CodeAIReviewHandler,
+	)
+}
+
+// CodeAIReviewHandler — AI 代码审查。先试右花，失败则回退规则检查。
+
+
+// CodeAIReviewHandler sends code to the right flower for AI review, falls back to rule check.
+func CodeAIReviewHandler(args map[string]interface{}) *ToolResult {
+	code := strArg(args, "code")
+	language := strArg(args, "language")
+	noFallback := strArg(args, "fallback") == "never"
+
+	// Try right flower AI review first
+	resp := tryAICodeReview(code, language)
+	if resp != nil {
+		return resp
+	}
+	if noFallback {
+		return successResult("AI code review unavailable (fallback=never)")
+	}
+
+	// Fallback to rule-based check
+	lang := language
+	if lang == "" {
+		lang = guessLang(code)
+	}
+	return CodeSecurityCheckHandler(map[string]interface{}{
+		"diff": "// review." + lang + "\n" + code,
+	})
+}
+
+func tryAICodeReview(code, lang string) *ToolResult {
+	ep := os.Getenv("RIGHTFLOWER_ENDPOINT")
+	if ep == "" {
+		ep = "http://127.0.0.1:9529/dispatch"
+	}
+	prompt := "Review this code for security, performance, and maintainability issues:\n"
+	if lang != "" {
+		prompt += "\n```" + lang + "\n" + code + "\n```"
+	} else {
+		prompt += "\n```\n" + code + "\n```"
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"id": "code_review", "type": "dispatch",
+		"method": "code.review",
+		"params": map[string]interface{}{"message": prompt},
+	})
+	resp, err := http.Post(ep, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var r struct {
+		Result *struct {
+			Findings []struct {
+				Title   string `json:"title"`
+				Summary string `json:"summary"`
+			} `json:"findings"`
+		} `json:"result"`
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(respBody, &r) != nil || r.Error != "" || r.Result == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range r.Result.Findings {
+		out = append(out, "  - " + f.Title + ": " + truncateStr(f.Summary, 200))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+		return successResult("AI Code Review Results:\n" + strings.Join(out, "\n"))
+}
+
+func guessLang(code string) string {
+	if strings.Contains(code, "func ") || strings.Contains(code, "go func") {
+		return "go"
+	}
+	if strings.Contains(code, "def ") || strings.Contains(code, "import ") {
+		return "py"
+	}
+	if strings.Contains(code, "fn ") || strings.Contains(code, "let ") {
+		return "rs"
+	}
+	if strings.Contains(code, "function ") || strings.Contains(code, "=>") {
+		return "js"
+	}
+	return "txt"
 }

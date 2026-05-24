@@ -266,3 +266,19 @@ func TestPrintRetrievalSummary(t *testing.T) {
 	fmt.Printf("  embedding 配置: %s\n", map[bool]string{true: "已启用", false: "未配置"}[os.Getenv("EMBEDDING_ENDPOINT") != ""])
 	fmt.Printf("  检索管道: L0关键词 + L1语义 + L0.5图扩展\n")
 }
+
+
+// TestCodeAIReview verifies the tool exists and doesn't panic.
+func TestCodeAIReviewBasic(t *testing.T) {
+	Init()
+	result := CodeAIReviewHandler(map[string]interface{}{
+		"code": "func main() { println(\"hello\") }",
+	})
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Output == "" {
+		t.Error("expected non-empty output")
+	}
+	t.Logf("code_ai_review: %s", truncateStr(result.Output, 100))
+}

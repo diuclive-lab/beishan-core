@@ -161,6 +161,9 @@ func normalizeParams(method string, params map[string]any) map[string]any {
 	case "openhuman.memory_context_query":
 		keep := map[string]bool{"namespace": true, "query": true}
 		for k := range p { if !keep[k] { delete(p, k) } }
+	case "openhuman.agent_chat":
+		keep := map[string]bool{"message": true}
+		for k := range p { if !keep[k] { delete(p, k) } }
 	}
 	return p
 }
