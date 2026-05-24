@@ -108,6 +108,9 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 		tc := parseToolCall(reply)
 		if tc == nil {
 			lastOutput = reply
+			if msg, err := json.Marshal(llm.ChatMessage{Role: "assistant", Content: reply}); err == nil {
+				allMessages = append(allMessages, json.RawMessage(msg))
+			}
 			break
 		}
 

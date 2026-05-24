@@ -291,7 +291,26 @@ func main() {
 	// Register agent event subscriber for conversation persistence
 	observatory.Subscribe("agent.complete", func(evt observatory.Event) {
 		if data, ok := evt.Data.(observatory.AgentCompleteData); ok {
+			log.Printf("[events] DEBUG: agent=%s iter=%d msgs=%d", data.AgentID, data.Iterations, len(data.Messages))
 			log.Printf("[events] agent %s completed: %d iter in %dms, output=%d chars", data.AgentID, data.Iterations, data.ElapsedMs, len(data.Output))
+			// Persist conversation for backtracking
+			if len(data.Messages) > 0 {
+				convPath := filepath.Join("eval", "run", "conversations")
+				os.MkdirAll(convPath, 0755)
+				fname := fmt.Sprintf("%s_%s.json", data.AgentID, evt.Timestamp.Format("20060102_150405"))
+				conv := map[string]interface{}{
+					"agent_id":   data.AgentID,
+					"iterations": data.Iterations,
+					"elapsed_ms": data.ElapsedMs,
+					"output":     data.Output,
+					"messages":   data.Messages,
+				}
+				if f, err := os.Create(filepath.Join(convPath, fname)); err == nil {
+					json.NewEncoder(f).Encode(conv)
+					f.Close()
+					log.Printf("[events] conversation saved: %s", fname)
+				}
+			}
 		}
 	})
 	observatory.Subscribe("agent.failed", func(evt observatory.Event) {
