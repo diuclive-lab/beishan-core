@@ -2,12 +2,12 @@
 # ── beishan-core 全功能冒烟测试 ─────────────────
 # 覆盖所有 L3/L4 插件的基础功能（排除法律链）
 #
-# 依赖:
-#   DEEPSEEK_API_KEY set（或 .env 文件）
-#   go build ./... passed
-#
 # 用法:
 #   bash eval/scripts/run_core_smoke.sh [--api URL] [--strict]
+#
+# 行为:
+#   有 DEEPSEEK_API_KEY → 完整 online + offline 测试
+#   无 DEEPSEEK_API_KEY → 只跑 offline 检查，跳过 online（不视为失败）
 #
 # 退出: 0 = 全部通过, 1 = 有失败
 
@@ -43,65 +43,103 @@ info "API: $API_URL"
 info "输出: $OUT_DIR"
 info ""
 
+# ── API key 检测 ───────────────────────────────
+API_KEY="${LLM_API_KEY:-${DEEPSEEK_API_KEY:-}}"
+if [ -z "$API_KEY" ]; then
+  info "⚠️ DEEPSEEK_API_KEY 未设置，跳过 online 测试（仅跑 offline 检查）"
+  echo "" > "$OUT_DIR/skip_online"
+fi
+
 # ── Preflight ──────────────────────────────────
-info "[preflight] 检查 $API_URL ..."
-if ! wait_for_service "$API_URL" 10; then
-  info "[preflight] API 未运行，尝试本地启动..."
+if [ -z "${OUT_DIR_BASE:-}" ]; then
+  OUT_DIR_BASE="$OUT_DIR"
+fi
 
-  if ! command -v go &>/dev/null; then
-    die "go 未安装"
-  fi
-
+if [ -z "$API_KEY" ]; then
+  # offline 模式：只检查编译，不启动服务
+  info "[preflight] offline 模式 — 只检查编译"
   cd "$PROJECT_ROOT"
 
-# 先跑硬化层检查
-if ! bash "$PROJECT_ROOT/eval/scripts/check_hardening.sh" 2>&1 | tee -a "$OUT_DIR/build.log"; then
+  if ! bash "$PROJECT_ROOT/eval/scripts/check_hardening.sh" 2>&1 | tee -a "$OUT_DIR/build.log"; then
     die "硬化层检查未通过"
-fi
+  fi
 
   go build -o "$OUT_DIR/beishan-core" ./cmd/beishan/ 2>&1 | tee "$OUT_DIR/build.log"
   if [ ! -f "$OUT_DIR/beishan-core" ]; then
     die "编译失败，见 $OUT_DIR/build.log"
   fi
+  info "[preflight] 编译通过"
+  info ""
 
-  "$OUT_DIR/beishan-core" &
-  APP_PID=$!
-  info "[preflight] 服务已启动 (PID $APP_PID)"
-
-  if ! wait_for_service "$API_URL" 30; then
-    die "服务启动超时"
-  fi
-  info "[preflight] API 就绪"
-fi
-info ""
-
-# ── run_test: 发送请求 + 验证响应存在且非 error ──
-run_test() {
-  local id="$1"
-  local recipient="$2"
-  local msg_type="$3"
-  local payload="$4"
-  local timeout="${5:-15}"
-
+  # offline 测试 — 不需要服务
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  local test_out="$OUT_DIR/$id"
-  mkdir -p "$test_out"
+  if [ -x "$OUT_DIR/beishan-core" ]; then
+    info "[offline] 二进制存在且可执行 — PASS"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    info "[offline] 二进制不可执行 — FAIL"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 
-  info "[test $TOTAL_COUNT] $id — $recipient/$msg_type"
+  OFFLINE_TESTS_PASSED=$PASS_COUNT
+else
+  # online 模式：完整流程
+  info "[preflight] online 模式 — 检查 $API_URL ..."
+  if ! wait_for_service "$API_URL" 10; then
+    info "[preflight] API 未运行，尝试本地启动..."
 
-  local response
-  response=$(curl -s -X POST "$API_URL/api/chat" \
-    --max-time "$timeout" \
-    -H "Content-Type: application/json" \
-    -d "{\"recipient\":\"$recipient\",\"type\":\"$msg_type\",\"payload\":$payload}" 2>&1 || true)
+    if ! command -v go &>/dev/null; then
+      die "go 未安装"
+    fi
 
-  echo "$response" > "$test_out/response.json"
+    cd "$PROJECT_ROOT"
 
-  if echo "$response" | python3 -c "
+    if ! bash "$PROJECT_ROOT/eval/scripts/check_hardening.sh" 2>&1 | tee -a "$OUT_DIR/build.log"; then
+      die "硬化层检查未通过"
+    fi
+
+    go build -o "$OUT_DIR/beishan-core" ./cmd/beishan/ 2>&1 | tee "$OUT_DIR/build.log"
+    if [ ! -f "$OUT_DIR/beishan-core" ]; then
+      die "编译失败，见 $OUT_DIR/build.log"
+    fi
+
+    "$OUT_DIR/beishan-core" &
+    APP_PID=$!
+    info "[preflight] 服务已启动 (PID $APP_PID)"
+
+    if ! wait_for_service "$API_URL" 30; then
+      die "服务启动超时"
+    fi
+    info "[preflight] API 就绪"
+  fi
+  info ""
+
+  # ── run_test（仅 online 模式） ────────────
+  run_test() {
+    local id="$1"
+    local recipient="$2"
+    local msg_type="$3"
+    local payload="$4"
+    local timeout="${5:-15}"
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    local test_out="$OUT_DIR/$id"
+    mkdir -p "$test_out"
+
+    info "[test $TOTAL_COUNT] $id — $recipient/$msg_type"
+
+    local response
+    response=$(curl -s -X POST "$API_URL/api/chat" \
+      --max-time "$timeout" \
+      -H "Content-Type: application/json" \
+      -d "{\"recipient\":\"$recipient\",\"type\":\"$msg_type\",\"payload\":$payload}" 2>&1 || true)
+
+    echo "$response" > "$test_out/response.json"
+
+    if echo "$response" | python3 -c "
 import json, sys
 try:
     r = json.load(sys.stdin)
-    # 检查是否返回了错误的 note
     note = r.get('note', '')
     if 'error' in note.lower() or '未知' in note or '失败' in note:
         print(f'  FAIL: {note}')
@@ -112,52 +150,59 @@ except Exception as e:
     print(f'  FAIL (解析失败): {e}')
     sys.exit(1)
 " 2>&1; then
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    if [ "$STRICT" = true ]; then
-      die "严格模式：测试 $id 失败"
+      PASS_COUNT=$((PASS_COUNT + 1))
+    else
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      if [ "$STRICT" = true ]; then
+        die "严格模式：测试 $id 失败"
+      fi
     fi
-  fi
-}
+  }
 
-info "── 终端插件 ──"
-run_test "terminal_exec"     "terminal_plugin" "terminal_exec"  '{"command":"echo hello"}'
-run_test "terminal_list"     "terminal_plugin" "terminal_list"  '{}'
+  info "── 终端插件 ──"
+  run_test "terminal_exec"     "terminal_plugin" "terminal_exec"  '{"command":"echo hello"}'
+  run_test "terminal_list"     "terminal_plugin" "terminal_list"  '{}'
 
-info ""
-info "── 浏览器插件 ──"
-run_test "browser_navigate"  "browser_plugin" "browser_navigate" '{"url":"https://example.com"}'
-run_test "browser_snapshot"  "browser_plugin" "browser_snapshot" '{}'
+  info ""
+  info "── 浏览器插件 ──"
+  run_test "browser_navigate"  "browser_plugin" "browser_navigate" '{"url":"https://example.com"}'
+  run_test "browser_snapshot"  "browser_plugin" "browser_snapshot" '{}'
 
-info ""
-info "── 待办插件 ──"
-run_test "todo_add"          "todo_plugin" "todo_add"   '{"todos":["测试A","测试B"]}'
-run_test "todo_list"         "todo_plugin" "todo_list"  '{}'
-run_test "todo_done"         "todo_plugin" "todo_done"  '{"id":1}'
+  info ""
+  info "── 待办插件 ──"
+  run_test "todo_add"          "todo_plugin" "todo_add"   '{"todos":["测试A","测试B"]}'
+  run_test "todo_list"         "todo_plugin" "todo_list"  '{}'
+  run_test "todo_done"         "todo_plugin" "todo_done"  '{"id":1}'
 
-info ""
-info "── 记忆插件 ──"
-run_test "memory_add"        "memory_plugin" "session_add" '{"session_id":"eval_test","role":"user","type":"test","payload":"smoke"}'
-run_test "memory_get"        "memory_plugin" "session_get" '{"session_id":"eval_test"}'
+  info ""
+  info "── 记忆插件 ──"
+  run_test "memory_add"        "memory_plugin" "session_add" '{"session_id":"eval_test","role":"user","type":"test","payload":"smoke"}'
+  run_test "memory_get"        "memory_plugin" "session_get" '{"session_id":"eval_test"}'
 
-info ""
-info "── 会话搜索插件 ──"
-run_test "session_list"      "session_search_plugin" "session_list" '{}'
+  info ""
+  info "── 会话搜索插件 ──"
+  run_test "session_list"      "session_search_plugin" "session_list" '{}'
 
-info ""
-info "── 媒体插件（预留接口）──"
-run_test "tts"               "tts_plugin" "text_to_speech"  '{"text":"hello"}'
+  info ""
+  info "── 媒体插件（预留接口）──"
+  run_test "tts"               "tts_plugin" "text_to_speech"  '{"text":"hello"}'
 
-info ""
-info "── 对话插件 ──"
-run_test "think"             "think_plugin" "chat"   '"你好"'
+  info ""
+  info "── 对话插件 ──"
+  run_test "think"             "think_plugin" "chat"   '"你好"'
+fi
 
 # ── 结果汇总 ───────────────────────────────
 info ""
 info "================================================"
 info "  结果汇总"
-info "  通过: $PASS_COUNT / $TOTAL_COUNT"
+if [ -z "$API_KEY" ]; then
+  info "  模式: offline（跳过 online，因无 API key）"
+  info "  通过(offline): $PASS_COUNT / $TOTAL_COUNT"
+else
+  info "  模式: full"
+  info "  通过: $PASS_COUNT / $TOTAL_COUNT"
+fi
 info "  失败: $FAIL_COUNT / $TOTAL_COUNT"
 info "================================================"
 
@@ -165,6 +210,7 @@ SUMMARY=$(cat <<JSON
 {
   "suite": "core_smoke",
   "date": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "mode": "$([ -z "$API_KEY" ] && echo "offline" || echo "full")",
   "total": $TOTAL_COUNT,
   "pass": $PASS_COUNT,
   "fail": $FAIL_COUNT,
