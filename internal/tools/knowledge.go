@@ -1322,12 +1322,19 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 		})
 	}
 
-	// ── L2: embedding 语义回退（仅当 L0 结果不足）──
-	if len(expanded) < limit && embeddingEnabled() {
+	// ── L1: embedding 语义检索（与 L0 并行，非回退）──
+	if embeddingEnabled() {
 		if emb, ok := tryEmbedding(query); ok {
 			embeddingResults := searchByEmbedding(emb, limit*2, namespace)
 			for _, se := range embeddingResults {
 				if seen[se.ID] {
+					// 合并语义分数：取 max(关键词, 语义) 提升混合命中
+					for i, r := range expanded {
+						if r.EntryID == se.ID && se.Score > r.Score {
+							expanded[i].Score = se.Score
+							break
+						}
+					}
 					continue
 				}
 				seen[se.ID] = true
@@ -1340,11 +1347,11 @@ func searchMemoryFull(query string, limit int, trace *RetrievalTrace, namespace 
 			}
 			if trace != nil {
 				trace.Add(RetrievalStage{
-					Stage:  "L2_embedding",
-					Method: "vector_fallback",
+					Stage:  "L1_embedding",
+					Method: "cosine_similarity",
 					Input:  query,
-					Output: map[string]any{"candidates": len(expanded)},
-					Reason: "L0 insufficient, embedding fallback",
+					Output: map[string]any{"semantic_candidates": len(embeddingResults), "total": len(expanded)},
+					Reason: "parallel semantic search, hybrid scoring",
 				})
 			}
 		}
