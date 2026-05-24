@@ -629,3 +629,40 @@ Core Gate: ✅
 | 边界扫描 | known debt 仅 D02+D03 |
 | 根目录 md | 6 份（README/CHANGELOG/DATASET/DESIGN_PRINCIPLES/DIRECTORY/LICENSE） |
 | 文档总计 | 26 份 |
+
+
+---
+
+## 2026-05-24 广度连接 + 孤岛审计
+
+### 已完成
+
+| 工作 | 说明 |
+|------|------|
+| L2 观测集成 | glue 健康检查 → observatory.Pulse |
+| L2 协议扩展 | protocol 增加 event 类型 |
+| preroute 模式 | 增加"对比"/"搜一下"等模式 |
+| 置信度过滤 | retrieval 丢弃 score < 0.15 |
+| 人格提示词 | RouterPrompt 加入身份规则 |
+| legacy aliases | 方法名别名解析 |
+| event bus | 内部事件总线（3 测试） |
+| 66 Taxonomoy 吸收 | 10 个 failure flags + Pulse 集成 |
+| ErrorKind 映射 | ToTaxonomyFlag() |
+| 功能连接 | 5 个未连接模块接入 |
+| 孤岛审计 | 10 模块审查，3 修复 |
+
+### 核心门禁状态
+
+```bash
+Core Gate: 10/10 test/vet/health/boundary/eval/docs/workspace/security/smoke/audit ✅
+```
+
+### 项目统计
+
+| 指标 | 数值 |
+|------|------|
+| 提交 | 281 |
+| Go 文件 | 122 |
+| 跟踪文件 | 395 |
+| 测试包 | 8 |
+| Core Gate | ✅ |
