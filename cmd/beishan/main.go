@@ -288,6 +288,18 @@ func main() {
 	})
 	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
 
+	// Register agent event subscriber for conversation persistence
+	observatory.Subscribe("agent.complete", func(evt observatory.Event) {
+		if data, ok := evt.Data.(observatory.AgentCompleteData); ok {
+			log.Printf("[events] agent %s completed: %d iter in %dms, output=%d chars", data.AgentID, data.Iterations, data.ElapsedMs, len(data.Output))
+		}
+	})
+	observatory.Subscribe("agent.failed", func(evt observatory.Event) {
+		if data, ok := evt.Data.(observatory.AgentFailedData); ok {
+			log.Printf("[events] agent %s failed: %s", data.AgentID, data.Error)
+		}
+	})
+
 	tools.AgentSpawn = func(agentID, prompt string, timeout time.Duration) *tools.ToolResult {
 		def, ok := agent.Get(agentID)
 		if !ok {
@@ -316,6 +328,8 @@ func main() {
 		return tools.SuccessResult(strings.Join(out, "\n---\n"))
 	}
 	tools.RegisterAgentTools()
+
+		observatory.InitEvents(filepath.Join("eval", "run", "events"))
 
 		observatory.SetDefaultRecorder(observatory.NewPersistentRecorder(
 		filepath.Join(recorderPath, fmt.Sprintf("traces_%s.jsonl", time.Now().Format("20060102")))))

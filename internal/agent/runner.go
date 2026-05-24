@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"beishan/internal/llm"
+	"beishan/internal/observatory"
 	"beishan/internal/tools"
 )
 
@@ -72,8 +73,19 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 		useProvider = def.Provider
 	}
 
+	// Publish spawn event
+	observatory.PublishEvent(observatory.Event{
+		Type: observatory.EventAgentSpawn,
+		Data: observatory.AgentSpawnData{
+			AgentID:    def.ID,
+			TaskPrompt: taskPrompt,
+			ParentID:   taskID,
+		},
+	})
+
 	iterations := 0
 	var lastOutput string
+	var allMessages []json.RawMessage
 
 	for iterations < maxIter {
 		iterations++
@@ -102,11 +114,26 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 		log.Printf("[subagent %s] iter %d: calling %s", def.ID, iterations, tc.Tool)
 		toolResult := executeTool(tc)
 
+		msgBytes, _ := json.Marshal(llm.ChatMessage{Role: "assistant", Content: reply})
+		allMessages = append(allMessages, json.RawMessage(msgBytes))
 		messages = append(messages, llm.ChatMessage{Role: "assistant", Content: reply})
+		msgBytes2, _ := json.Marshal(llm.ChatMessage{Role: "tool", Content: toolResult})
+		allMessages = append(allMessages, json.RawMessage(msgBytes2))
 		messages = append(messages, llm.ChatMessage{Role: "tool", Content: toolResult})
 
 		lastOutput = reply
 	}
+
+	observatory.PublishEvent(observatory.Event{
+		Type: observatory.EventAgentComplete,
+		Data: observatory.AgentCompleteData{
+			AgentID:    def.ID,
+			Iterations: iterations,
+			ElapsedMs:  time.Since(start).Milliseconds(),
+			Output:     lastOutput,
+			Messages:   allMessages,
+		},
+	})
 
 	return SubagentResult{
 		TaskID: taskID, AgentID: def.ID,
