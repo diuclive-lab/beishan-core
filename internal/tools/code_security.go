@@ -293,6 +293,12 @@ func tryAICodeReview(code, lang string) *ToolResult {
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+
+	// Detect auth/session errors and fall back to rule-based check
+	if bytes.Contains(respBody, []byte("SESSION_EXPIRED")) || bytes.Contains(respBody, []byte("signed_out")) {
+		return nil
+	}
+
 	var r struct {
 		Result *struct {
 			Findings []struct {
