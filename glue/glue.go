@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+
+	"beishan/internal/observatory"
 	"syscall"
 	"time"
 
@@ -299,6 +301,10 @@ func (g *GlueLayer) healthCheckLoop() {
 				}
 			}
 			g.mu.RUnlock()
+
+			// 报告子进程健康到 observatory Pulse
+			ok := len(names) == 0
+			observatory.Check(ok, len(g.procs), 0, 0, "", 0)
 
 			for _, name := range names {
 				log.Printf("[Glue] 检测到插件 %s 已失效，尝试重启", name)
