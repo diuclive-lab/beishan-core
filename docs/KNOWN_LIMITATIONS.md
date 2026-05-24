@@ -169,3 +169,22 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 **缓解**：
 - 公开仓库保持 Go 1.21 兼容
 - 新特性先在开发环境验证
+
+
+## 14. L2 胶水层对右花无感知（已缓解）
+
+L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC 生命周期。
+右花使用 HTTP 通信 + launchd 管理，完全独立于 glue 的监控范围。
+
+**影响**：
+- 右花不可用时 glue 不感知，无自动恢复
+- observatory Pulse 不包含右花健康数据
+- 运维人员需要分别查看 launchd + glue 两层状态
+
+**缓解**（2026-05-24 实现）：
+- glue 新增 `RegisterRightFlower(name, healthEndpoint)` — 右花注册接口
+- `RightFlowerStatus()` — 右花健康查询
+- `healthCheckLoop` 统一检查子进程 + 右花，报告到 observatory Pulse
+- 主启动流程自动注册 OpenHuman adapter 到 glue
+
+**残余限制**：glue 不管理右花生命周期（重启仍由 launchd 负责），仅做状态感知和报告。

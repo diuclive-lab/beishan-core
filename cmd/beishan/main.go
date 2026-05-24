@@ -540,6 +540,10 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
+
+	// 注册右花到 glue 统一健康监控（glue 不管理生命周期，只检查状态）
+	gl.RegisterRightFlower("openhuman", "http://localhost:9529/health")
+
 	log.Printf("[main] beishan-core HTTP 服务启动于 %s", addr)
 	log.Printf("[main] 已注册 %d 个插件", len(k.KnownPlugins()))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

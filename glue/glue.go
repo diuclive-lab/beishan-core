@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,7 @@ type GlueLayer struct {
 	mu       sync.RWMutex
 	manifests []Manifest     // 存 manifest 用于重启
 	stopHealth chan struct{}
+	rightFlowers map[string]string // name → health endpoint, registered by main.go
 }
 
 /* proc 代表一个 Python 插件子进程。 */
@@ -55,9 +57,10 @@ type proc struct {
 /* New 创建胶水层实例，还不启动子进程。 */
 func New(k *kernel.Kernel, pluginDir string) *GlueLayer {
 	return &GlueLayer{
-		kernel: k,
-		dir:    pluginDir,
-		procs:  make(map[string]*proc),
+		kernel:       k,
+		dir:          pluginDir,
+		procs:        make(map[string]*proc),
+		rightFlowers: make(map[string]string),
 	}
 }
 
@@ -303,7 +306,8 @@ func (g *GlueLayer) readEvents(p *proc) {
 	}
 }
 
-// healthCheckLoop 定期检查子进程存活状态，异常时自动重启。
+// healthCheckLoop periodically checks subprocess + right flower health.
+// Dead subprocesses are restarted; unhealthy right flowers are logged only (launchd-managed).
 func (g *GlueLayer) healthCheckLoop() {
 	ticker := time.NewTicker(healthCheckIntv)
 	defer ticker.Stop()
@@ -320,14 +324,34 @@ func (g *GlueLayer) healthCheckLoop() {
 			}
 			g.mu.RUnlock()
 
-			// 报告子进程健康到 observatory Pulse
+			// Check right flower health
+			rfStatus := g.RightFlowerStatus()
+			rfAlive := 0
+			for _, ok := range rfStatus {
+				if ok {
+					rfAlive++
+				}
+			}
+
+			// Unified health report to observatory Pulse
 			ok := len(names) == 0
-			observatory.Check(ok, len(g.procs), 0, 0, "", 0, map[string]float64{"subprocess_alive": float64(len(g.procs) - len(names)), "subprocess_dead": float64(len(names))})
+			observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
+				"subprocess_alive":  float64(len(g.procs) - len(names)),
+				"subprocess_dead":   float64(len(names)),
+				"rightflower_alive": float64(rfAlive),
+				"rightflower_total": float64(len(rfStatus)),
+			})
 
 			for _, name := range names {
-				log.Printf("[Glue] 检测到插件 %s 已失效，尝试重启", name)
+				log.Printf("[Glue] subprocess %s dead, restarting", name)
 				if err := g.respawn(name); err != nil {
-					log.Printf("[Glue] 插件 %s 重启失败: %v", name, err)
+					log.Printf("[Glue] subprocess %s restart failed: %v", name, err)
+				}
+			}
+
+			for name, alive := range rfStatus {
+				if !alive {
+					log.Printf("[Glue] right flower %s unreachable", name)
 				}
 			}
 
@@ -420,6 +444,33 @@ func (g *GlueLayer) readResponse(p *proc, timeout time.Duration) (*ProtocolMessa
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("读取响应超时")
 	}
+}
+
+
+/* RegisterRightFlower registers a right flower for unified health monitoring.
+   Glue does NOT manage right flower lifecycle (launchd handles it),
+   only checks health and reports via observatory Pulse. */
+func (g *GlueLayer) RegisterRightFlower(name string, healthEndpoint string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rightFlowers[name] = healthEndpoint
+	log.Printf("[Glue] right flower registered: %s (%s)", name, healthEndpoint)
+}
+
+// RightFlowerStatus returns health of all registered right flowers.
+func (g *GlueLayer) RightFlowerStatus() map[string]bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	status := make(map[string]bool, len(g.rightFlowers))
+	for name, ep := range g.rightFlowers {
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(ep)
+		status[name] = err == nil && resp != nil && resp.StatusCode == 200
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+	return status
 }
 
 /* Shutdown 关闭所有子进程。
