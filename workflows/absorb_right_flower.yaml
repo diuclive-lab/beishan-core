@@ -5,10 +5,33 @@
 # 出处：DESIGN_PRINCIPLES.md → 双花进化闭环
 # 首次执行：2026-05-24 OpenHuman memory.context_query → P0 向量语义检索
 #
+# 设计参考：workflows/code_deep_analyze.yaml
+#   - code_deep_analyze 的分阶段设计（度量→分析→合成→闭环）启发了本工作流的
+#     探→评→吸→测→补→记 六阶段结构
+#   - code_deep_analyze 的"并行静态度量"模式可用于 Step 1 的能力探测
+#   - code_deep_analyze 的"逐文件分析→综合→入库"闭环可用于 Step 6 的吸收归档
+#
+# 经验积累（每次执行后更新）：
+#
+#   v1 (2026-05-24, OpenHuman P0 吸收):
+#   - 【深度/广度陷阱】改了 searchMemoryFull 但忘了改 KnowledgeSearch（工具入口）。
+#     广度检查必须在同一轮完成，不能等"下次"
+#   - 【HTTP 认证遗漏】tryEmbedding 使用 http.Post 没有 Authorization 头。
+#     所有外部 HTTP 调用路径必须检查认证方式
+#   - 【测试预期要基于真实数据】测试用例的 wantTop 预期遇到 237 条真实知识后
+#     全部打脸。bench 测试必须考虑已有数据的分布
+#   - 【模型选择影响运行效率】Qwen 27B 做 embedding 太重（~4s/条），
+#     轻量专用模型（nomic-embed-text 137MB）更合适
+#   - 【异步路径要单独测试】async batchFillEmbedding 的完成时机影响搜索结果，
+#     测试设计时要考虑"embedding 就绪前"和"就绪后"两种状态
+#   - 【全链路验证层次】单元测试→Go 直接调用→HTTP API 调用，三层验证缺一不可。
+#     Go test 通过了但 API 没通过 → 发现 KnowledgeSearch 未接入管道
+#
 # 用法：
 #   1. 右花已通车，选中待吸收能力
 #   2. 执行此工作流
 #   3. 每步完成后标记结果，不通过时终止或调整
+#   4. 执行完成后，将本"经验积累"段追加新条目
 #
 # 字段说明：
 #   check:       检查项描述
@@ -77,20 +100,26 @@ steps:
     fail_action: "如果是 kernel 改动，需要用户审批（见铁律一）"
     output: "internal/ 或 plugins/ 中的代码改动"
 
-  # ── Step 4: 测 — 单元验证 + 全链路验证 ──────
+  # ── Step 4: 测 — 三层验证 ─────────────────────
+  # 经验：Go test 通过了不代表 API call 也通。
+  # 必须逐层验证：单元 → 直接调用 → HTTP API
   - id: verify
-    title: "全链路验证"
-    description: "确保吸收的代码在单元和全链路层面都工作"
+    title: "三层验证"
+    description: "代码 pass 不够，全链路通过才行。单元→直接→API 逐层上升"
     checks:
-      - "单元测试通过（go test ./...）"
-      - "HTTP API 调用新链路，返回正确结果"
+      - "L1 单元测试：go test -run <吸收范围> ./... ✅"
+      - "L2 直接调用：写小测试直接调用吸收的函数（绕开 tool handler），验证核心逻辑"
+      - "L3 HTTP API：通过 curl 调用实际端点，验证完整调用链"
       - "旧行为未破坏（向后兼容）"
-      - "embedding/auth/fallback 各路径均覆盖"
+      - "错误路径（无 API key、服务不可用、超时）不崩溃"
+      - "异步路径（如后台 batchFillEmbedding）单独设计测试，验证就绪前和就绪后两种状态"
+      - "HTTP 外部调用路径全部检查认证方式（不要漏 Authorization 头）"
     pass_criteria:
-      - "go test ./... 100% ✅"
-      - "全链路实测有明确响应 ✅"
-      - "错误路径（无 API key、服务不可用）不崩溃 ✅"
-    fail_action: "返回 Step 3 修正"
+      - "L1 单元测试通过 ✅"
+      - "L2 直接调用验证核心逻辑 ✅"
+      - "L3 HTTP API 返回正确结果 ✅"
+      - "测试覆盖真实数据分布（不假设知识库为空）✅"
+    fail_action: "L2 失败 → 返回 Step 3；L3 失败 → 检查调用链，可能是广度问题"
 
   # ── Step 5: 补 — 广度补全 ───────────────────
   - id: breadth
