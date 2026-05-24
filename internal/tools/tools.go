@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"beishan/internal/registry"
 )
@@ -88,8 +89,73 @@ func init() {
 
 var toolsMu sync.Mutex
 
-// SubagentFactory creates an in-process subagent. Set by the agent package during init.
-var SubagentFactory func(goal, contextStr string, toolsets []string) (string, error)
+// AgentSpawn is set by main.go to avoid import cycle.
+// Calls agent.RunSubagent with the given agent ID and task prompt.
+var AgentSpawn func(agentID, prompt string, timeout time.Duration) *ToolResult
+
+// AgentParallel is set by main.go to avoid import cycle.
+// Calls agent.RunParallel with the given task list.
+var AgentParallel func(tasksJSON string) *ToolResult
+
+// RegisterAgentTools registers spawn_subagent and spawn_parallel tools.
+// Called from main.go after setting AgentSpawn and AgentParallel callbacks.
+func RegisterAgentTools() {
+	Register("spawn_subagent", "Delegate a task to a specialised sub-agent. Use when a task requires a different expertise or tool set.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"agent_id", "prompt"},
+			"properties": map[string]interface{}{
+				"agent_id": stringParam("Agent ID to delegate to (e.g. researcher, coder)"),
+				"prompt":   stringParam("Clear task description with all necessary context"),
+				"timeout":  stringParam("Optional timeout in seconds (default 120)"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			if AgentSpawn == nil {
+				return errorResult("agent system not initialized")
+			}
+			return AgentSpawn(strArg(args, "agent_id"), strArg(args, "prompt"), 120*time.Second)
+		},
+	)
+
+	Register("spawn_parallel", "Run multiple sub-agent tasks concurrently and collect results. Use for independent parallel work.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"tasks"},
+			"properties": map[string]interface{}{
+				"tasks": map[string]interface{}{
+					"type":        "array",
+					"description": "List of sub-agent tasks",
+					"items": map[string]interface{}{
+						"type":     "object",
+						"required": []string{"agent_id", "prompt"},
+						"properties": map[string]interface{}{
+							"agent_id": stringParam("Agent ID"),
+							"prompt":   stringParam("Task description"),
+						},
+					},
+				},
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			if AgentParallel == nil {
+				return errorResult("agent system not initialized")
+			}
+			tasksRaw, _ := args["tasks"].([]interface{})
+			if len(tasksRaw) == 0 {
+				return errorResult("'tasks' is required")
+			}
+			var list []map[string]interface{}
+			for _, t := range tasksRaw {
+				if m, ok := t.(map[string]interface{}); ok {
+					list = append(list, m)
+				}
+			}
+			data, _ := json.Marshal(list)
+			return AgentParallel(string(data))
+		},
+	)
+}
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -261,11 +327,11 @@ func Init() {
 	registry.DefaultInstance.Lock()
 }
 
-func errorResult(msg string) *ToolResult {
+func ErrorResult(msg string) *ToolResult {
 	return &ToolResult{Success: false, Output: msg, Error: msg}
 }
 
-func successResult(output string) *ToolResult {
+func SuccessResult(output string) *ToolResult {
 	return &ToolResult{Success: true, Output: output}
 }
 
@@ -304,3 +370,11 @@ func truncateStr(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
+
+
+// errorResult is a backward-compatible alias for ErrorResult.
+func errorResult(msg string) *ToolResult { return ErrorResult(msg) }
+
+// successResult is a backward-compatible alias for SuccessResult.
+func successResult(output string) *ToolResult { return SuccessResult(output) }
+

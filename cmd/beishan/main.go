@@ -21,6 +21,7 @@ import (
 	"beishan/glue"
 	"beishan/internal/discovery"
 	"beishan/internal/llm"
+	"beishan/internal/agent"
 	"beishan/internal/observatory"
 	"beishan/internal/tools"
 	"beishan/internal/rightflower"
@@ -270,7 +271,53 @@ func main() {
 	// ─── Observatory Trace Recorder ──────────────
 	recorderPath := filepath.Join("eval", "run", "traces")
 	os.MkdirAll(recorderPath, 0o755)
-	observatory.SetDefaultRecorder(observatory.NewPersistentRecorder(
+	// Agent registry + tools
+	agent.Register(agent.Definition{
+		ID:           "researcher",
+		Description:  "Research using web search tools",
+		SystemPrompt: "You are a research assistant. Use web search to find information. Cite sources.",
+		Tools:        []string{"web_search", "web_fetch"},
+		MaxIterations: 5,
+	})
+	agent.Register(agent.Definition{
+		ID:           "summarizer",
+		Description:  "Summarize text into concise structured output",
+		SystemPrompt: "You are a summarization specialist. Produce clear, concise summaries.",
+		Tools:        []string{},
+		MaxIterations: 2,
+	})
+	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
+
+	tools.AgentSpawn = func(agentID, prompt string, timeout time.Duration) *tools.ToolResult {
+		def, ok := agent.Get(agentID)
+		if !ok {
+			return tools.ErrorResult(fmt.Sprintf("agent %q not found. Available: %s", agentID, strings.Join(agent.List(), ", ")))
+		}
+		result := agent.RunSubagent("spawn-"+agentID, prompt, def, timeout)
+		if result.Error != "" {
+			return tools.ErrorResult(result.Error)
+		}
+		return tools.SuccessResult("[subagent " + agentID + "]:\n" + result.Output)
+	}
+	tools.AgentParallel = func(tasksJSON string) *tools.ToolResult {
+		var tasks []agent.ParallelTask
+		if err := json.Unmarshal([]byte(tasksJSON), &tasks); err != nil {
+			return tools.ErrorResult("parse error: " + err.Error())
+		}
+		results := agent.RunParallel(tasks, 120*time.Second)
+		var out []string
+		for _, r := range results {
+			if r.Error != "" {
+				out = append(out, fmt.Sprintf("[%s] ERROR: %s", r.AgentID, r.Error))
+			} else {
+				out = append(out, fmt.Sprintf("[%s] %s", r.AgentID, r.Output))
+			}
+		}
+		return tools.SuccessResult(strings.Join(out, "\n---\n"))
+	}
+	tools.RegisterAgentTools()
+
+		observatory.SetDefaultRecorder(observatory.NewPersistentRecorder(
 		filepath.Join(recorderPath, fmt.Sprintf("traces_%s.jsonl", time.Now().Format("20060102")))))
 
 	// ─── 本地引擎扫描 + 自动故障切换 ────────────────
