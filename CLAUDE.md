@@ -83,6 +83,25 @@ PORT                   — HTTP server port (default 8013)
 | Design docs | ✅ DESIGN_PRINCIPLES + MERGE_DECISIONS + KNOWN_LIMITATIONS |
 | Gap analysis | ✅ openhuman_capability_map.md Step 2.5 |
 
+## Key Documents (for AI agents)
+
+| Read this | When you need... |
+|-----------|-----------------|
+| README.md | Project overview, quick start, env vars |
+| DESIGN_PRINCIPLES.md | Design philosophy, rules, why the system is this way |
+| MERGE_DECISIONS.md | Past architecture decisions and rejected alternatives |
+| KNOWN_LIMITATIONS.md | Design boundaries and unresolved issues |
+| HARDENING_LAYER.md | What hardening guarantees and what it doesn't |
+| DIRECTORY.md | Code layout, which package does what |
+| RIGHT_FLOWER_PROTOCOL.md | How to connect an external tool as a right flower |
+| CHANGELOG.md | Recent changes in chronological order |
+
+**Quick lookup**:
+- "Why is X this way?" → DESIGN_PRINCIPLES.md
+- "Has this been decided before?" → MERGE_DECISIONS.md
+- "Is this a known limitation?" → KNOWN_LIMITATIONS.md
+- "Where does this code live?" → DIRECTORY.md
+
 ## Unfinished
 
 - Embedding endpoint not configured (was Qwen 27B — too heavy)

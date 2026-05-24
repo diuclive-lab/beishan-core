@@ -1,5 +1,13 @@
 # 硬化层能力声明
 
+> **AI Summary:** Hardening layer = 5 defenses: 
+> (1) parseDecision JSON+confidence+knownPlugins, 
+> (2) ValidateParams type+required+unknown-field rejection, 
+> (3) isSafePath path traversal prevention, 
+> (4) code_security 8 rules (SQL injection, reverse shell, etc.), 
+> (5) validate_file_op read/write/delete guard.
+> Does NOT guarantee: business logic correctness, LLM output quality, or absence of side effects.
+
 ## 什么是硬化层
 
 硬化层是 beishan-core **最独特的架构决策**。核心思想：**能用确定性代码解决的问题，绝不让 LLM 参与。**

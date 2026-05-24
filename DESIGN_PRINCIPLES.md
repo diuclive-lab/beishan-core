@@ -1,5 +1,12 @@
 # 设计纪律
 
+
+> **AI Summary:** beishan-core design principles. Core rule: kernel is frozen (register+route+forward only).
+> Hardening layer: all tools go through ValidateAndExecute. Type = intent, Payload = data (router never reads Payload).
+> Right flower = protocol, not integration. Deep + breadth required for all changes.
+> "Design decision vs omission" — if 3 lines fix it, it was an omission.
+
+
 ## 文档导航
 
 本文件是项目的**核心设计哲学**。与其互补的文档：

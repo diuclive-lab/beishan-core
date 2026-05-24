@@ -3,6 +3,11 @@
 本文件记录项目演进过程中的关键架构决策，以及被拒绝的方案和理由。
 目的是让后来者理解"为什么系统是这个样子"，而不是"系统是什么"。
 
+> **AI Summary:** 11 key architecture decisions. 
+> #1: Four-layer architecture (L1 frozen). #7: Dual workflow engines (YAML + Go-DSL).
+> #10: TwinFlower absorption (2095 lines, zero kernel changes). #11: Right flower evolution闭环.
+> Rejected: monolithic merge, OpenHuman vendoring, right flower as final state.
+
 ## 格式
 
 每条决策记录包含：

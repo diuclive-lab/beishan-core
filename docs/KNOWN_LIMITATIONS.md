@@ -5,6 +5,11 @@
 
 ---
 
+> **AI Summary:** 14 known limitations. 
+> Key: hardening only guarantees surface safety (not logic correctness).
+> No sandbox, no workflow persistence, no gate automation.
+> L2 glue doesn't manage right flower lifecycle (OS process manager does).
+
 ## 1. 硬化层完备性边界
 
 硬化层只保证表层安全（格式、命令、路径），不保证深层正确性（逻辑、架构、性能）。
