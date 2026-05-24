@@ -44,6 +44,6 @@
 
 | 轮次 | 模块 | 风险 | 验收 |
 |------|------|------|------|
-| F1 | health JSON summary | low | core-health --json output |
+| F1 | health JSON summary | low | ✅ core-health --json 已有 |
 | F2 | eval runner | medium | go test -run Eval |
 | F3 | evidence contract | medium | evidence schema test |

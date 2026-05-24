@@ -165,6 +165,18 @@ LLM 只做它擅长的事：生成文本。
 
 beishan-core = **硬化底座 + 左花执行侧**。右花是遵循协议的外部工具。
 
+### 插件注册语义
+
+| 方法 | 路由可见 | 适用场景 |
+|------|---------|---------|
+| `Kernel.Register` | 首轮 DeepSeek 可见 | 内置左花插件，暴露给 AI 路由 |
+| `Kernel.RegisterUnlisted` | 首轮不可见，仅显式 Recipient | 右花、内部工具、不暴露给 AI 的插件 |
+
+**规则**：
+- 右花默认使用 `RegisterUnlisted`，不参与首轮 AI 路由
+- `Manifest.route_exposed: true` 时使用 `Register`（仅测试/演示场景）
+- 所有 `RegisterUnlisted` 插件仍可通过 `KnownPlugins()` 查询和显式 `Recipient` 调用
+
 - **底座** = kernel/ + glue/ + internal/（硬化层 + 工具 + 引擎）
 - **左花** = plugins/ + workflows/（底座内置的生产执行侧）
 - **右花** = 遵循 docs/RIGHT_FLOWER_PROTOCOL.md 的外部工具

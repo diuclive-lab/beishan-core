@@ -20,12 +20,12 @@
 | 项 | 说明 | 预估 |
 |----|------|------|
 | L4 external_flower 步骤 | 当前 via plugin: name，缺独立步骤类型 | 4h |
-| L5 D02 残留 | MkdirAll/Remove 待 delete_file 工具 | 1h |
+| L5 D02 残留 | MkdirAll/Remove 已标注 TODO | 1h |
 | L6 FangLab F1-F3 | health/eval/evidence 吸收队列 | 9h |
-| L8 Security Gate | 安全模型纳入 core_gate | 1h |
-| L9 语义文档化 | Register/RegisterUnlisted 差异 | 2h |
+| L8 Security Gate | ✅ 已纳入 core_gate (9/9) | 1h |
+| L9 语义文档化 | ✅ 已写入 DESIGN_PRINCIPLES.md | 2h |
 | OpenHuman 适配器联调 | cmd/openhuman-flower-adapter 联调 | 2h |
-| SDK 三步跑通文档 | 完善 quick start | 1h |
+| SDK 三步跑通文档 | ✅ QUICK_START.md v2 | 1h |
 
 ## 边界债务
 
