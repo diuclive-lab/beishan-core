@@ -20,10 +20,22 @@ type Pulse struct {
 
 func Check(providerOK bool, toolCount, knowledgeSize, traceCount int, lastErr string, uptime time.Duration, metrics ...map[string]float64) Pulse {
 	var ft FailureTaxonomy
-	if len(metrics) > 0 { ft = Classify(metrics[0]) }
+	var m map[string]float64
+	if len(metrics) > 0 {
+		m = metrics[0]
+		ft = Classify(m)
+	}
 	provider := "healthy"
 	if !providerOK {
 		provider = "down"
+	}
+	if m != nil {
+		if v, ok := m["api_reachable"]; ok && v == 0 {
+			provider = "degraded"
+		}
+		if v, ok := m["local_model_available"]; ok && v > 0 && !providerOK {
+			provider = "degraded (local fallback)"
+		}
 	}
 	return Pulse{
 		Timestamp:     time.Now().UTC(),
