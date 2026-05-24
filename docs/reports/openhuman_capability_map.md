@@ -115,6 +115,12 @@ internal/tools/knowledge.go
 | P2 | 自动语义回退（关键词无结果时降级） | 1h | ✅ 已包含在 P0 中 |
 | P3 | adapter methodMap 扩展（更多 OpenHuman 能力暴露） | 0.5h | 🔲 |
 
+### 运行时经验
+
+- **Qwen3.6-27B 太重**：~3-4s/条 embedding，237 条需 ~15min。建议用 nomic-embed-text（137MB）或 bge-small
+- **配置方式**：`EMBEDDING_ENDPOINT=http://<host>:<port>/v1/embeddings` + `EMBEDDING_API_KEY=xxx`
+- **当前状态**：236/237 条已有 embedding（Qwen 完成），配置已注释掉。下次需轻量模型时重新启用
+
 ---
 
 ## 四、参考项目义务
