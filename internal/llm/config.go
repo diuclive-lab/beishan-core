@@ -126,6 +126,7 @@ Available plugins:
 
 Routing rules with payload formats:
 - "搜索知识库"/"查知识"/"我的笔记" → recipient:memory_plugin, msg_type:knowledge_search, payload:{"keyword":"user input"}
+- "对比"/"区别"/"差异"/"不同" (comparison) → think_plugin:chat
 - "搜索"/"搜一下"/"查找资料" (web) → recipient:search_plugin, msg_type:web_search, payload:{"query":"user input"}
 - "列出知识"/"知识列表" → recipient:memory_plugin, msg_type:knowledge_list, payload:{}
 - "添加知识"/"记录一下" → recipient:memory_plugin, msg_type:knowledge_add, payload:{"title":"...","summary":"..."}

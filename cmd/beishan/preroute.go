@@ -36,6 +36,28 @@ var preroutePatterns = []preroutePattern{
 			return b
 		},
 	},
+	// 对比/差异类
+	{
+		keywords:  []string{"对比", "区别", "差异", "不同", "差距"},
+		recipient: "",
+		msgType:   "",
+	},
+	// 搜索兜底
+	{
+		keywords:  []string{"搜一下", "帮我查", "查查", "查一下"},
+		recipient: "search_plugin",
+		msgType:   "web_search",
+		extract: func(text string) json.RawMessage {
+			kw := text
+			for _, p := range []string{"搜一下", "帮我查", "查查", "查一下"} {
+				kw = strings.TrimPrefix(kw, p)
+			}
+			kw = strings.TrimSpace(kw)
+			if kw == "" { return nil }
+			b, _ := json.Marshal(map[string]string{"query": kw})
+			return b
+		},
+	},
 	// 创建工作流
 	{
 		keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
