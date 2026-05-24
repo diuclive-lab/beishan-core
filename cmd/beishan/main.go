@@ -281,10 +281,10 @@ func main() {
 	})
 	agent.Register(agent.Definition{
 		ID:           "summarizer",
-		Description:  "Summarize text into concise structured output",
-		SystemPrompt: "You are a summarization specialist. Produce clear, concise summaries.",
-		Tools:        []string{},
-		MaxIterations: 2,
+		Description:  "Summarize files and text into concise structured output",
+		SystemPrompt: "You are a summarization specialist. Read content and produce clear, concise summaries.",
+		Tools:        []string{"read_file", "search_files", "grep"},
+		MaxIterations: 4,
 	})
 	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
 
