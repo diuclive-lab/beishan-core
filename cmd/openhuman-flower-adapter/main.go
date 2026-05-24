@@ -94,7 +94,7 @@ func probe() bool {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == 200
+	return resp.StatusCode == 200 || resp.StatusCode == 503
 }
 
 func probeAuth() (bool, bool) {
@@ -153,6 +153,15 @@ func normalizeParams(method string, params map[string]any) map[string]any {
 	p := make(map[string]any, len(params)+1)
 	for k, v := range params { p[k] = v }
 	if _, has := p["namespace"]; !has { p["namespace"] = "personal" }
+	// Strip unknown params per method — OpenHuman rejects unknown fields
+	switch method {
+	case "openhuman.memory_recall_memories":
+		keep := map[string]bool{"namespace": true}
+		for k := range p { if !keep[k] { delete(p, k) } }
+	case "openhuman.memory_context_query":
+		keep := map[string]bool{"namespace": true, "query": true}
+		for k := range p { if !keep[k] { delete(p, k) } }
+	}
 	return p
 }
 
@@ -198,7 +207,7 @@ func handleDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respBody, statusCode, err := dispatchToOpenHuman(ohMethod, req.Params)
+	respBody, statusCode, err := dispatchToOpenHuman(ohMethod, normalizeParams(ohMethod, req.Params))
 	if err != nil {
 		json.NewEncoder(w).Encode(findingResult(req.ID, "OpenHuman 调用失败",
 			fmt.Sprintf("HTTP 请求失败: %v", err), "openhuman_adapter"))

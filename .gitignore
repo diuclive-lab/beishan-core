@@ -8,6 +8,8 @@ imports/
 eval/run/logs/
 eval/run/pids/
 eval/run/core_smoke_*/
+adapter.log
+beishan-core-launch.sh
 generated/
 
 # 编译产物

@@ -31,16 +31,18 @@ func NewLocalRouteStrategy(router *Router, endpoint, model string) *LocalRouteSt
 }
 
 // Route sends the routing prompt to the local model, then validates via parseDecision.
+// Local models are less reliable at JSON generation than DeepSeek, so we prefix
+// a strict system message with explicit format constraints.
 func (s *LocalRouteStrategy) Route(msg Message) (*Decision, error) {
 	pluginList := s.router.buildPluginList()
 
 	promptTmpl := llm.RouterPrompt()
-	prompt := fmt.Sprintf(promptTmpl,
+	userPrompt := fmt.Sprintf(promptTmpl,
 		pluginList,
 		msg.Type+": "+string(msg.Payload),
 	)
 
-	resp, err := s.callLocal(prompt)
+	resp, err := s.callLocal(userPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("本地路由调用失败: %w", err)
 	}
@@ -48,10 +50,18 @@ func (s *LocalRouteStrategy) Route(msg Message) (*Decision, error) {
 	return s.router.parseDecision(resp)
 }
 
-func (s *LocalRouteStrategy) callLocal(prompt string) (string, error) {
+func (s *LocalRouteStrategy) callLocal(userPrompt string) (string, error) {
+	systemMsg := `You are a routing engine. Your ONLY output must be a single valid JSON object.
+No markdown, no code fences, no explanations, no greetings, no additional text.
+Output format: {"recipient":"plugin_name","msg_type":"message_type","payload":{},"reason":"why","confidence":0.0}
+If you are unsure, set confidence to 0.0.`
+
 	body, _ := json.Marshal(map[string]interface{}{
-		"model":    s.model,
-		"messages": []map[string]string{{"role": "user", "content": prompt}},
+		"model": s.model,
+		"messages": []map[string]string{
+			{"role": "system", "content": systemMsg},
+			{"role": "user", "content": userPrompt},
+		},
 	})
 
 	req, err := http.NewRequest("POST", s.endpoint+"/v1/chat/completions", bytes.NewReader(body))

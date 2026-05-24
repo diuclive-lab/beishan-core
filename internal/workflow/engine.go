@@ -565,7 +565,9 @@ func extractFieldFromValue(v interface{}, fieldPath string) (interface{}, bool) 
 		arrIdx := -1
 		if braceStart := strings.Index(part, "["); braceStart > 0 && strings.HasSuffix(part, "]") {
 			fieldName = part[:braceStart]
-			fmt.Sscanf(part[braceStart+1:len(part)-1], "%d", &arrIdx)
+			if n, err := fmt.Sscanf(part[braceStart+1:len(part)-1], "%d", &arrIdx); err != nil || n != 1 || arrIdx < 0 {
+				return nil, false // reject negative or non-integer index
+			}
 		}
 		if m, ok := current.(map[string]interface{}); ok {
 			current = m[fieldName]

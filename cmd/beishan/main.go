@@ -21,6 +21,7 @@ import (
 	"beishan/glue"
 	"beishan/internal/discovery"
 	"beishan/internal/llm"
+	"beishan/internal/observatory"
 	"beishan/internal/tools"
 	"beishan/internal/rightflower"
 
@@ -265,6 +266,12 @@ func main() {
 	if err := rightflower.RegisterAll(k, "./right_flowers"); err != nil {
 		log.Printf("[rightflower] 加载失败: %v（右花为可选能力，继续启动）", err)
 	}
+
+	// ─── Observatory Trace Recorder ──────────────
+	recorderPath := filepath.Join("eval", "run", "traces")
+	os.MkdirAll(recorderPath, 0o755)
+	observatory.SetDefaultRecorder(observatory.NewPersistentRecorder(
+		filepath.Join(recorderPath, fmt.Sprintf("traces_%s.jsonl", time.Now().Format("20060102")))))
 
 	// ─── 本地引擎扫描 + 自动故障切换 ────────────────
 	engines := discovery.ScanWithModel(2 * time.Second)
@@ -648,6 +655,12 @@ func monitorFailover(k *kernel.Kernel, state *discovery.StrategyState, engine di
 		case decision == "local" && state.OnAPI():
 			// API → local 切换
 			log.Printf("[failover] API 不可用，切换到本地模型 (%s)", engine.Name)
+			observatory.RecordTrace(observatory.Trace{
+				ID: newSessionID(), Mode: "failover",
+				Route: "failover_switch", Plugin: "failover_controller",
+				Status: "switched_to_local",
+				RouteReason: fmt.Sprintf("API unreachable, fallback to %s (%s)", engine.Name, engine.Model),
+			})
 			os.Setenv("LLM_BASE_URL", engine.Endpoint)
 			if engine.Model != "" {
 				os.Setenv("LLM_MODEL", engine.Model)
@@ -658,6 +671,12 @@ func monitorFailover(k *kernel.Kernel, state *discovery.StrategyState, engine di
 		case decision == "api" && !state.OnAPI():
 			// local → API 恢复回切
 			log.Println("[failover] API 恢复，切回 DeepSeek")
+			observatory.RecordTrace(observatory.Trace{
+				ID: newSessionID(), Mode: "failover",
+				Route: "failover_recovery", Plugin: "failover_controller",
+				Status: "recovered_to_api",
+				RouteReason: "API reachable after hysteresis, restored to DeepSeek",
+			})
 			os.Unsetenv("LLM_BASE_URL")
 			os.Unsetenv("LLM_MODEL")
 			llm.SetProvider("")

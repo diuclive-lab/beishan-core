@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,6 +90,32 @@ func (r *Recorder) Recent(n int) []Trace {
 		return r.traces
 	}
 	return r.traces[len(r.traces)-n:]
+}
+
+// defaultRecorder is a package-level recorder for system-wide trace events.
+var (
+	defaultRecorder   *Recorder
+	recorderMu        sync.RWMutex
+)
+
+// SetDefaultRecorder sets the package-level recorder for system-wide events.
+func SetDefaultRecorder(r *Recorder) {
+	recorderMu.Lock()
+	defer recorderMu.Unlock()
+	defaultRecorder = r
+}
+
+// RecordTrace records a trace event to the default recorder, if set.
+// Returns true if recorded, false if no default recorder is configured.
+func RecordTrace(t Trace) bool {
+	recorderMu.RLock()
+	r := defaultRecorder
+	recorderMu.RUnlock()
+	if r == nil {
+		return false
+	}
+	r.Record(t)
+	return true
 }
 
 // Summary aggregates trace statistics.
