@@ -34,6 +34,9 @@ if ! $QUICK; then
   echo -n "  workspace clean... "
   if bash "$HERE"/eval/scripts/check_workspace_clean.sh 2>/dev/null | tail -1 | grep -q "整洁"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 
+  echo -n "  security model... "
+  if bash "$HERE"/eval/scripts/check_security_model.sh 2>/dev/null | tail -1 | grep -q "一致"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
+
   echo -n "  rightflower smoke... "
   if bash "$HERE/eval/scripts/rightflower_smoke.sh" $([ "$STRICT" = true ] && echo "--strict") 2>/dev/null | tail -1 | grep -q "通过"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 fi
