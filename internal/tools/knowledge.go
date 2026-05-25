@@ -2350,6 +2350,9 @@ func KnowledgeGraph() *ToolResult {
 	var edges []GraphEdge
 
 	for _, entry := range all {
+		if entry.ID == "" {
+			continue
+		}
 		nodes = append(nodes, GraphNode{
 			ID:         entry.ID,
 			Title:      entry.Title,
@@ -2359,8 +2362,8 @@ func KnowledgeGraph() *ToolResult {
 		nodeSet[entry.ID] = true
 
 		for _, tl := range entry.TypedLinks {
-			if nodeSet[tl.TargetID] {
-				continue // 反向边由对端 TypedLinks 生成
+			if entry.ID > tl.TargetID {
+				continue
 			}
 			edges = append(edges, GraphEdge{
 				Source:   entry.ID,

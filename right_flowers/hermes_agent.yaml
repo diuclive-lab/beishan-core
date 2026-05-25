@@ -1,0 +1,12 @@
+name: "hermes_agent"
+type: "coding_agent"
+protocol: "http"
+endpoint: "http://localhost:9531/dispatch"
+enabled: true
+route_exposed: true
+capabilities:
+  - code.search
+  - agent.chat
+  - memory.search
+output_format: "json"
+safety_level: "sandbox"
