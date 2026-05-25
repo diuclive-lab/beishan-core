@@ -191,7 +191,8 @@ steps:
     next:
       - if: "steps.reverse_audit_r1.output.status == 'clean'"
         goto: report
-      - default: reverse_audit_r2
+      - default: true
+        goto: reverse_audit_r2
 
   # ── Step 5: 逆向审计第 2 轮 ───────────────────────
   # 在第 1 轮基础上继续深挖，最多 cap 在 3 轮。
@@ -213,7 +214,8 @@ steps:
     next:
       - if: "steps.reverse_audit_r2.output.status == 'clean'"
         goto: report
-      - default: reverse_audit_r3
+      - default: true
+        goto: reverse_audit_r3
 
   # ── Step 6: 逆向审计第 3 轮（硬上限）─────────────
   # 最多 3 轮，防止无限循环和 LLM 胡编问题。
