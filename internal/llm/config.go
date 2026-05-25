@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -202,6 +203,19 @@ Available plugins:
 	},
 }
 
+// init 在包初始化时加载自定义 Provider 配置文件。
+// 配置路径通过 LLM_PROVIDERS_CONFIG 环境变量指定。
+// 加载失败不阻塞启动，回退到硬编码默认 Provider。
+func init() {
+	path := os.Getenv("LLM_PROVIDERS_CONFIG")
+	if path == "" {
+		return
+	}
+	if err := LoadProviderConfig(path); err != nil {
+		log.Printf("[llm] 自定义 Provider 加载警告: %v（继续使用默认 Provider）", err)
+	}
+}
+
 func activeProvider() Provider {
 	providerMu.RLock()
 	override := overrideProvider
@@ -269,6 +283,14 @@ func ChatEndpointFor(provider string) string {
 }
 
 func APIKeyFor(provider string) string {
+	// 自定义 Provider 可能有独立的环境变量
+	if extraProviderAPIKeys != nil {
+		if env, ok := extraProviderAPIKeys[provider]; ok && env != "" {
+			if k := os.Getenv(env); k != "" {
+				return k
+			}
+		}
+	}
 	// local provider 默认使用 local-dev key（llama-server --api-key）
 	if provider == "local" {
 		if k := os.Getenv("LOCAL_API_KEY"); k != "" {

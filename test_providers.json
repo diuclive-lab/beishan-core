@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "name": "ollama",
+      "endpoint": "http://localhost:11434/v1",
+      "model": "qwen3:8b",
+      "type": "openai-compatible",
+      "api_key_env": "OLLAMA_API_KEY"
+    }
+  ]
+}
