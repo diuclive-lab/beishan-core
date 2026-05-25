@@ -36,6 +36,9 @@ var IndexHTML string
 
 //go:embed web/dashboard.html
 var DashboardHTML string
+
+//go:embed web/chat.html
+var ChatHTML string
 func init() {
 	_ = IndexHTML
 	if f, err := os.Open(".env"); err == nil {
@@ -437,7 +440,12 @@ func main() {
 		w.Write([]byte(IndexHTML))
 	})
 
-	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(ChatHTML))
+})
+
+mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(DashboardHTML))
 	})
