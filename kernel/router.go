@@ -28,11 +28,12 @@ type Decision struct {
 	SearchSuggestion string          `json:"search_suggestion,omitempty"`
 }
 
-/* pluginEntry 存储插件名 + 描述，用于构建路由 prompt。 */
+/* pluginEntry 存储插件名 + 描述 + 能力类型，用于构建路由 prompt。 */
 type pluginEntry struct {
 	name        string
 	description string
 	example     string
+	types       []string
 }
 
 /* RouteStrategy 路由策略接口。可替换实现用于测试或降级。 */
@@ -62,9 +63,10 @@ type Router struct {
 
    由 Kernel.Register 自动调用，外部勿调。
    description 和 example 合并后注入 Router prompt，帮 DeepSeek 理解用法。
+   types 是该插件可处理的消息类型（如右花 capabilities），展示在 prompt 中。
 */
-func (r *Router) AddKnownPlugin(name, description, example string) {
-	r.knownPlugins = append(r.knownPlugins, pluginEntry{name, description, example})
+func (r *Router) AddKnownPlugin(name, description, example string, types ...string) {
+	r.knownPlugins = append(r.knownPlugins, pluginEntry{name, description, example, types})
 }
 
 /* SetWorkflowSummary 注入可用 workflow 列表，Router 会追加到插件列表之后。
@@ -88,12 +90,19 @@ func NewRouter(apiKey string) *Router {
      - search_plugin: 通用网络搜索，适用于查找资料、新闻、技术文档
      - write_plugin: 文本生成与写作，适用于生成报告、摘要、邮件
 
+   有 types 时（右花等外部能力），附在描述后：
+     - openclaw: 右花: openclaw (agent)
+       能力: agent.chat, tool.execute, skills.list
+
    无描述时退化为裸名字列表，向后兼容。
 */
 func (r *Router) buildPluginList() string {
 	var sb strings.Builder
 	for _, e := range r.knownPlugins {
 		sb.WriteString(fmt.Sprintf("- %s: %s", e.name, e.description))
+		if len(e.types) > 0 {
+			sb.WriteString(fmt.Sprintf("\n  能力: %s", strings.Join(e.types, ", ")))
+		}
 		if e.example != "" {
 			sb.WriteString(fmt.Sprintf("\n  示例: %s", e.example))
 		}

@@ -78,7 +78,7 @@ func (k *Kernel) Register(name string, p Plugin, meta ...Meta) {
 	}
 	k.metas[name] = m
 
-	k.Router.AddKnownPlugin(name, m.Description, m.Example)
+	k.Router.AddKnownPlugin(name, m.Description, m.Example, m.Types...)
 
 	log.Printf("[Kernel] 插件注册: %s", name)
 }
