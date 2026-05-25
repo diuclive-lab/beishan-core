@@ -18,7 +18,7 @@ import sys
 import argparse
 
 # 添加 Hermes Agent 路径
-HERMES_DIR = os.environ.get("HERMES_AGENT_DIR", "/Users/dc/Desktop/11/hermes-agent")
+HERMES_DIR = os.environ.get("HERMES_AGENT_DIR", "/path/to/hermes-agent")
 if HERMES_DIR not in sys.path:
     sys.path.insert(0, HERMES_DIR)
 

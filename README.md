@@ -116,7 +116,7 @@ eval/scripts/run_legal_smoke.sh
 
 ```bash
 # 启动 OpenHuman Core
-/Users/dc/Desktop/cankaocangku/openhuman/target/release/openhuman-core serve &
+/path/to/openhuman-core serve &
 
 # 启动 adapter（端口 9529）
 export OPENHUMAN_TOKEN=$(cat ~/.openhuman/core.token)
