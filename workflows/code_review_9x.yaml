@@ -124,7 +124,7 @@ steps:
         timeout: 120
         inputs:
           command: >-
-            cd /Users/dc/Desktop/0 && go build ./... 2>&1 && go test ./... 2>&1 | tail -10
+            go build ./... 2>&1 && go test ./... 2>&1 | tail -10
             || echo "编译或测试失败"
 
     next: verify
