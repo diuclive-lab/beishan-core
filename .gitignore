@@ -47,3 +47,4 @@ PLAN_CODING_AGENT.md
 /core-health
 /rightflowerctl
 /openhuman-flower-adapter
+__pycache__/
