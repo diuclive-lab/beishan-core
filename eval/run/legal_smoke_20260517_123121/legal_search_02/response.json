@@ -1,1 +1,0 @@
-{"sender":"legal_search_plugin","recipient":"user","type":"legal_search.result","payload":{"statutes":[{"title":"《中华人民共和国民法典》","citation":"中华人民共和国主席令第45号","level":"法律","source":"model_knowledge","summary":"未经验证——检索失败，使用模型知识填充。使用前请核对原文。"}]},"correlation_id":"d1d50b32dc41c46a"}

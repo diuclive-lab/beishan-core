@@ -24,7 +24,7 @@ import subprocess
 import urllib.request
 import urllib.error
 
-BEISHAN_URL = "http://localhost:8013/api/chat"
+BEISHAN_URL = "http://127.0.0.1:8013/api/chat"
 POLL_INTERVAL = 30  # seconds
 SCRIPT_NAME = os.path.basename(__file__)
 

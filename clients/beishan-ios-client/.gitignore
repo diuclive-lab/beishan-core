@@ -1,0 +1,9 @@
+.DS_Store
+BeiShanIOSApp/.DS_Store
+**/.DS_Store
+
+# Local Xcode build products.
+BeiShanIOSApp/build/
+DerivedData/
+.build/
+.swiftpm/

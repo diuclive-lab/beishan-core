@@ -1,0 +1,340 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* BeiShanIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* BeiShanIOSApp.swift */; };
+		A00000000000000000000002 /* BeiShanIOSRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* BeiShanIOSRootView.swift */; };
+		A00000000000000000000003 /* BeiShanAPIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* BeiShanAPIConfig.swift */; };
+		A00000000000000000000004 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* Models.swift */; };
+		A00000000000000000000005 /* BeiShanAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* BeiShanAPIService.swift */; };
+		A00000000000000000000006 /* BeiShanRemoteViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* BeiShanRemoteViewModel.swift */; };
+		A00000000000000000000007 /* BeiShanConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* BeiShanConnectionStore.swift */; };
+		A0000000000000000000000B /* BeiShanIOSScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* BeiShanIOSScreen.swift */; };
+		A0000000000000000000000C /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000015 /* ComposerView.swift */; };
+		A0000000000000000000000D /* MessageRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* MessageRow.swift */; };
+		A0000000000000000000000E /* RemoteOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* RemoteOverviewCard.swift */; };
+		A0000000000000000000000F /* StatusBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000018 /* StatusBannerView.swift */; };
+		A000000000000000000000A1 /* IOSAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001A /* IOSAudioRecorder.swift */; };
+		A000000000000000000000A2 /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001B /* ConnectionSheet.swift */; };
+		A000000000000000000000A3 /* SessionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001C /* SessionsSheet.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000010 /* BeiShanIOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeiShanIOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000011 /* BeiShanIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanIOSApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000012 /* BeiShanIOSRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanIOSRootView.swift; sourceTree = "<group>"; };
+		A00000000000000000000014 /* BeiShanIOSScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanIOSScreen.swift; sourceTree = "<group>"; };
+		A00000000000000000000015 /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
+		A00000000000000000000016 /* MessageRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRow.swift; sourceTree = "<group>"; };
+		A00000000000000000000017 /* RemoteOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteOverviewCard.swift; sourceTree = "<group>"; };
+		A00000000000000000000018 /* StatusBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBannerView.swift; sourceTree = "<group>"; };
+		A0000000000000000000001A /* IOSAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSAudioRecorder.swift; sourceTree = "<group>"; };
+		A0000000000000000000001B /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
+		A0000000000000000000001C /* SessionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000000021 /* BeiShanAPIConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanAPIConfig.swift; sourceTree = "<group>"; };
+		A00000000000000000000022 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A00000000000000000000023 /* BeiShanAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanAPIService.swift; sourceTree = "<group>"; };
+		A00000000000000000000024 /* BeiShanRemoteViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanRemoteViewModel.swift; sourceTree = "<group>"; };
+		A00000000000000000000025 /* BeiShanConnectionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeiShanConnectionStore.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A00000000000000000000030 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000040 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000041 /* BeiShanIOSApp */,
+				A00000000000000000000042 /* ../../apple-core/Sources/BeiShanClientCore */,
+				A00000000000000000000043 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000041 /* BeiShanIOSApp */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000011 /* BeiShanIOSApp.swift */,
+				A00000000000000000000012 /* BeiShanIOSRootView.swift */,
+				A00000000000000000000044 /* Views */,
+			);
+			path = BeiShanIOSApp;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000042 /* ../../apple-core/Sources/BeiShanClientCore */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000021 /* BeiShanAPIConfig.swift */,
+				A00000000000000000000022 /* Models.swift */,
+				A00000000000000000000023 /* BeiShanAPIService.swift */,
+				A00000000000000000000024 /* BeiShanRemoteViewModel.swift */,
+				A00000000000000000000025 /* BeiShanConnectionStore.swift */,
+			);
+			path = "../../apple-core/Sources/BeiShanClientCore";
+			sourceTree = SOURCE_ROOT;
+		};
+		A00000000000000000000043 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000010 /* BeiShanIOSApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000044 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000014 /* BeiShanIOSScreen.swift */,
+				A00000000000000000000045 /* Components */,
+				A00000000000000000000046 /* Helpers */,
+				A00000000000000000000047 /* Sheets */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000045 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000015 /* ComposerView.swift */,
+				A00000000000000000000016 /* MessageRow.swift */,
+				A00000000000000000000017 /* RemoteOverviewCard.swift */,
+				A00000000000000000000018 /* StatusBannerView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000046 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				A0000000000000000000001A /* IOSAudioRecorder.swift */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000047 /* Sheets */ = {
+			isa = PBXGroup;
+			children = (
+				A0000000000000000000001B /* ConnectionSheet.swift */,
+				A0000000000000000000001C /* SessionsSheet.swift */,
+			);
+			path = Sheets;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000050 /* BeiShanIOSApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000060 /* Build configuration list for PBXNativeTarget "BeiShanIOSApp" */;
+			buildPhases = (
+				A00000000000000000000031 /* Sources */,
+				A00000000000000000000030 /* Frameworks */,
+				A00000000000000000000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeiShanIOSApp;
+			packageProductDependencies = (
+			);
+			productName = BeiShanIOSApp;
+			productReference = A00000000000000000000010 /* BeiShanIOSApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000051 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					A00000000000000000000050 = {
+						CreatedOnToolsVersion = 26.4;
+					};
+				};
+			};
+			buildConfigurationList = A00000000000000000000061 /* Build configuration list for PBXProject "BeiShanIOSApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000040;
+			packageReferences = (
+			);
+			productRefGroup = A00000000000000000000043 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000050 /* BeiShanIOSApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A00000000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00000000000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000001 /* BeiShanIOSApp.swift in Sources */,
+				A00000000000000000000002 /* BeiShanIOSRootView.swift in Sources */,
+				A0000000000000000000000B /* BeiShanIOSScreen.swift in Sources */,
+				A0000000000000000000000C /* ComposerView.swift in Sources */,
+				A0000000000000000000000D /* MessageRow.swift in Sources */,
+				A0000000000000000000000E /* RemoteOverviewCard.swift in Sources */,
+				A0000000000000000000000F /* StatusBannerView.swift in Sources */,
+				A000000000000000000000A1 /* IOSAudioRecorder.swift in Sources */,
+				A000000000000000000000A2 /* ConnectionSheet.swift in Sources */,
+				A000000000000000000000A3 /* SessionsSheet.swift in Sources */,
+				A00000000000000000000003 /* BeiShanAPIConfig.swift in Sources */,
+				A00000000000000000000004 /* Models.swift in Sources */,
+				A00000000000000000000005 /* BeiShanAPIService.swift in Sources */,
+				A00000000000000000000006 /* BeiShanRemoteViewModel.swift in Sources */,
+				A00000000000000000000007 /* BeiShanConnectionStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A00000000000000000000071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		A00000000000000000000072 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = K8K47FC5GR;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "BeiShan Client 需要使用麦克风，把语音发送到你的电脑端 BeiShan 后端。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "BeiShan Client 需要访问照片，以便把图片上传到你的电脑端 BeiShan 后端。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.beishan.iosclient;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A00000000000000000000073 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = K8K47FC5GR;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "BeiShan Client 需要使用麦克风，把语音发送到你的电脑端 BeiShan 后端。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "BeiShan Client 需要访问照片，以便把图片上传到你的电脑端 BeiShan 后端。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.beishan.iosclient;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000060 /* Build configuration list for PBXNativeTarget "BeiShanIOSApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000072 /* Debug */,
+				A00000000000000000000073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000061 /* Build configuration list for PBXProject "BeiShanIOSApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000070 /* Debug */,
+				A00000000000000000000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000051 /* Project object */;
+}

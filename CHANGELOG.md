@@ -1,5 +1,24 @@
 # 变更日志
 
+
+## 2026-05-25 远程通车 — iOS App + ECS Relay + 安全修复
+
+### 新增
+- **iOS App**: 完整 SwiftUI 聊天客户端（Gemini 实现），支持 HTTPS + Basic Auth 远程连接
+- **iOS SDK**: `clients/apple-core/` — Swift Package，封装 beishan-core API
+- **ECS Relay**: 阿里云 SSH 反向隧道（18013→8013）+ Nginx HTTPS + Let's Encrypt + Basic Auth
+- **远程访问**: `https://120-27-157-222.sslip.io` 全球可连
+
+### 修复
+- 阿里云 ECS `AllowTcpForwarding` SSH 配置
+- 清理 git 跟踪的运行时文件（eval/run/）
+- gitignore 补全 runtime 目录
+
+### iOS App 功能
+- 消息对话（POST /api/chat）
+- 自动健康检测
+- 连接设置（URL + Basic Auth）
+- 会话管理 + 仪表盘监控
 ## 2026-05-25 Hermes 右花 + OpenClaw 右花 + 多 Provider + 9x 代码审查
 
 ### 新增

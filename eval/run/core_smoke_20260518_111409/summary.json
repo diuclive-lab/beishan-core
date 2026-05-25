@@ -1,9 +1,0 @@
-{
-  "suite": "core_smoke",
-  "date": "2026-05-18T03:14:24Z",
-  "total": 11,
-  "pass": 11,
-  "fail": 0,
-  "strict": false,
-  "api_url": "http://127.0.0.1:8013"
-}

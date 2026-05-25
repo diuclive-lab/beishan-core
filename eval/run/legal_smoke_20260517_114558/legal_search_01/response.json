@@ -1,1 +1,0 @@
-{"note":"legal_search: payload 解析失败: json: cannot unmarshal string into Go value of type plugins.LegalSearchQuery","status":"sent"}

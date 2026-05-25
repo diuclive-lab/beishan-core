@@ -1,9 +1,0 @@
-{
-  "suite": "legal_smoke",
-  "date": "2026-05-18T02:06:39Z",
-  "total": 6,
-  "pass": 6,
-  "fail": 0,
-  "strict": false,
-  "api_url": "http://127.0.0.1:8013"
-}

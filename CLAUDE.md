@@ -4,10 +4,10 @@
 
 ## Project Snapshot (live)
 
-- **git**: `main`, clean, no uncommitted changes
+- **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 99 registered (97 init + spawn_subagent + spawn_parallel + per-agent delegation)
+- **tools**: 99 registered (97 init + agent delegation tools)
 - **plugins**: 23 L4 + 33 YAML workflows
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
@@ -152,6 +152,8 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | `kernel/router.go` | LLM router + parseDecision hardening |
 | `glue/glue.go` | IPC manager + right flower health monitoring |
 | `cmd/openhuman-flower-adapter/main.go` | OpenHuman bridge |
+| `clients/beishan-ios-client/` | iOS SwiftUI app (Gemini) |
+| `clients/apple-core/` | Swift SDK for beishan-core API |
 
 ## Key Env Vars
 
