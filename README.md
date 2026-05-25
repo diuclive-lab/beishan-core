@@ -20,15 +20,20 @@ beishan-core 是一个以**硬化层架构**为核心的 AI Agent 框架。
 | **左花** | plugins/ + workflows/ | 内置生产执行侧 |
 | **右花** | 第三方开发者通过 RIGHT_FLOWER_PROTOCOL.md 接入 | 外部工具（由社区定义） |
 
-**第一个实际右花**：[OpenHuman](https://github.com/tinyhumansai/openhuman) — 本地运行的 AI Agent 引擎，提供向量记忆、代码审查、Agent 委派能力（2026-05-24 全链路通车）。右花是协议层概念，不绑定到任何具体项目。
+**已接入 3 个右花**：
+- [OpenHuman](https://github.com/tinyhumansai/openhuman) — 个人上下文 / 记忆（:9529）
+- [Hermes Agent](https://github.com/diuclive-lab/hermes-agent) — 编码智能体（:9532）
+- [OpenClaw](https://github.com/openclaw/openclaw) — 通用 Agent + Gateway（:9533）
+
+右花是协议层概念，不绑定到任何具体项目。
 
 
 **能力概览**：
 - 🔒 **硬化层**：ValidateAndExecute + code_security + isSafePath + parseDecision 五道防线
-- 🔍 **L3 工具（99 个）**：文件处理 · 网页搜索 · 知识管理 · 终端执行 · 浏览器自动化 · 待办管理 · 代码安全 · AI 审查 · 子智能体委派 · 图像生成 · 语音合成 · 汇率天气 · RSS · GitHub 集成 · 通知推送 · 更多
+- 🔍 **L3 工具（100 个）**：文件处理 · 网页搜索 · 知识管理 · 终端执行 · 浏览器自动化 · 待办管理 · 代码安全 · AI 审查 · 子智能体委派 · 图像生成 · 语音合成 · 汇率天气 · RSS · GitHub 集成 · 通知推送 · 更多
 - 🧠 **双工作流引擎**：YAML（AI 可修改）+ Go-DSL（编译时安全）
 - 🤖 **子智能体委派**：AgentDefinition 注册表 + spawn_subagent/spawn_parallel + 对话持久化
-- 🌸 **右花协议**：HTTP dispatch + manifest 加载 + probe-methods + 统一健康监控（首个实现: OpenHuman）
+- 🌸 **右花协议**：HTTP dispatch + manifest 加载 + probe-methods + 统一健康监控（3 右花在线）
 - 📊 **可观测性**：决策追踪 · 因果证据图 · 评估框架（bench + 检索质量 15 测试）· 事件日志
 - 🧩 **插件体系**：23 个 L4 编排插件 + 33 个 YAML 工作流
 - 📝 **澄清系统**：结构化澄清契约 + EWMA 模式学习（歧义消解）
