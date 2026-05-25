@@ -9,7 +9,7 @@
 - **health**: `go run ./cmd/core-health` → pass
 - **tools**: 99 registered (97 init + spawn_subagent + spawn_parallel + per-agent delegation)
 - **plugins**: 23 L4 + 33 YAML workflows
-- **right flowers**: 1 (OpenHuman, all 4 methods responded)
+- **right flowers**: 2 (OpenHuman personal_context + Hermes Agent coding_agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
 
 ## Architecture
@@ -96,6 +96,14 @@ kernel.Kernel  ─── 按 recipient 转发
 **adapter endpoint**: http://localhost:9529/dispatch (manifest → rightflower.Plugin.OnMessage → Client.Dispatch)
 **probe**: GET http://localhost:9529/health → `{"adapter":"openhuman","openhuman":"reachable"}`
 **method map**: memory.search, memory.store, context.retrieve, code.review
+
+### Hermes Agent (right flower #2)
+
+- **adapter**: `cmd/hermes-flower-adapter/` (Go) → replaced by `cmd/rightflower-python-wrapper/hermes_agent_adapter.py` (Python)
+- **endpoint**: http://localhost:9532/dispatch
+- **type**: coding_agent
+- **methods**: memory.search, memory.store, tools.list, tool.execute, agent.chat, conversations.list
+- **template**: `cmd/rightflower-python-wrapper/rightflower_adapter.py` — 标准 Python 右花接入模板
 
 ## AI Guardrails (what NOT to do)
 
