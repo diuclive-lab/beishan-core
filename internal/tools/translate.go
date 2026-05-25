@@ -104,15 +104,4 @@ func normalizeLang(lang string) string {
 }
 
 func registerTranslateTool() {
-	Register("weather", "查询天气（Open-Meteo，免费）",
-		map[string]interface{}{},
-		func(args map[string]interface{}) *ToolResult {
-			t := NewWeatherTool()
-			result, err := t.Run(context.TODO(), args)
-			if err != nil {
-				return errorResult(err.Error())
-			}
-			return successResult(result)
-		},
-	)
 }

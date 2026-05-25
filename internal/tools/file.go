@@ -123,6 +123,13 @@ func readFileHandler(args map[string]interface{}) *ToolResult {
 		}
 	}
 
+	// 硬化层：通过 code_read 做路径安全校验
+	if result := CodeReadHandler(map[string]interface{}{
+		"filepath": path,
+	}); result.Error != "" && !strings.Contains(result.Error, "not found") {
+		return errorResult(fmt.Sprintf("path rejected by hardening: %s", result.Error))
+	}
+
 	// Expand ~
 	path = expandPath(path)
 

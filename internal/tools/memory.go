@@ -296,28 +296,7 @@ func registerMemoryTools() {
 		},
 	)
 
-	Register("session_search", "Search messages across all sessions by keyword.",
-		map[string]interface{}{
-			"type":     "object",
-			"required": []string{"keyword"},
-			"properties": map[string]interface{}{
-				"keyword": stringParam("Search keyword"),
-			},
-		},
-		func(args map[string]interface{}) *ToolResult {
-			return SessionSearch(strArg(args, "keyword"))
-		},
-	)
 
-	Register("session_list", "List all sessions sorted by last update time.",
-		map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		func(args map[string]interface{}) *ToolResult {
-			return SessionList()
-		},
-	)
 
 	Register("session_delete", "Delete a session and all its evidence.",
 		map[string]interface{}{
