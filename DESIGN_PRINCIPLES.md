@@ -369,3 +369,25 @@ LLM 需要结构化的意图表达通道（如 tool_suggestion、search_suggesti
 | Watch patterns + 通知队列 | 无 | glue 只做 IPC dispatch‑response，不做后台命令监控 |
 | 进程输出缓存/检索 | 无 | 同上 |
 
+#### OpenClaw
+
+- 仓库: npm global (`openclaw` 2026.5.22)
+- 类型: Node.js AI Agent 平台（聊天原生、多通道、技能市场）
+- 角色: 第三个右花 + 声明式 Provider 参考源
+- 本地: Gateway :18789 + adapter :9533
+
+**已吸收的能力**：
+| 能力 | 内化位置 | 说明 |
+|------|---------|------|
+| 声明式多 Provider 配置 | `internal/llm/provider_config.go` | 硬化校验 + 配置文件加载，不完整吸收 |
+| 通道层接口 | `internal/channels/` | 余量设计，当前无实现 |
+| 记忆存储接口 | `internal/memory/` | MemoryStore + FileStore 实现 |
+
+**保持右花协议调用**：
+| 方法 | 说明 |
+|------|------|
+| agent.chat | 调 OpenClaw OpenAI 兼容 API |
+| tool.execute | 调 OpenClaw /tools/invoke |
+| skills.list | 列出 OpenClaw 已安装 skills |
+| gateway.status | 检查 Gateway 健康 |
+

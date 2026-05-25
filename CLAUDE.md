@@ -9,7 +9,7 @@
 - **health**: `go run ./cmd/core-health` → pass
 - **tools**: 99 registered (97 init + spawn_subagent + spawn_parallel + per-agent delegation)
 - **plugins**: 23 L4 + 33 YAML workflows
-- **right flowers**: 2 (OpenHuman personal_context + Hermes Agent coding_agent)
+- **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
 
 ## Architecture
@@ -105,6 +105,15 @@ kernel.Kernel  ─── 按 recipient 转发
 - **methods**: memory.search, memory.store, tools.list, tool.execute, agent.chat, conversations.list
 - **template**: `cmd/rightflower-python-wrapper/rightflower_adapter.py` — 标准 Python 右花接入模板
 
+### OpenClaw (right flower #3)
+
+- **adapter**: `cmd/rightflower-python-wrapper/openclaw_adapter.py` (Python)
+- **endpoint**: http://localhost:9533/dispatch
+- **type**: agent
+- **methods**: agent.chat, tool.execute, skills.list, gateway.status
+- **gateway**: OpenClaw Gateway on http://localhost:18789
+- **config**: `LLM_PROVIDERS_CONFIG` — 声明式多 Provider JSON 配置
+
 ## AI Guardrails (what NOT to do)
 
 | Don't | Because |
@@ -153,6 +162,7 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | EMBEDDING_ENDPOINT | No | — | Enables semantic search (not configured yet) |
 | RIGHTFLOWER_ENDPOINT | No | localhost:9529/dispatch | Right flower dispatch |
 | LLM_PROVIDER | No | deepseek | deepseek / openai / xiaomi / local |
+| LLM_PROVIDERS_CONFIG | No | — | Path to extra providers JSON config file |
 | PORT | No | 8013 | HTTP server port |
 
 ## Recent State
@@ -182,7 +192,7 @@ cb554b4 feat: 子智能体自动暴露为独立工具
 **Known friction** (future improvements):
 - **Learning curve**: "hardening layer", "dual flower", "right flower protocol" — too many concepts. Needs a 5-min walkthrough.
 - **Missing demo**: 99 tools, 33 workflows — but no end-to-end example showing "what beishan-core can do for you".
-- **Right flower cold-start**: Only 1 right flower. Needs 2-3 more to prove protocol generality.
+- **Right flower cold-start**: 3 right flowers running. Protocol generality verified.
 - **DeepSeek dependency**: Router prompt is DeepSeek-optimized. Provider switching is untested for routing with non-DeepSeek models.
 
 ## Logs & Debugging

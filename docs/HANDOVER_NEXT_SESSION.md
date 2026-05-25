@@ -29,7 +29,9 @@
 - 服务运行在 :8013
 - Python 右花包装器在 :9532（Hermes Agent）
 - OpenHuman 适配器在 :9529
+- **OpenClaw 右花在 :9533**（Gateway :18789）
 - 启动命令：`go run ./cmd/beishan/`
+- 自定义 Provider：`LLM_PROVIDERS_CONFIG=providers.json`
 
 ### 架构关键文档
 - `workflows/absorb_right_flower.yaml` — 7 步吸收工作流（含经验积累）
