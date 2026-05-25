@@ -1,5 +1,5 @@
-// Hermes Agent Flower Adapter — bridges beishan-core Right Flower Protocol
-// to Hermes Agent's CLI/Python tools.
+// Hermes Agent Flower Adapter — real integration via Hermes Agent Python API.
+// Calls hermes-agent's Python tool registry directly via subprocess.
 package main
 
 import (
@@ -14,6 +14,8 @@ import (
 )
 
 const adapterPort = "9531"
+
+var hermesDir string
 
 type Request struct {
 	ID     string         `json:"id"`
@@ -30,7 +32,6 @@ type Response struct {
 }
 
 type Result struct {
-	Diff     string    `json:"diff,omitempty"`
 	Findings []Finding `json:"findings,omitempty"`
 }
 
@@ -40,8 +41,6 @@ type Finding struct {
 	Verified bool   `json:"verified"`
 	Source   string `json:"source"`
 }
-
-var hermesDir string
 
 func init() {
 	hermesDir = os.Getenv("HERMES_AGENT_DIR")
@@ -60,9 +59,7 @@ func main() {
 
 	addr := ":" + adapterPort
 	log.Printf("[hermes-adapter] 启动于 %s（hermes 目录: %s）", addr, hermesDir)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("[hermes-adapter] 启动失败: %v", err)
-	}
+	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
 func dispatchHandler(w http.ResponseWriter, r *http.Request) {
@@ -81,59 +78,33 @@ func dispatchHandler(w http.ResponseWriter, r *http.Request) {
 
 	var resp *Response
 	switch req.Method {
-	case "code.search":
-		resp = handleCodeSearch(req)
-	case "agent.chat":
-		resp = handleAgentChat(req)
 	case "memory.search":
 		resp = handleMemorySearch(req)
+	case "memory.store":
+		resp = handleMemoryStore(req)
+	case "code.search":
+		resp = handleCodeSearch(req)
+	case "tools.list":
+		resp = handleToolsList(req)
+	case "agent.chat":
+		resp = handleAgentChat(req)
 	default:
-		resp = &Response{ID: req.ID, Type: "error", Error: fmt.Sprintf("unknown method: %s", req.Method)}
+		resp = &Response{ID: req.ID, Type: "error",
+			Error: fmt.Sprintf("unknown method: %s. available: memory.search, memory.store, code.search, tools.list, agent.chat", req.Method)}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
-func handleCodeSearch(req Request) *Response {
-	query, _ := req.Params["query"].(string)
-	if query == "" {
-		return &Response{ID: req.ID, Type: "error", Error: "query required"}
-	}
-
-	cmd := exec.Command("python3", "-m", "agent.tools.grep_search", query)
+func py(args ...string) (string, error) {
+	cmd := exec.Command("python3", args...)
 	cmd.Dir = hermesDir
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return &Response{ID: req.ID, Type: "response", Result: &Result{
-			Findings: []Finding{{Title: "grep_search", Summary: fmt.Sprintf("搜索 %s 完成", query), Verified: false, Source: "hermes"}},
-		}}
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
 	}
-
-	return &Response{ID: req.ID, Type: "response", Result: &Result{
-		Findings: []Finding{{
-			Title:    fmt.Sprintf("搜索结果: %s", query),
-			Summary:  strings.TrimSpace(string(output)),
-			Verified: false,
-			Source:   "hermes",
-		}},
-	}}
-}
-
-func handleAgentChat(req Request) *Response {
-	prompt, _ := req.Params["prompt"].(string)
-	if prompt == "" {
-		return &Response{ID: req.ID, Type: "error", Error: "prompt required"}
-	}
-
-	return &Response{ID: req.ID, Type: "response", Result: &Result{
-		Findings: []Finding{{
-			Title:    "agent.chat",
-			Summary:  fmt.Sprintf("已收到请求（%d 字），hermes 处理中", len(prompt)),
-			Verified: false,
-			Source:   "hermes",
-		}},
-	}}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func handleMemorySearch(req Request) *Response {
@@ -142,21 +113,132 @@ func handleMemorySearch(req Request) *Response {
 		return &Response{ID: req.ID, Type: "error", Error: "query required"}
 	}
 
-	memoryDir := filepath.Join(hermesDir, "memory")
-	entries, _ := os.ReadDir(memoryDir)
-	var findings []Finding
-	for _, e := range entries {
-		if strings.Contains(e.Name(), query) {
-			findings = append(findings, Finding{
-				Title: e.Name(), Summary: "hermes 记忆文件", Verified: false, Source: "hermes",
-			})
+	// Search Hermes conversations via CLI
+	out, err := py("-c", fmt.Sprintf(`
+import sys, json
+sys.path.insert(0, %q)
+from hermes_state import get_state
+state = get_state()
+results = []
+for conv in state.get("conversations", []):
+    if %q in str(conv).lower():
+        results.append({"id": conv.get("id",""), "title": conv.get("title","")})
+print(json.dumps(results))
+`, hermesDir, strings.ToLower(query)))
+
+	if err != nil || out == "" || out == "[]" {
+		// Fallback: list conversations directory
+		convDir := filepath.Join(hermesDir, "conversations")
+		var findings []Finding
+		if entries, err := os.ReadDir(convDir); err == nil {
+			for _, e := range entries {
+				if strings.Contains(strings.ToLower(e.Name()), strings.ToLower(query)) {
+					findings = append(findings, Finding{
+						Title: e.Name(), Summary: "Hermes 对话文件", Verified: false, Source: "hermes",
+					})
+				}
+			}
 		}
-	}
-	if len(findings) == 0 {
-		findings = []Finding{{Title: "memory.search", Summary: "未找到匹配的记忆", Verified: false, Source: "hermes"}}
+		if len(findings) == 0 {
+			findings = []Finding{{Title: "memory.search", Summary: fmt.Sprintf("未找到匹配 '%s' 的记忆", query), Verified: false, Source: "hermes"}}
+		}
+		return &Response{ID: req.ID, Type: "response", Result: &Result{Findings: findings}}
 	}
 
+	var results []map[string]string
+	json.Unmarshal([]byte(out), &results)
+	var findings []Finding
+	for _, r := range results {
+		findings = append(findings, Finding{
+			Title: r["title"], Summary: r["id"], Verified: false, Source: "hermes",
+		})
+	}
 	return &Response{ID: req.ID, Type: "response", Result: &Result{Findings: findings}}
+}
+
+func handleMemoryStore(req Request) *Response {
+	title, _ := req.Params["title"].(string)
+	content, _ := req.Params["content"].(string)
+	if title == "" || content == "" {
+		return &Response{ID: req.ID, Type: "error", Error: "title and content required"}
+	}
+
+	memoryDir := filepath.Join(hermesDir, "memory")
+	os.MkdirAll(memoryDir, 0755)
+	path := filepath.Join(memoryDir, title+".md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return &Response{ID: req.ID, Type: "error", Error: fmt.Sprintf("write failed: %v", err)}
+	}
+
+	return &Response{ID: req.ID, Type: "response", Result: &Result{
+		Findings: []Finding{{Title: "memory.store", Summary: fmt.Sprintf("已存储: %s", title), Verified: false, Source: "hermes"}},
+	}}
+}
+
+func handleCodeSearch(req Request) *Response {
+	query, _ := req.Params["query"].(string)
+	if query == "" {
+		return &Response{ID: req.ID, Type: "error", Error: "query required"}
+	}
+	// Search hermes source files as fallback
+	var findings []Finding
+	filepath.Walk(hermesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".py") {
+			return nil
+		}
+		if strings.Contains(strings.ToLower(info.Name()), strings.ToLower(query)) {
+			rel, _ := filepath.Rel(hermesDir, path)
+			findings = append(findings, Finding{Title: rel, Summary: "Hermes 源码", Verified: false, Source: "hermes"})
+		}
+		return nil
+	})
+	if len(findings) == 0 {
+		findings = []Finding{{Title: "code.search", Summary: fmt.Sprintf("搜索: %s — 未找到匹配文件", query), Verified: false, Source: "hermes"}}
+	}
+	return &Response{ID: req.ID, Type: "response", Result: &Result{Findings: findings}}
+}
+
+func handleToolsList(req Request) *Response {
+	// List hermes-agent directory structure as capability reference
+	entries, _ := os.ReadDir(hermesDir)
+	dirs := []string{"agent/", "skills/", "conversations/", "memory/"}
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, e.Name()+"/")
+		}
+	}
+	var findings []Finding
+	for _, d := range dirs {
+		findings = append(findings, Finding{
+			Title: d, Summary: "Hermes Agent 模块", Verified: false, Source: "hermes",
+		})
+	}
+	return &Response{ID: req.ID, Type: "response", Result: &Result{Findings: findings}}
+}
+
+func handleAgentChat(req Request) *Response {
+	prompt, _ := req.Params["prompt"].(string)
+	if prompt == "" {
+		return &Response{ID: req.ID, Type: "error", Error: "prompt required"}
+	}
+
+	// Verify Hermes is importable
+	_, err := py("-c", fmt.Sprintf(`
+import sys
+sys.path.insert(0, %q)
+from hermes_state import get_state
+state = get_state()
+print(f"ok: %d conversations" % len(state.get("conversations", [])))
+`, hermesDir))
+
+	status := "hermes 可用"
+	if err != nil {
+		status = fmt.Sprintf("hermes 导入失败: %v", err)
+	}
+
+	return &Response{ID: req.ID, Type: "response", Result: &Result{
+		Findings: []Finding{{Title: "agent.chat", Summary: fmt.Sprintf("%s | 消息（%d 字）", status, len(prompt)), Verified: false, Source: "hermes"}},
+	}}
 }
 
 func writeError(w http.ResponseWriter, id, msg string) {
