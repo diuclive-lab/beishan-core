@@ -159,7 +159,7 @@ steps:
               "language_freedom": "high/medium/low",
               "absorb_priority": "high/medium/low/skip",
               "absorb_reason": "吸收/跳过理由（一句话）",
-              "comparison_with_bc": "compared / complementary / new / skip",
+              "comparison_with_bc": "compared(底座有同类需对比差异) / complementary(可补充底座) / new(底座未覆盖) / skip(生态绑定)",
               "comparison_reason": "与底座已有能力的对比说明（一句话）",
 
               "go_effort": "用 Go 实现的大致工作量（如：2天、5天、不详）"
@@ -176,6 +176,19 @@ steps:
           "risk": "吸收风险说明"
 
         }
+
+
+        comparison_with_bc 取值说明：
+        - compared: 底座有同类能力，但实现细节不同，需对比差异取长补短（不跳过）
+        - complementary: 底座有相关能力但此项目可作为补充
+        - new: 底座未覆盖的新能力
+        - skip: 生态绑定太重，不吸收
+
+        吸收优先级（基于 comparison_with_bc）：
+        - high: complementary 或 new 且语言自由度高
+        - medium: complementary 或 new 但实现成本高
+        - low: 价值有限
+        - skip: 生态绑定不吸收
 
         能力分类标准：
         - algorithm: 纯算法/数据结构，语言无关，最值得吸收
