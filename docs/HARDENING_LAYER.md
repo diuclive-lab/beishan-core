@@ -6,6 +6,7 @@
 > (3) isSafePath path traversal prevention, 
 > (4) code_security 8 rules (SQL injection, reverse shell, etc.), 
 > (5) validate_file_op read/write/delete guard.
+> Also covers: desktop_actuator action whitelist, read_file/patch path hardening.
 > Does NOT guarantee: business logic correctness, LLM output quality, or absence of side effects.
 
 ## 什么是硬化层

@@ -3,7 +3,8 @@
 
 > **AI Summary:** beishan-core design principles. Core rule: kernel is frozen (register+route+forward only).
 > Hardening layer: all tools go through ValidateAndExecute. Type = intent, Payload = data (router never reads Payload).
-> Right flower = protocol, not integration. Deep + breadth required for all changes.
+> Right flower = protocol, not integration. MCP = skill framework (15 servers).
+> Deep + breadth required for all changes.
 > "Design decision vs omission" — if 3 lines fix it, it was an omission.
 
 

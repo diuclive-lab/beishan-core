@@ -16,6 +16,27 @@
 - get_window_tree ✅
 - get_menu_bar_tree ✅
 - build ✅ vet ✅ hardening ✅ docs ✅
+
+## 2026-05-25 全天工作流组合 + 工具清理 + MCP 技能框架
+
+### 新增
+- **MCP 技能框架**: `internal/mcp/` 包 + 15 个技能服务器（cmd/mcp-servers/）
+- **60 工作流组合设计**: 7 大类覆盖 104 工具 + 15 MCP 技能
+- **首批实现 5 个工作流**: csv_data_pipeline / security_audit_parallel / quick_project_scan / kb_hygiene_plus / web_research_auto
+- **desktop_actuator L3**: 桌面点击/输入/窗口/菜单操作
+- **document_extract L3**: 文档内容提取（txt/md/pdf/docx/csv）
+- **csv_profile + csv_sample**: 纯 Go CSV 分析工具
+
+### 修复
+- 工具去重：weather(3→1), session_list(2→1), session_search(2→1)
+- read_file + patch 硬化层路径校验
+- dir_scan 标记废弃，推荐 code_tree
+- parallel 步骤 ctx key 格式修正
+- CHANGELOG 公网 IP 替换为占位符
+- 全仓库安全审计：清理硬编码路径
+
+### 当前指标
+工具数 104 | MCP 技能 15 | 右花 3 | 工作流 38 | 远程通道 ✅
 ## 2026-05-25 远程通车 — iOS App + ECS Relay + 安全修复
 
 ### 新增

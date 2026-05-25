@@ -5,7 +5,7 @@
 
 ---
 
-> **AI Summary:** 14 known limitations. 
+> **AI Summary:** 14 known limitations. Current: 104 tools, 15 MCP skills, 3 right flowers, 38 workflows.
 > Key: hardening only guarantees surface safety (not logic correctness).
 > No sandbox, no workflow persistence, no gate automation.
 > L2 glue doesn't manage right flower lifecycle (OS process manager does).
