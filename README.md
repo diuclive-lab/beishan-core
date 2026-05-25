@@ -9,7 +9,7 @@ beishan-core 是一个以**硬化层架构**为核心的 AI Agent 框架。
 >
 > 📐 硬化底座+左花（内置插件）+右花（外部协议）。Go 1.26。
 > 🔒 核心规则：内核冻结、硬化层强制、Type即意图Payload即数据。
-> 📦 当前：99 工具 · 23 插件 · 33 工作流 · 1 右花（OpenHuman 已通车）
+> 📦 当前：100 工具 · 23 插件 · 33 工作流 · 3 右花（OpenHuman / Hermes Agent / OpenClaw）
 > 🚧 未完成：embedding 未配置、跨平台部署待办。详见 CLAUDE.md Unfinished 章节。
 
 ## 产品形态三分

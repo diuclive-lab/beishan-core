@@ -1,5 +1,41 @@
 # 变更日志
 
+## 2026-05-25 Hermes 右花 + OpenClaw 右花 + 多 Provider + 9x 代码审查
+
+### 新增
+
+- **右花 #2: Hermes Agent** — `cmd/rightflower-python-wrapper/hermes_agent_adapter.py`（6 方法: memory.search/store, tools.list, tool.execute, agent.chat, conversations.list）
+- **右花 #3: OpenClaw** — `cmd/rightflower-python-wrapper/openclaw_adapter.py`（4 方法: agent.chat, tool.execute, skills.list, gateway.status）
+- **Router prompt 优化** — 展示插件能力类型，右花可被 LLM 正确路由
+- **声明式多 Provider** — `LLM_PROVIDERS_CONFIG` 环境变量 + JSON 配置文件 + 硬化校验（endpoint HTTPS/localhost、type 白名单、name 冲突检测）
+- **9 路并行代码审查** — `workflows/code_review_9x.yaml`（Qwen Code 设计），37 秒完成 9 路 LLM 调用
+- **通道层余量接口** — `internal/channels/`（Channel 接口 + Manager 注册表）
+- **记忆存储余量接口** — `internal/memory/`（MemoryStore 接口 + FileStore 实现 + TTL 支持）
+- **Query DSL 余量接口** — `internal/retrieval/query.go`（结构化检索，当前仅关键词，解析器未激活）
+- **manifest 冲突检测** — `RegisterAll` 注册前检查同名 + 与已有插件重名
+
+### 修复
+
+- 9x 审查工作流 YAML default 分支语法（bool 不能直接跟字符串）
+- next 条件语义修正（显式处理 'found' 分支，default 降级为 report）
+
+### 测试
+
+- **YAML 工作流测试框架** — `internal/workflow/yaml_test.go`（20 个测试: 解析/模板/条件/真实工作流）
+- Router usage 埋点 — `callDeepSeek` 加 `RecordUsage("router", ...)`
+
+### 文档
+
+- CLAUDE.md: 右花 2→3，新增 OpenClaw 节，环境变量补 LLM_PROVIDERS_CONFIG
+- DESIGN_PRINCIPLES.md: 参考项目新增 Hermes + OpenClaw
+- MERGE_DECISIONS.md: 新增 #12 Hermes 吸收评估、#13 preRoute 关闭
+- HANDOVER_NEXT_SESSION.md: P0 验证结论 + OpenClaw 右花状态
+- worklfows/code_review_9x.yaml: 完整实现 + YAML 解析测试
+
+### 已关闭
+
+- ~~preRoute 长度检测~~ — 收益太小 + 绕过硬化层，改为 Router usage 埋点
+
 ## 2026-05-24 右花全链路通车 + 双花吸收三连 + Agent 委派
 
 ### 新增

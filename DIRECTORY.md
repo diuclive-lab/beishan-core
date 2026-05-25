@@ -21,10 +21,13 @@
 | `internal/clarify/` | 澄清契约数据结构（Request/Response/BuildQuestion） | L3 |
 | `internal/registry/` | 工具生命周期门控（PhaseInit→PhaseRunning）+ Profile 过滤 | L3 |
 | `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 + 线程安全 provider 切换 | L3 |
-| `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索（L0关键词+L1语义+L0.5图扩展） | L3 |
+| `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、Query DSL 余量接口 | L3 |
 | `internal/rightflower/` | 右花协议：Manifest 加载、HTTP dispatch、审计日志 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
+| `internal/channels/` | 多通道消息抽象层：Channel 接口 + Manager 注册表（余量设计） | L3 |
+| `internal/memory/` | 记忆存储：MemoryStore 接口 + FileStore 实现（余量设计） | L3 |
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
+| `cmd/rightflower-python-wrapper/` | Python 右花接入模板 + Hermes Agent / OpenClaw 适配器 | 右花 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
 | `eval/` | 烟雾测试：场景定义、运行脚本、测试结果 | 测试 |
 | `examples/` | 开发/测试用示例插件（Go + Python 子进程模板） | 参考 |
