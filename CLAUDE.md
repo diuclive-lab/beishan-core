@@ -7,7 +7,7 @@
 - **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 101 registered (desktop_actuator absorbed from FangLab) (97 init + agent delegation tools)
+- **tools**: 104 registered (after cleanup + merges) (97 init + agent delegation tools)
 - **plugins**: 23 L4 + 33 YAML workflows
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
@@ -152,6 +152,10 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | `kernel/router.go` | LLM router + parseDecision hardening |
 | `glue/glue.go` | IPC manager + right flower health monitoring |
 | `cmd/openhuman-flower-adapter/main.go` | OpenHuman bridge |
+| `cmd/mcp-servers/` | 15 MCP skill servers |
+| `internal/mcp/` | MCP protocol client framework |
+| `internal/tools/desktop.go` | Desktop operation L3 tool |
+| `internal/tools/csv.go` | CSV profile + sample (pure Go) |
 | `clients/beishan-ios-client/` | iOS SwiftUI app (Gemini) |
 | `clients/apple-core/` | Swift SDK for beishan-core API |
 

@@ -18,6 +18,7 @@
 | `internal/bench/` | 通用评估框架（bench + runner + suites） | L3 |
 | `internal/discovery/` | 本地推理引擎扫描 + 策略状态机 + 故障切换 | L3 |
 | `internal/agent/` | 子智能体委派：AgentDefinition 注册表 + spawn_subagent/spawn_parallel | L3 |
+| `internal/mcp/` | MCP 协议客户端 + 技能运行器（15 个技能服务器）| L3 |
 | `internal/clarify/` | 澄清契约数据结构（Request/Response/BuildQuestion） | L3 |
 | `internal/registry/` | 工具生命周期门控（PhaseInit→PhaseRunning）+ Profile 过滤 | L3 |
 | `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 + 线程安全 provider 切换 | L3 |
