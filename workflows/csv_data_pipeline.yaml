@@ -1,0 +1,39 @@
+# CSV 数据管道 — 分析 → 预览 → 入库
+#
+# 设计原则：
+#   - 零 LLM：全部确定性工具
+#   - 渐进式：先概览再预览最后入库
+#
+# 流程：
+#   1. csv_profile:  CSV 文件概览（列名/类型/行数）
+#   2. csv_sample:   预览前 5 行数据
+#   3. knowledge_add: 将分析结果入库
+
+id: csv_data_pipeline
+
+steps:
+  - id: csv_profile
+    plugin: memory_plugin
+    type: csv_profile
+    timeout: 10
+    inputs:
+      path: "${input}"
+    next: csv_sample
+
+  - id: csv_sample
+    plugin: memory_plugin
+    type: csv_sample
+    timeout: 10
+    inputs:
+      path: "${input}"
+      rows: 5
+    next: save_to_kb
+
+  - id: save_to_kb
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 10
+    inputs:
+      title: "CSV 分析: ${input}"
+      summary: "${steps.csv_profile.output}\n\n---\n${steps.csv_sample.output}"
+      source_type: "data"

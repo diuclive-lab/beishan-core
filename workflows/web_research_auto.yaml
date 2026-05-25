@@ -1,0 +1,62 @@
+# 网页研究自动化 — 搜索 → 抓取 → 提取 → 入库
+#
+# 设计原则：
+#   - 静态度量优先：先用 web_search + web_fetch 收集原始数据
+#   - 闭环落地：结果自动入库到知识库
+#
+# 流程：
+#   1. web_search:   搜索关键词（零 LLM）
+#   2. web_fetch:     抓取搜索结果页面内容
+#   3. document_extract: 提取正文内容
+#   4. save_knowledge: 结果入库
+#
+# 触发：
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"web_research_auto","input":"搜索关键词"}}
+#
+# 成本估算：零 AI 成本（全部使用确定性工具）
+
+id: web_research_auto
+
+steps:
+
+  # ── Step 1: 网络搜索 ───────────────────────
+  # 搜索指定关键词，返回搜索结果列表
+  - id: web_search
+    plugin: search_plugin
+    type: web_search
+    timeout: 15
+    inputs:
+      query: "${input}"
+    next: web_fetch
+
+  # ── Step 2: 抓取页面 ───────────────────────
+  # 取搜索结果第一条 URL 抓取完整内容
+  - id: web_fetch
+    plugin: search_plugin
+    type: web_fetch
+    timeout: 30
+    inputs:
+      url: "${steps.web_search.output}"
+    next: document_extract
+
+  # ── Step 3: 文档内容提取 ───────────────────
+  # 从抓取的 HTML/文本中提取可读内容
+  - id: document_extract
+    plugin: memory_plugin
+    type: document_extract
+    timeout: 15
+    inputs:
+      path: "${steps.web_fetch.output}"
+    next: save_knowledge
+
+  # ── Step 4: 知识入库 ───────────────────────
+  # 将提取的内容保存到知识库
+  - id: save_knowledge
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 10
+    inputs:
+      title: "搜索: ${input}"
+      summary: "${steps.document_extract.output}"
+      source_type: "web"

@@ -1,0 +1,66 @@
+# 项目快速扫描 — 并行收集项目元数据
+#
+# 参考 code_deep_analyze.yaml 的并行静态度量模式。
+# 三步并跑：文件树 + 代码统计 + 语言检测
+#
+# 触发：
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"quick_project_scan","input":"/path/to/project"}}
+
+id: quick_project_scan
+
+steps:
+  # ── Step 1: 并行扫描（3 路同时跑）───────────
+  - id: parallel_scan
+    type: parallel
+    timeout: 30
+    steps:
+
+      - id: file_tree
+        plugin: memory_plugin
+        type: code_tree
+        inputs:
+          path: "${input}"
+
+      - id: code_stats
+        plugin: memory_plugin
+        type: code_stats
+        inputs:
+          path: "${input}"
+
+      - id: lang_detect
+        plugin: memory_plugin
+        type: code_lang_detect
+        inputs:
+          path: "${input}"
+
+    next: synthesize
+
+  # ── Step 2: 综合（终端汇总）─────────────────
+  - id: synthesize
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 10
+    inputs:
+      command: >-
+        echo "=== 项目扫描报告 ===" &&
+        echo "" &&
+        echo "【文件树】" &&
+        echo '${steps.parallel_scan.file_tree.output}' &&
+        echo "" &&
+        echo "【代码统计】" &&
+        echo '${steps.parallel_scan.code_stats.output}' &&
+        echo "" &&
+        echo "【语言检测】" &&
+        echo '${steps.parallel_scan.lang_detect.output}'
+    next: save_report
+
+  # ── Step 3: 入库 ───────────────────────────
+  - id: save_report
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 10
+    inputs:
+      title: "项目扫描: ${input}"
+      summary: "${steps.synthesize.output}"
+      source_type: "code"

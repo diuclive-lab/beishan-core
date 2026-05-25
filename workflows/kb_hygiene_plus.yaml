@@ -1,0 +1,41 @@
+# 知识库巡检增强版 — 审计 → 修复 → 重建索引
+#
+# 设计原则：
+#   - 零 LLM：全部确定性工具
+#   - 渐进式：先检后修再重建
+#
+# 流程：
+#   1. kb_audit:     知识库完整性检查
+#   2. kb_repair:    自动修复发现的问题
+#   3. knowledge_embed_all: 重建 embedding 索引
+#   4. notify:       通知完成
+
+id: kb_hygiene_plus
+
+steps:
+  - id: kb_audit
+    plugin: memory_plugin
+    type: kb_audit
+    timeout: 30
+    next: kb_repair
+
+  - id: kb_repair
+    plugin: memory_plugin
+    type: kb_repair
+    timeout: 30
+    inputs:
+      audit: "${steps.kb_audit.output}"
+    next: embed_index
+
+  - id: embed_index
+    plugin: memory_plugin
+    type: knowledge_embed_all
+    timeout: 120
+    next: notify_done
+
+  - id: notify_done
+    plugin: notify_plugin
+    type: notify_send
+    timeout: 10
+    inputs:
+      message: "知识库巡检完成：${steps.kb_audit.output}"
