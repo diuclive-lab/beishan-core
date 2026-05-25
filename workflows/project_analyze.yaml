@@ -28,10 +28,19 @@ steps:
   # 阶段一：静态检测（零 LLM，产出精确原材料）
   # ════════════════════════════════════════════════════════
 
-  # ── Step 1: 检测语言和技术栈 ─────────────────────────────
-  # 检测 go.mod / Cargo.toml / package.json / requirements.txt / pyproject.toml
-  # 确定分析策略
+  # ── Step 1: 检测语言和技术栈（L3 工具优先）───────────────
+  # 先用 code_lang_detect，失败降级 terminal_plugin
   - id: detect_lang
+    plugin: memory_plugin
+    type: code_lang_detect
+    timeout: 20
+    on_error: detect_lang_fallback
+    inputs:
+      root: "${input}"
+    next: scan_tree
+
+  # 降级：终端命令检测
+  - id: detect_lang_fallback
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 20
@@ -41,8 +50,7 @@ steps:
         echo "=== GO ===" && ls ${input}/go.mod 2>/dev/null && head -3 ${input}/go.mod 2>/dev/null &&
         echo "=== PYTHON ===" && ls ${input}/setup.py ${input}/pyproject.toml ${input}/requirements.txt 2>/dev/null &&
         echo "=== RUST ===" && ls ${input}/Cargo.toml 2>/dev/null && head -3 ${input}/Cargo.toml 2>/dev/null &&
-        echo "=== NODE ===" && ls ${input}/package.json 2>/dev/null && head -10 ${input}/package.json 2>/dev/null &&
-        echo "=== TOP DIRS ===" && ls -1d ${input}/*/ 2>/dev/null | head -20
+        echo "=== NODE ===" && ls ${input}/package.json 2>/dev/null && head -10 ${input}/package.json 2>/dev/null
     next: scan_tree
 
   # ── 降级：远程 URL 用 github_readme ──
@@ -55,8 +63,18 @@ steps:
     next: assess_remote
 
 
-  # ── Step 2: 扫描源码文件树 ───────────────────────────────
+  # ── Step 2: 扫描源码文件树（L3 工具优先）─────────────────
   - id: scan_tree
+    plugin: memory_plugin
+    type: code_tree
+    timeout: 20
+    on_error: scan_tree_fallback
+    inputs:
+      root: "${input}"
+    next: static_metrics
+
+  # 降级：终端命令扫描
+  - id: scan_tree_fallback
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 30
