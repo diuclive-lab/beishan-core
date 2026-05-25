@@ -22,6 +22,7 @@ import (
 	"beishan/internal/discovery"
 	"beishan/internal/llm"
 	"beishan/internal/agent"
+	"beishan/internal/mcp"
 	"beishan/internal/observatory"
 	"beishan/internal/tools"
 	"beishan/internal/rightflower"
@@ -289,6 +290,20 @@ func main() {
 		Tools:        []string{"read_file", "search_files", "grep"},
 		MaxIterations: 4,
 	})
+	// Register MCP skills
+	mcp.Register(mcp.ServerDef{
+		ID: "finance_research", Name: "金融研究",
+		Command: "python3", Args: []string{"cmd/mcp-servers/finance_research.py"},
+		Description: "行业分析、公司研究、市场趋势、财务数据解读",
+	})
+	tools.RegisterMCPSkills()
+	log.Printf("[main] mcp skills: %d registered", len(mcp.List()))
+	// Start MCP skills (in a real setup, connect on demand)
+	mcpSkillRunner := mcp.NewSkillRunner()
+	mcpSkillRunner.StartAll()
+	tools.SetMCPRunner(mcpSkillRunner)
+	defer mcpSkillRunner.CloseAll()
+
 	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
 	// Register per-agent delegation tools (delegate_to_researcher, etc.)
 	for _, aid := range agent.List() {
