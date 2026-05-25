@@ -54,7 +54,7 @@ id: absorb_right_flower
 
 info:
   title: "右花吸收工作流"
-  description: "将右花已验证能力内化到底座的标准化流程。六步：探→评→吸→测→补→记"
+  description: "将右花已验证能力内化到底座的标准化流程。七步：析→探→评→吸→测→补→记"
   source: "DESIGN_PRINCIPLES.md 双花进化闭环"
   first_run: "2026-05-24 OpenHuman memory.search"
 
