@@ -332,7 +332,8 @@ func Init() {
 	registerCodeAnalysisTools()
 	registerSyncTools()
 	registerKBAuditTools()
-	registerUsageTools()
+	registerDesktopTools()
+		registerUsageTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
 	registry.DefaultInstance.Lock()
