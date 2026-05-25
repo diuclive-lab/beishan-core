@@ -2,20 +2,28 @@
 
 ## 当前状态
 
-正在验证 Hermes Agent 吸收工作流的 Step 3（深度实现验证）。
-Step 0-2.5 已完成，但有一个缺口：**"已吸收"的 2 个能力（model_providers→think_plugin, process_registry→glue）没有做 Step 3 验证，不确定吸收质量。**
+✅ Step 0-3 全部完成（含 P0 吸收验证）。
 
-## 下一步工作
+## P0 验证结论（2026-05-25）
 
-### P0：验证吸收质量
-调 code_diff 或直接读 Hermes 源码，对比真实差异：
-- model_providers vs think_plugin + llm/config.go：Hermes 支持多提供商自动切换/降级，我们的 llm 是否也有？
-- process_registry vs glue/glue.go：Hermes 的进程管理是否更完整，我们的健康检查是否够用？
+### model_providers → llm/config.go：**部分吸收，当前够用**
+- Hermes 有 30+ 声明式 ProviderProfile 插件；我们有 4 个硬编码 provider
+- 基本多 provider 切换（SetProvider/ChatCompletionWithProvider）已吸收
+- 缺失：声明式 profile 系统、插件式注册、per-provider hooks、自动 availability 降级
+- **决定**：当前需求满足，gap 已知，不扩展。等需要动态 provider 注册时再处理。
+
+### process_registry → glue/glue.go：**范围偏差，非缺陷**
+- 两个系统解决不同问题：process_registry = 后台命令生命周期管理，glue.go = Python 插件 IPC
+- glue 的健康检查（30s 循环 + 右花 HTTP + observatory Pulse）**比 Hermes 更强**
+- 输出缓存、poll/wait/kill API、崩溃恢复等没吸收 → 因为定位不同，不是遗漏
+- **决定**：评估通过，无需改动。
 
 ### 已知问题（待确认）
 - 知识库同步：Mac B 有 62 条知识，Mac A 还没有（export 文件在 Mac B 桌面）
 - knowledage_export.json 的 git 私人仓方案待决策（知识库里有记录）
-- preRoute 的搜索 query 长度检测（>15字走LLM Router 不做 preRoute）未落地
+
+### 已关闭 / 推迟
+- ~~preRoute 长度检测~~ — 2026-05-25 推演后关闭。收益太小（¥0.012/天），且绕过硬化层有架构风险。替代方案：给 Router 加 usage 埋点，等数据驱动决策。
 
 ### 工具状态
 - 服务运行在 :8013

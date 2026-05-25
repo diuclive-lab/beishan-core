@@ -8,6 +8,7 @@ imports/
 eval/run/logs/
 eval/run/pids/
 eval/run/core_smoke_*/
+eval/run/legal_smoke_*/
 eval/run/events/
 eval/run/conversations/
 eval/run/traces/

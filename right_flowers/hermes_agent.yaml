@@ -8,5 +8,9 @@ capabilities:
   - code.search
   - agent.chat
   - memory.search
+  - memory.store
+  - tools.list
+  - tool.execute
+  - conversations.list
 output_format: "json"
 safety_level: "sandbox"

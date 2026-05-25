@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -164,18 +165,34 @@ func (r *Router) callDeepSeek(prompt string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", err
 	}
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("LLM 未返回结果")
+	}
+
+	// 采集路由调用 token 消耗
+	if result.Usage.TotalTokens > 0 {
+		llm.RecordUsage("router", &llm.Usage{
+			PromptTokens:     result.Usage.PromptTokens,
+			CompletionTokens: result.Usage.CompletionTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+			Model:            llm.Model(),
+		})
 	}
 
 	return result.Choices[0].Message.Content, nil

@@ -295,3 +295,66 @@ beishan-core 作为主执行体，需要吸收 TwinFlower（认知侧）和 Fang
 ### 影响
 - 融合尚未实际执行（已完成分析阶段）
 - code_deep_analyze 工作流验证了"用自身分析待合并代码"策略
+
+---
+
+## 12. Hermes Agent 能力吸收评估（2026-05-25）
+
+### 背景
+Hermes Agent 作为第二个右花接入后，两个能力被标记为"已吸收"但未做 Step 3 验证：
+- `model_providers` → `llm/config.go` + `think_plugin`
+- `process_registry` → `glue/glue.go`
+
+加上这次会话中讨论的 preRoute 功能待决策。
+
+### 决策
+
+#### model_providers → llm：部分吸收，当前够用
+- Hermes 有 30+ 声明式 `ProviderProfile` 插件（bundled + user plugins），beishan-core 只有 4 个硬编码 provider
+- 基本的多 provider 切换（`SetProvider`/`ChatCompletionWithProvider`）已吸收
+- 缺失：声明式 profile 系统、插件式注册、per-provider hooks、自动 availability 降级
+- **决定**：当前需求满足（DeepSeek + local 回退），gap 已知但不扩展。待需要动态 provider 注册时再处理。
+
+#### process_registry → glue：范围偏差，非缺陷
+- 两个系统解决不同问题：Hermes process_registry = 后台命令生命周期管理，beishan glue.go = Python 插件 IPC
+- glue 的健康检查（30s 循环 + right flower HTTP health + observatory Pulse 集成）比 Hermes 更强
+- 输出缓存、poll/wait/kill API、崩溃恢复等未吸收 → 因定位不同，非遗漏
+- **决定**：评估通过，无需改动。
+
+### 理由
+- 逐步验证吸收质量，避免标记为"已吸收"但实际质量未知的债务
+- 吸收评估逐能力不逐项目（Step 2 条件0）
+
+### 拒绝的方案
+- 全量移植 Hermes ProviderProfile 系统到 Go（成本太高，当前 4 个 provider 足够）
+- 改造 glue.go 为通用进程管理器（定位不同，且 glue 的 IPC 职责清晰）
+
+### 影响
+- Router 调用加 usage 埋点（`callDeepSeek` 加 `RecordUsage`），为未来优化提供数据
+- `docs/HANDOVER_NEXT_SESSION.md` 记录 P0 验证结论
+- DESIGN_PRINCIPLES.md 参考项目部分新增 Hermes Agent 条目
+
+---
+
+## 13. preRoute 长度检测功能关闭（2026-05-25）
+
+### 背景
+考虑在 LLM Router 前加 preRoute 层：≤15 字查询跳过 LLM 路由，用硬编码规则快速分发。
+
+### 决策
+**关闭此功能。** 替代方案：给 Router 调用加 usage 埋点，等数据驱动后续优化。
+
+### 理由
+- 收益太小：预估每天省 ~¥0.012（基于 DeepSeek 价格），不值得为它弯曲架构
+- 绕过硬化层：preRoute 的 Decision 不经过 `parseDecision` 的三层校验（JSON 格式→置信度→knownPlugin）
+- 15 字阈值不可靠：短查询不等于简单路由（"帮我写个Python爬虫"11字但需要 think_plugin），长查询不一定需要 LLM 路由
+- 维护成本：每新增一个插件可能需要同步更新 preRoute 规则，容易被忘
+
+### 拒绝的方案
+- **Router prompt 加短查询指令**：LLM 不保证听话，缓存命中不确定
+- **Router 内部 caching**：重复查询场景少
+- **降低阈值**：任何阈值都有边界案例，且 bypass 硬化层的架构问题不变
+
+### 影响
+- 改为给 `callDeepSeek` 加 `RecordUsage("router", ...)` 埋点（已实现）
+- 之后跑几天可获得路由调用量的真实数据，瓶颈出现时再决策

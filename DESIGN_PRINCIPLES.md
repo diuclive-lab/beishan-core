@@ -340,3 +340,32 @@ LLM 需要结构化的意图表达通道（如 tool_suggestion、search_suggesti
 | clarify 契约 | `internal/clarify/` + bench suites | 结构化澄清 + 评估套件 |
 | bench 评估框架 | `internal/bench/` | ClarifySuite, FilesystemSuite, SearchSuite |
 
+#### Hermes Agent
+
+- 仓库: `~/Desktop/11/hermes-agent`（本地参考项目）
+- 类型: Python 全功能 AI 编码智能体（自治运行、工具调用、多提供商）
+- 角色: 第二个右花 + 能力吸收参考源
+
+**已吸收**：
+| 能力 | 内化位置 | 说明 |
+|------|---------|------|
+| 多 provider 切换 + 指定调用 | `internal/llm/config.go` | SetProvider/ChatCompletionWithProvider，基本切换 |
+| Router usage 埋点 | `kernel/router.go` callDeepSeek | 记录路由调用 token 消耗 |
+
+**吸收评估**：
+| 能力 | 评估结果 | 原因 |
+|------|---------|------|
+| model_providers 声明式 profile | 部分吸收，gap 已知 | 只有 4 个硬编码 provider vs Hermes 30+ plugin profiles，当前够用 |
+| process_registry 进程管理 | 范围偏差，非缺陷 | glue.go 是 IPC 层非进程管理器，健康检查比 Hermes 更强 |
+| preRoute 快速路由 | 已关闭 | 收益太小 + 绕过硬化层，见 MERGE_DECISIONS.md #13 |
+
+**参考未吸收**：
+| 能力 | 现状 | 原因 |
+|------|------|------|
+| ProviderProfile 声明式 dataclass + hooks | 无等价实现 | 当前 4 provider 够用，等需要动态注册时再说 |
+| 插件式 provider 发现 | 无 | 同上 |
+| 崩溃恢复 checkpoint | glue 无 | glue 不管理后台进程生命周期（定位不同） |
+| PTY/interactive CLI | glue 无 | 同上 |
+| Watch patterns + 通知队列 | 无 | glue 只做 IPC dispatch‑response，不做后台命令监控 |
+| 进程输出缓存/检索 | 无 | 同上 |
+
