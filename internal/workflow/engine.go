@@ -221,7 +221,7 @@ func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResu
 	var errs []string
 	for range step.ParallelSteps {
 		r := <-ch
-		ctxKey := "steps." + step.ID + ".output." + r.id
+		ctxKey := "steps." + step.ID + "." + r.id + ".output"
 		if r.err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", r.id, r.err))
 			ctx[ctxKey] = fmt.Sprintf("error: %v", r.err)
