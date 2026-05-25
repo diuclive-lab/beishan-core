@@ -54,6 +54,7 @@ steps:
       url: "${input}"
     next: assess_remote
 
+
   # ── Step 2: 扫描源码文件树 ───────────────────────────────
   - id: scan_tree
     plugin: terminal_plugin
@@ -108,6 +109,22 @@ steps:
 
   # ════════════════════════════════════════════════════════
   # 阶段二：LLM 综合评估（基于静态度量数据）
+
+  # ── Step 3.5: beishan-core 自身能力上下文（动态采集）──
+  # 让 LLM 在评估时知道底座已有什么，避免推荐已有能力。
+  # 数据每次运行自动采集，不硬编码。
+  - id: bc_context
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 15
+    inputs:
+      command: >-
+        echo "=== TOOL COUNT ===" && grep -rn --include='*.go' 'Register("' internal/tools/ 2>/dev/null | wc -l &&
+        echo "=== TOOL CATEGORIES ===" && grep -rn --include='*.go' -E 'func register.*Tools?\(\)' internal/tools/ 2>/dev/null | head -25 &&
+        echo "=== INTERNAL PACKAGES ===" && ls -d internal/*/ 2>/dev/null | head -20 &&
+        echo "=== RIGHT FLOWERS ===" && ls right_flowers/*.yaml 2>/dev/null | head -5 &&
+        echo "=== WORKFLOWS ===" && ls workflows/*.yaml 2>/dev/null | wc -l
+    next: assess
   # ════════════════════════════════════════════════════════
 
   # ── Step 4: LLM 综合评估 + 能力清单 ─────────────────────
@@ -142,6 +159,9 @@ steps:
               "language_freedom": "high/medium/low",
               "absorb_priority": "high/medium/low/skip",
               "absorb_reason": "吸收/跳过理由（一句话）",
+              "comparison_with_bc": "compared / complementary / new / skip",
+              "comparison_reason": "与底座已有能力的对比说明（一句话）",
+
               "go_effort": "用 Go 实现的大致工作量（如：2天、5天、不详）"
             }
           ],
@@ -170,6 +190,9 @@ steps:
         - skip: 不吸收，保持协议调用
 
         ── 项目路径 ──
+        ── beishan-core 当前能力上下文（动态采集）──
+        ${steps.bc_context.output}
+
         ${steps.detect_lang.output}
 
         ── 文件树 ──
