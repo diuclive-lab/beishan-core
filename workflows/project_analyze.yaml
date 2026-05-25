@@ -1,101 +1,232 @@
-# 项目深度分析 v2 — README/源码 → 架构分析 → 知识入库 → 洞察闭环
+# 项目深度分析 v3 — 源码级吸收评估（适配右花 Step 0 需求）
 #
 # 设计原则：
-#   - L3 工具优先：github_readme 拆 URL 和分支降级是工具层职责，工作流不拼接 URL
-#   - 双通道获取：GitHub 项目走 github_readme，其他项目降级 web_fetch
-#   - 洞察必闭环：分析结果入库后自动触发 insight_followup 转为待办
-#   - 零检索：分析步骤用 no_retrieval，避免知识库噪声干扰 LLM 判断
+#   - 静态扫描优先（零 LLM），先摸清项目全貌再让 AI 分析
+#   - 语言无关：检测 Go/Python/TypeScript/Rust，自动切换分析策略
+#   - 吸收导向：输出格式化能力清单 + 逐能力吸收建议
+#   - 闭环落地：分析结果 → 知识库 → insight_followup 待办
+#
+# 参照：code_deep_analyze.yaml（合并导向）+ absorb_right_flower.yaml（吸收导向）
 #
 # 流程：
-#   1. fetch:        github_readme 获取项目 README（L3，约 ¥0）
-#   2. fetch_web:    降级通道，非 GitHub 项目走 web_fetch（约 ¥0）
-#   3. analyze:      DeepSeek 结构化分析（约 ¥0.03）
-#   4. store:        分析结果入库（约 ¥0）
-#   5. followup:     insight_followup 自动创建待办（约 ¥0.02）
-#
-# 总成本估算：
-#   DeepSeek：1-2 次，约 2000 tokens ≈ ¥0.05
-#   L3 工具：github_readme/web_fetch 各 1 次，零 LLM 成本
-#   insight_followup：1 次工作流，约 ¥0.02
+#   1. detect_lang:   检测项目语言和技术栈（零 LLM）
+#   2. scan_tree:     扫描源码文件树（零 LLM）
+#   3. static_metrics:行数 + 入口点 + 关键模式检测（零 LLM）
+#   4. assess:        LLM 综合评估 + 输出能力清单 + 吸收建议
+#   5. save:          知识入库 → insight_followup 待办
 #
 # 触发方式：
-#   手动：
-#     POST /api/chat
-#     {"recipient":"workflow_plugin","type":"workflow_run",
-#      "payload":{"workflow":"project_analyze","input":"<项目URL>"}}
-#   自动：由 agent_observer 工作流触发（agent_observer.yaml）
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"project_analyze","input":"<项目URL或本地路径>"}}
 
 id: project_analyze
 
 steps:
-  # ── Step 1: 获取项目 README（L3 github_readme 工具） ──
-  - id: fetch
+
+  # ════════════════════════════════════════════════════════
+  # 阶段一：静态检测（零 LLM，产出精确原材料）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 1: 检测语言和技术栈 ─────────────────────────────
+  # 检测 go.mod / Cargo.toml / package.json / requirements.txt / pyproject.toml
+  # 确定分析策略
+  - id: detect_lang
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 20
+    on_error: fetch_readme
+    inputs:
+      command: >-
+        echo "=== GO ===" && ls ${input}/go.mod 2>/dev/null && head -3 ${input}/go.mod 2>/dev/null &&
+        echo "=== PYTHON ===" && ls ${input}/setup.py ${input}/pyproject.toml ${input}/requirements.txt 2>/dev/null &&
+        echo "=== RUST ===" && ls ${input}/Cargo.toml 2>/dev/null && head -3 ${input}/Cargo.toml 2>/dev/null &&
+        echo "=== NODE ===" && ls ${input}/package.json 2>/dev/null && head -10 ${input}/package.json 2>/dev/null &&
+        echo "=== TOP DIRS ===" && ls -1d ${input}/*/ 2>/dev/null | head -20
+    next: scan_tree
+
+  # ── 降级：远程 URL 用 github_readme ──
+  - id: fetch_readme
     plugin: memory_plugin
     type: github_readme
-    timeout: 60
-    retry: 1
-    retry_delay: 5
-    on_error: fetch_web
+    timeout: 30
     inputs:
       url: "${input}"
-    next: analyze
+    next: assess_remote
 
-  # ── 降级：非 GitHub 项目用 web_fetch ──
-  - id: fetch_web
-    plugin: search_plugin
-    type: web_fetch
-    timeout: 60
-    retry: 1
-    retry_delay: 5
-    on_error: done
+  # ── Step 2: 扫描源码文件树 ───────────────────────────────
+  - id: scan_tree
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 30
     inputs:
-      url: "${input}"
-    next: analyze
+      command: >-
+        echo "=== GO FILES ===" && find ${input} -name '*.go' -not -path '*/vendor/*' -not -name '*_test.go' -not -path '*/.git/*' | sort | head -80 &&
+        echo "=== PYTHON FILES ===" && find ${input} -name '*.py' -not -path '*/vendor/*' -not -path '*/__pycache__/*' -not -path '*/.git/*' | sort | head -60 &&
+        echo "=== KEY FILES ===" && for f in main.go cli.py __init__.py lib.rs index.ts; do
+          fpath=$(find ${input} -name "$f" -not -path '*/.git/*' 2>/dev/null | head -1)
+          if [ -n "$fpath" ]; then echo "FOUND:$fpath"; fi
+        done
+    next: static_metrics
 
-  # ── Step 2: 深度分析 ──
-  - id: analyze
+  # ── Step 3: 并行静态度量 ─────────────────────────────────
+  - id: static_metrics
+    type: parallel
+    timeout: 30
+    steps:
+      # 度量 A: 入口文件内容
+      - id: entry_point
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            ENTRY=$(find ${input} -name 'main.go' -not -path '*/.git/*' 2>/dev/null | head -1);
+            if [ -z "$ENTRY" ]; then ENTRY=$(find ${input} -name 'cli.py' -not -path '*/.git/*' 2>/dev/null | head -1); fi;
+            if [ -z "$ENTRY" ]; then ENTRY=$(find ${input} -name 'lib.rs' -not -path '*/.git/*' 2>/dev/null | head -1); fi;
+            if [ -z "$ENTRY" ]; then ENTRY=$(find ${input} -name 'index.ts' -not -path '*/.git/*' 2>/dev/null | head -1); fi;
+            if [ -n "$ENTRY" ]; then echo "=== ENTRY: $ENTRY ===" && cat "$ENTRY" | head -100; else echo "(no entry point found)"; fi
+
+      # 度量 B: 导出符号（interface / class / struct / func）
+      - id: exports
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            grep -rn --include='*.go' -E '^(func |type |var |const )' ${input} | grep -v '_test.go' | head -60 &&
+            grep -rn --include='*.py' -E '^(def |class |async def )' ${input} | grep -v '__pycache__' | head -60
+
+      # 度量 C: 关键模式检测（架构相关关键词）
+      - id: patterns
+        plugin: terminal_plugin
+        type: terminal_exec
+        inputs:
+          command: >-
+            echo "=== TOOL/PLUGIN ===" && grep -rni --include='*.go' --include='*.py' 'tool\.\|plugin\.\|registry\|interface' ${input} --include='*.go' --include='*.py' | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -30 &&
+            echo "=== IPC/NETWORK ===" && grep -rni --include='*.go' --include='*.py' 'http\.\|rpc\|grpc\|websocket\|tcp\|unix socket' ${input} | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -20 &&
+            echo "=== STORAGE ===" && grep -rni --include='*.go' --include='*.py' 'sql\|memory\|cache\|store\|file\|db\.' ${input} | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -20
+    next: assess
+
+  # ════════════════════════════════════════════════════════
+  # 阶段二：LLM 综合评估（基于静态度量数据）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 4: LLM 综合评估 + 能力清单 ─────────────────────
+  - id: assess
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 300
+    retry: 1
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你是一位软件架构评估专家，任务是评估以下开源项目，为 beishan-core（Go 微内核 + 硬化层 + 工作流引擎）的吸收决策提供依据。
+
+        输出严格 JSON（不加任何其他文字）：
+
+        {
+          "project_name": "项目名",
+          "language": "检测到的主语言",
+          "summary": "项目定位与核心功能（100字内）",
+
+          "architecture": {
+            "pattern": "微内核/插件化/单体/分层/事件驱动",
+            "description": "架构特点（60字内）"
+          },
+
+          "capabilities": [
+            {
+              "name": "能力名（如：tool_registry、memory_store）",
+              "description": "能力说明（30字内）",
+              "type": "algorithm/pattern/feature/protocol",
+              "language_freedom": "high/medium/low",
+              "absorb_priority": "high/medium/low/skip",
+              "absorb_reason": "吸收/跳过理由（一句话）",
+              "go_effort": "用 Go 实现的大致工作量（如：2天、5天、不详）"
+            }
+          ],
+
+          "go_ecosystem": {
+            "compatible": "与 Go 生态的兼容程度（good/fair/poor）",
+            "key_imports": ["可能可以直接复用的 Go 库"]
+          },
+
+          "absorb_recommendation": "整体吸收建议：部分吸收/仅参考设计/仅协议接入/不推荐",
+          "recommended_focus": "最建议吸收的 1-2 个能力（如果整体推荐部分吸收）",
+          "risk": "吸收风险说明"
+
+        }
+
+        能力分类标准：
+        - algorithm: 纯算法/数据结构，语言无关，最值得吸收
+        - pattern: 设计模式/架构思想，语言无关，值得吸收
+        - feature: 功能特性，部分可能绑定在原始语言生态里
+        - protocol: 通信协议/接口规范，保持协议调用即可
+
+        吸收优先级：
+        - high: 语言无关 + 对 beishan-core 有明显价值
+        - medium: 有部分价值但需适配
+        - low: 价值有限或实现成本高
+        - skip: 不吸收，保持协议调用
+
+        ── 项目路径 ──
+        ${steps.detect_lang.output}
+
+        ── 文件树 ──
+        ${steps.scan_tree.output}
+
+        ── 入口点 ──
+        ${steps.static_metrics.output.entry_point}
+
+        ── 导出符号 ──
+        ${steps.static_metrics.output.exports}
+
+        ── 关键模式 ──
+        ${steps.static_metrics.output.patterns}
+
+    next: save
+
+  # ── 远程 URL 降级：只有 README 的轻量分析 ──
+  - id: assess_remote
     provider: deepseek
     plugin: think_plugin
     type: chat
     timeout: 180
-    retry: 1
-    retry_delay: 5
     inputs:
       mode: "no_retrieval"
       message: >-
-        分析以下开源项目内容，输出结构化 JSON：
+        分析以下开源项目 README，输出能力清单和吸收建议。
+        格式同上（JSON），但能力清单基于 README 推断。
 
-        {
-          "title": "项目名称",
-          "tagline": "一句话概括项目定位",
-          "tech_stack": ["主要技术栈"],
-          "architecture": "架构特点（30字内）",
-          "highlights": ["3-5个最值得关注的设计决策或工程实践"],
-          "beishan_relevance": "对 beishan-core 可借鉴的具体点",
-          "code_quality": "代码质量评估: excellent/good/fair/poor"
-        }
+        README:
+        ${steps.fetch_readme.output.content}
+    next: save
 
-        项目 README 内容：
-        ${steps.fetch.output.content}
+  # ════════════════════════════════════════════════════════
+  # 阶段三：知识入库 + 洞察闭环
+  # ════════════════════════════════════════════════════════
 
-        只输出 JSON，不要其他文字。
-    next: store
-
-  # ── Step 3: 知识入库 ──
-  - id: store
+  # ── Step 5: 知识入库 ────────────────────────────────────
+  - id: save
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
-    on_error: done
     inputs:
       source_type: "code"
-      title: "${steps.analyze.output.title}"
-      summary: "${steps.analyze.output.tagline} | ${steps.analyze.output.architecture} | 借鉴: ${steps.analyze.output.beishan_relevance}"
-      tags: "${steps.analyze.output.tech_stack}"
-      content: "URL: ${input}\n亮点:\n${steps.analyze.output.highlights}\n\n完整分析: ${steps.analyze.output}"
+      title: "${steps.assess.output.project_name} 吸收评估"
+      summary: >-
+        ${steps.assess.output.summary} |
+        语言: ${steps.assess.output.language} |
+        架构: ${steps.assess.output.architecture.pattern} |
+        建议: ${steps.assess.output.absorb_recommendation}
+      tags:
+        - "${steps.assess.output.language}"
+        - "吸收评估"
+        - "${steps.assess.output.architecture.pattern}"
+      content: "${steps.assess.output}"
     next: followup
 
-  # ── Step 4: 洞察跟进 — 评估可借鉴点，创建待办（非核心，失败不阻塞）──
+  # ── Step 6: 洞察跟进 ──
   - id: followup
     plugin: workflow_plugin
     type: workflow_run
@@ -103,4 +234,25 @@ steps:
     on_error: done
     inputs:
       workflow: "insight_followup"
-      input: "${steps.store.output.id}"
+      input: "${steps.save.output.id}"
+
+  # ── Step 7: 完成 ──
+  - id: done
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        生成分析完成摘要：
+
+        项目：${steps.assess.output.project_name}
+        语言：${steps.assess.output.language}
+        架构：${steps.assess.output.architecture.pattern}
+        能力数：${steps.assess.output.capabilities}
+
+        吸收建议：${steps.assess.output.absorb_recommendation}
+        关注焦点：${steps.assess.output.recommended_focus}
+        风险：${steps.assess.output.risk}
+
+        已入库。高优先级能力将自动创建待办。
