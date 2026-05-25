@@ -1,0 +1,13 @@
+name: "openclaw"
+type: "agent"
+protocol: "http"
+endpoint: "http://localhost:9533/dispatch"
+enabled: true
+route_exposed: true
+capabilities:
+  - agent.chat
+  - tool.execute
+  - skills.list
+  - gateway.status
+output_format: "json"
+safety_level: "sandbox"
