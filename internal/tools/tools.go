@@ -334,6 +334,7 @@ func Init() {
 	registerKBAuditTools()
 	registerDesktopTools()
 		registerDocumentTools()
+		registerCSVTools()
 		registerUsageTools()
 
 	log.Printf("[tools] registered %d tools", len(Registry))
