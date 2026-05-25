@@ -7,7 +7,7 @@
 - **iOS App**: 完整 SwiftUI 聊天客户端（Gemini 实现），支持 HTTPS + Basic Auth 远程连接
 - **iOS SDK**: `clients/apple-core/` — Swift Package，封装 beishan-core API
 - **ECS Relay**: 阿里云 SSH 反向隧道（18013→8013）+ Nginx HTTPS + Let's Encrypt + Basic Auth
-- **远程访问**: `https://120-27-157-222.sslip.io` 全球可连
+- **远程访问**: `https://your-relay.example.com` 全球可连
 
 ### 修复
 - 阿里云 ECS `AllowTcpForwarding` SSH 配置
