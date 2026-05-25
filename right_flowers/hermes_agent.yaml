@@ -1,7 +1,7 @@
 name: "hermes_agent"
 type: "coding_agent"
 protocol: "http"
-endpoint: "http://localhost:9531/dispatch"
+endpoint: "http://localhost:9532/dispatch"
 enabled: true
 route_exposed: true
 capabilities:
