@@ -3,6 +3,7 @@ package rightflower
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"beishan/kernel"
@@ -58,6 +59,29 @@ func RegisterAll(k *kernel.Kernel, manifestDir string) error {
 	if err := reg.LoadDir(manifestDir); err != nil {
 		return err
 	}
+
+	// 冲突检测：检查同名的右花和与已有插件冲突的右花
+	existing := k.KnownPlugins()
+	existingSet := make(map[string]bool, len(existing))
+	for _, name := range existing {
+		existingSet[name] = true
+	}
+
+	var conflicts []string
+	seen := make(map[string]bool) // 本次注册的右花内部去重
+	for name := range reg.Flowers {
+		if seen[name] {
+			conflicts = append(conflicts, fmt.Sprintf("右花内同名: %s（多个 manifest 使用了同一名称）", name))
+		}
+		seen[name] = true
+		if existingSet[name] {
+			conflicts = append(conflicts, fmt.Sprintf("与已有插件冲突: %s", name))
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("右花注册冲突:\n%s", strings.Join(conflicts, "\n"))
+	}
+
 	client := NewClient()
 	for name, m := range reg.Flowers {
 		p := &Plugin{
