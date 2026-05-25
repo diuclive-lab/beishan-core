@@ -214,8 +214,10 @@ steps:
     next:
       - if: "steps.reverse_audit_r2.output.status == 'clean'"
         goto: report
-      - default: true
+      - if: "steps.reverse_audit_r2.output.status == 'found'"
         goto: reverse_audit_r3
+      - default: true
+        goto: report
 
   # ── Step 6: 逆向审计第 3 轮（硬上限）─────────────
   # 最多 3 轮，防止无限循环和 LLM 胡编问题。
