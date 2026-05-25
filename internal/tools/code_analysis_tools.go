@@ -465,6 +465,138 @@ func regexExtract(content, pattern string) []string {
 
 // ─── 注册 ────────────────────────────────────────────────────────────────────
 
+
+/* ─── code_tree — 源码文件树扫描 ───────────────── */
+
+type TreeResult struct {
+	TotalFiles int            `json:"total_files"`
+	ByLang     map[string]int `json:"by_lang"`
+	ByDir      map[string]int `json:"by_dir"`
+}
+
+func CodeTreeHandler(args map[string]interface{}) *ToolResult {
+	root, _ := args["root"].(string)
+	if root == "" {
+		return errorResult("root 不能为空")
+	}
+	root = filepath.Clean(root)
+	r := TreeResult{ByLang: make(map[string]int), ByDir: make(map[string]int)}
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if lang := detectSrcLang(filepath.Ext(path), info.Name()); lang != "" {
+			relDir, _ := filepath.Rel(root, filepath.Dir(path))
+			r.ByLang[lang]++
+			r.ByDir[relDir]++
+			r.TotalFiles++
+		}
+		return nil
+	})
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
+/* ─── code_stats — 代码量统计 ──────────────────── */
+
+type CodeStatsResult struct {
+	TotalFiles  int            `json:"total_files"`
+	TotalLines  int            `json:"total_lines"`
+	ByLang      map[string]int `json:"by_lang"`
+	EntryPoints []string       `json:"entry_points"`
+}
+
+func CodeStatsHandler(args map[string]interface{}) *ToolResult {
+	root, _ := args["root"].(string)
+	if root == "" {
+		return errorResult("root 不能为空")
+	}
+	root = filepath.Clean(root)
+	r := CodeStatsResult{ByLang: make(map[string]int)}
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if lang := detectSrcLang(filepath.Ext(path), info.Name()); lang != "" {
+			r.TotalFiles++
+			r.ByLang[lang]++
+			r.TotalLines += countFileLines(path)
+			if n := info.Name(); n == "main.go" || n == "cli.py" || n == "main.py" {
+				r.EntryPoints = append(r.EntryPoints, path)
+			}
+		}
+		return nil
+	})
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
+/* ─── code_lang_detect — 项目语言检测 ──────────── */
+
+type LangDetectResult struct {
+	PrimaryLang string         `json:"primary_lang"`
+	Languages   map[string]int `json:"languages"`
+	HasGoMod    bool           `json:"has_go_mod"`
+	HasSetupPy  bool           `json:"has_setup_py"`
+	HasCargo    bool           `json:"has_cargo"`
+	HasPackage  bool           `json:"has_package_json"`
+	EntryPoint  string         `json:"entry_point"`
+}
+
+func CodeLangDetectHandler(args map[string]interface{}) *ToolResult {
+	root, _ := args["root"].(string)
+	if root == "" {
+		return errorResult("root 不能为空")
+	}
+	root = filepath.Clean(root)
+	r := LangDetectResult{Languages: make(map[string]int)}
+	for _, f := range []struct{n string; d *bool}{
+		{"go.mod", &r.HasGoMod}, {"setup.py", &r.HasSetupPy},
+		{"Cargo.toml", &r.HasCargo}, {"package.json", &r.HasPackage},
+	} {
+		if _, e := os.Stat(filepath.Join(root, f.n)); e == nil { *f.d = true }
+	}
+	for _, ep := range []string{"main.go", "cli.py", "lib.rs", "index.ts"} {
+		if _, e := os.Stat(filepath.Join(root, ep)); e == nil { r.EntryPoint = ep; break }
+	}
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() { return nil }
+		if lang := detectSrcLang(filepath.Ext(path), info.Name()); lang != "" {
+			r.Languages[lang]++
+		}
+		return nil
+	})
+	maxC := 0
+	for l, c := range r.Languages {
+		if c > maxC { maxC, r.PrimaryLang = c, l }
+	}
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
+/* ─── 辅助函数 ────────────────────────────────── */
+
+func detectSrcLang(ext, name string) string {
+	switch ext {
+	case ".go": return "Go"
+	case ".py": return "Python"
+	case ".rs": return "Rust"
+	case ".ts", ".tsx": return "TypeScript"
+	case ".js", ".jsx": return "JavaScript"
+	case ".java": return "Java"
+	case ".rb": return "Ruby"
+	case ".c", ".h": return "C"
+	case ".cpp", ".hpp": return "C++"
+	case ".swift": return "Swift"
+	}
+	return ""
+}
+
+func countFileLines(path string) int {
+	d, e := os.ReadFile(path)
+	if e != nil { return 0 }
+	return len(strings.Split(string(d), "\n"))
+}
 func registerCodeAnalysisTools() {
 	Register("code_read_external", "读取外部项目文件（无项目根目录限制）。支持 ~/ 展开，最大 2MB。",
 		map[string]interface{}{
@@ -502,4 +634,37 @@ func registerCodeAnalysisTools() {
 		},
 		GoStructScanHandler,
 	)
+	Register("code_tree", "扫描项目源码文件树。按语言和目录统计。替代 find 命令。",
+		map[string]interface{}{
+			"type": "object",
+			"required": []string{"root"},
+			"properties": map[string]interface{}{
+				"root": stringParam("项目根目录路径"),
+			},
+		},
+		CodeTreeHandler,
+	)
+
+	Register("code_stats", "统计项目代码量：文件数、行数、语言分布、入口点。替代 grep 计数。",
+		map[string]interface{}{
+			"type": "object",
+			"required": []string{"root"},
+			"properties": map[string]interface{}{
+				"root": stringParam("项目根目录路径"),
+			},
+		},
+		CodeStatsHandler,
+	)
+
+	Register("code_lang_detect", "检测项目主语言和技术栈。替代 ls/cat 命令。",
+		map[string]interface{}{
+			"type": "object",
+			"required": []string{"root"},
+			"properties": map[string]interface{}{
+				"root": stringParam("项目根目录路径"),
+			},
+		},
+		CodeLangDetectHandler,
+	)
+
 }
