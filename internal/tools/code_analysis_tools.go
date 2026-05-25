@@ -610,7 +610,8 @@ func registerCodeAnalysisTools() {
 		CodeReadExternalHandler,
 	)
 
-	Register("dir_scan", "扫描目录结构。返回文件树 + 统计信息。支持深度限制和扩展名过滤。",
+	RegisterDeprecated("dir_scan", "扫描目录结构。返回文件树 + 统计信息。支持深度限制和扩展名过滤。",
+		"已废弃：请使用 code_tree（更强的语言感知和统计能力）。",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"path"},
