@@ -387,6 +387,22 @@ func SearchWithScore(query string, limit int, namespace string) []ScoredEntry {
 	return scored
 }
 
+/* SearchWithQuery 使用 Query DSL 结构进行检索。
+   ParseQuery 当前不解析结构化字段，退化为关键词搜索。
+   后续解析器激活后，调用方无需修改代码即获得字段筛选能力。*/
+func SearchWithQuery(q *retrieval.Query, limit int) []ScoredEntry {
+	if q == nil || q.IsEmpty() {
+		return nil
+	}
+	keyword := ""
+	if len(q.Keywords) > 0 {
+		keyword = q.Keywords[0]
+	}
+	// TODO: 解析器激活后，q.Tags/q.Types/q.DateAfter 等字段在此处应用
+	return SearchWithScore(keyword, limit, q.Namespace)
+}
+
+
 // computeStructuralBoost 计算结构化加权分数 + 矛盾标注。
 // 加权规则：
 //   - 决策类标签（决策/决定/架构/方案/结论/教训/放弃）: +1
