@@ -1,6 +1,21 @@
 # 变更日志
 
 
+
+## 2026-05-25 FangLab 桌面操作吸收 + 101 工具
+
+### 新增
+- **desktop_actuator L3 工具**: 点击/输入/窗口树/菜单栏/菜单项操作
+- 工具数 100 → **101**
+- 吸收工作流全流程验证（Step 1-6）
+
+### 来源
+- FangLab scripts/desktop_actuator.py（同宗同源吸收）
+
+### 验证
+- get_window_tree ✅
+- get_menu_bar_tree ✅
+- build ✅ vet ✅ hardening ✅ docs ✅
 ## 2026-05-25 远程通车 — iOS App + ECS Relay + 安全修复
 
 ### 新增

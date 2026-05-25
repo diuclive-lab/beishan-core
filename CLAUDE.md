@@ -7,7 +7,7 @@
 - **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 99 registered (97 init + agent delegation tools)
+- **tools**: 101 registered (desktop_actuator absorbed from FangLab) (97 init + agent delegation tools)
 - **plugins**: 23 L4 + 33 YAML workflows
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
