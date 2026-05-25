@@ -92,3 +92,65 @@ func desktopActuatorHandler(args map[string]interface{}) *ToolResult {
 	}
 	return successResult(fmt.Sprintf("桌面操作 %s 执行成功", action))
 }
+
+/* ─── document_extract L3 工具 ──────────────
+
+   吸收自 FangLab's document_extract.py。
+   从各种文件格式中提取文本内容（txt/md/docx/pdf/html/csv 等）。
+*/
+
+func registerDocumentTools() {
+	Register("document_extract", "Extract text content from documents (txt, md, pdf, docx, csv, html, code). Input: file path. Output: extracted text.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"path"},
+			"properties": map[string]interface{}{
+				"path":     stringParam("Path to the document file"),
+				"max_chars": intParam("Maximum characters to extract (default 12000)"),
+			},
+		},
+		documentExtractHandler,
+	)
+}
+
+func documentExtractHandler(args map[string]interface{}) *ToolResult {
+	path := strArg(args, "path")
+	if path == "" {
+		return errorResult("path is required")
+	}
+
+	maxChars := 12000
+	if m, ok := args["max_chars"]; ok {
+		if mi, ok := m.(float64); ok {
+			maxChars = int(mi)
+		}
+	}
+
+	input, _ := json.Marshal(map[string]interface{}{
+		"path":      path,
+		"max_chars": maxChars,
+	})
+
+	cmd := exec.Command("python3", "/Users/dc/Desktop/0/scripts/document_extract.py")
+	cmd.Stdin = strings.NewReader(string(input))
+	output, err := cmd.Output()
+	if err != nil {
+		return errorResult(fmt.Sprintf("document extraction failed: %v", err))
+	}
+
+	var result struct {
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return errorResult(fmt.Sprintf("parse error: %v", err))
+	}
+	if result.Status == "error" || result.Error != "" {
+		return errorResult(result.Error)
+	}
+	if result.Summary != "" {
+		return successResult(result.Summary)
+	}
+	return successResult("document extracted successfully")
+}
