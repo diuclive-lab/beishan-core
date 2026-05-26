@@ -292,26 +292,6 @@ func main() {
 	})
 	// Register MCP skills
 	// Batch register MCP skills
-	mcp.Register(mcp.ServerDef{ID: "equity_analysis", Name: "equity_analysis", Command: "python3", Args: []string{"cmd/mcp-servers/equity_analysis.py"}, Description: "MCP skill: equity_analysis"})
-	mcp.Register(mcp.ServerDef{ID: "idle_inspection", Name: "idle_inspection", Command: "python3", Args: []string{"cmd/mcp-servers/idle_inspection.py"}, Description: "MCP skill: idle_inspection"})
-	mcp.Register(mcp.ServerDef{ID: "drone_operations", Name: "drone_operations", Command: "python3", Args: []string{"cmd/mcp-servers/drone_operations.py"}, Description: "MCP skill: drone_operations"})
-	mcp.Register(mcp.ServerDef{ID: "code_review", Name: "code_review", Command: "python3", Args: []string{"cmd/mcp-servers/code_review.py"}, Description: "MCP skill: code_review"})
-	mcp.Register(mcp.ServerDef{ID: "local_resource_budget", Name: "local_resource_budget", Command: "python3", Args: []string{"cmd/mcp-servers/local_resource_budget.py"}, Description: "MCP skill: local_resource_budget"})
-	mcp.Register(mcp.ServerDef{ID: "cinematography", Name: "cinematography", Command: "python3", Args: []string{"cmd/mcp-servers/cinematography.py"}, Description: "MCP skill: cinematography"})
-	mcp.Register(mcp.ServerDef{ID: "math_modeling", Name: "math_modeling", Command: "python3", Args: []string{"cmd/mcp-servers/math_modeling.py"}, Description: "MCP skill: math_modeling"})
-	mcp.Register(mcp.ServerDef{ID: "repository_guidance", Name: "repository_guidance", Command: "python3", Args: []string{"cmd/mcp-servers/repository_guidance.py"}, Description: "MCP skill: repository_guidance"})
-	mcp.Register(mcp.ServerDef{ID: "legal_research", Name: "legal_research", Command: "python3", Args: []string{"cmd/mcp-servers/legal_research.py"}, Description: "MCP skill: legal_research"})
-	mcp.Register(mcp.ServerDef{ID: "frontier_tech", Name: "frontier_tech", Command: "python3", Args: []string{"cmd/mcp-servers/frontier_tech.py"}, Description: "MCP skill: frontier_tech"})
-	mcp.Register(mcp.ServerDef{ID: "continuous_domain_watch", Name: "continuous_domain_watch", Command: "python3", Args: []string{"cmd/mcp-servers/continuous_domain_watch.py"}, Description: "MCP skill: continuous_domain_watch"})
-	mcp.Register(mcp.ServerDef{ID: "ai_frontier", Name: "ai_frontier", Command: "python3", Args: []string{"cmd/mcp-servers/ai_frontier.py"}, Description: "MCP skill: ai_frontier"})
-	mcp.Register(mcp.ServerDef{ID: "domain_synthesis", Name: "domain_synthesis", Command: "python3", Args: []string{"cmd/mcp-servers/domain_synthesis.py"}, Description: "MCP skill: domain_synthesis"})
-	mcp.Register(mcp.ServerDef{ID: "eval_driven_debug", Name: "eval_driven_debug", Command: "python3", Args: []string{"cmd/mcp-servers/eval_driven_debug.py"}, Description: "MCP skill: eval_driven_debug"})
-
-		mcp.Register(mcp.ServerDef{
-		ID: "finance_research", Name: "金融研究",
-		Command: "python3", Args: []string{"cmd/mcp-servers/finance_research.py"},
-		Description: "行业分析、公司研究、市场趋势、财务数据解读",
-	})
 	tools.RegisterMCPSkills()
 	log.Printf("[main] mcp skills: %d registered", len(mcp.List()))
 	// Start MCP skills (in a real setup, connect on demand)
