@@ -77,6 +77,7 @@ func ChatCompletionWithUsage(messages []ChatMessage, timeout time.Duration) (str
 	respBody, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Choices []struct {
+			FinishReason string `json:"finish_reason"`
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
@@ -92,6 +93,9 @@ func ChatCompletionWithUsage(messages []ChatMessage, timeout time.Duration) (str
 	}
 	if len(result.Choices) == 0 {
 		return "", nil, fmt.Errorf("LLM 未返回结果")
+	}
+	if result.Choices[0].FinishReason == "length" {
+		log.Printf("[llm] 响应被 max_tokens 截断")
 	}
 
 	usage := &Usage{
@@ -348,6 +352,7 @@ func ChatCompletionWithProvider(provider string, messages []ChatMessage, timeout
 	respBody, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Choices []struct {
+			FinishReason string `json:"finish_reason"`
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`

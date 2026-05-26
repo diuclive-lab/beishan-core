@@ -61,6 +61,7 @@ steps:
   # ── Step 2: 并行静态度量（3 路同时跑） ─────────────────
   # 调用：code_stats(list_files=true) / go_struct_scan(root=)
   - id: static_metrics
+    next: runtime_anatomy
     type: parallel
     timeout: 45
     steps:
@@ -92,7 +93,6 @@ steps:
           root: "${input}"
           import_limit: 40
 
-    next: select_files
 
   # ═══════════════════════════════════════════════════════════
   # 阶段二：战略选文件 + 运行时解剖

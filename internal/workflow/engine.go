@@ -71,8 +71,8 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			if json.Unmarshal(payload, &pm) == nil {
 				if _, exists := pm["mode"]; !exists {
 					pm["mode"] = "no_retrieval"
-					payload, _ = json.Marshal(pm)
 				}
+				payload, _ = json.Marshal(pm)
 			}
 		}
 

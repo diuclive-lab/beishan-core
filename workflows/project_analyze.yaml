@@ -123,9 +123,9 @@ steps:
             echo "=== TOOL/PLUGIN ===" && grep -rni --include='*.go' --include='*.py' 'tool\.\|plugin\.\|registry\|interface' ${input} --include='*.go' --include='*.py' | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -30 &&
             echo "=== IPC/NETWORK ===" && grep -rni --include='*.go' --include='*.py' 'http\.\|rpc\|grpc\|websocket\|tcp\|unix socket' ${input} | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -20 &&
             echo "=== STORAGE ===" && grep -rni --include='*.go' --include='*.py' 'sql\|memory\|cache\|store\|file\|db\.' ${input} | grep -v '_test.go' | grep -v '__pycache__' | grep -v vendor | head -20
-    next: assess
 
   # ════════════════════════════════════════════════════════
+    next: bc_context
   # 阶段二：LLM 综合评估（基于静态度量数据）
 
   # ── Step 3.5: beishan-core 自身能力上下文（动态采集）──
@@ -142,9 +142,9 @@ steps:
         echo "=== INTERNAL PACKAGES ===" && ls -d internal/*/ 2>/dev/null | head -20 &&
         echo "=== RIGHT FLOWERS ===" && ls right_flowers/*.yaml 2>/dev/null | head -5 &&
         echo "=== WORKFLOWS ===" && ls workflows/*.yaml 2>/dev/null | wc -l
-    next: assess
   # ════════════════════════════════════════════════════════
 
+    next: assess
   # ── Step 4: LLM 综合评估 + 能力清单 ─────────────────────
   - id: assess
     provider: deepseek
@@ -237,7 +237,6 @@ steps:
 
         ── 关键模式 ──
         ${steps.static_metrics.output.patterns}
-
     next: save
 
   # ── 远程 URL 降级：只有 README 的轻量分析 ──

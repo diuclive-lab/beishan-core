@@ -221,8 +221,8 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 // 也兼容旧格式纯字符串。
 func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte, provider string) (kernel.Message, error) {
 	var req struct {
-		Message string `json:"message"`
-		System  string `json:"system,omitempty"`
+		Message   string `json:"message"`
+		System    string `json:"system,omitempty"`
 	}
 	if len(raw) > 0 && raw[0] == '{' {
 		json.Unmarshal(raw, &req)
