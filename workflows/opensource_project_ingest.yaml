@@ -1,20 +1,17 @@
-# 开源项目入库 — 分层采样、提取可借鉴的设计模式
+# 开源项目入库 v2.5 — 分层采样、提取可借鉴的设计模式
 #
-# ── 串行阶段 ──
+# 流程：
 #   1. fetch_readme:     获取项目 README
 #   2. fetch_tree:       搜索目录结构
 #   3. identify_keywords: DeepSeek 定位核心文件和技术关键词
-#
-# ── 并行阶段 ──
-#   4. research_parallel: 三步并发，速度 3x
-#       ├─ fetch_core_files:  读取核心源码
-#       ├─ fetch_design_docs: 搜索架构文档
-#       └─ fetch_issues:      搜索设计决策讨论
-#
-# ── 串行阶段 ──
-#   5. analyze:          DeepSeek 综合分析 → 结构化输出
+#   4. research_parallel: 三步并发（core_files + design_docs + issues）
+#   5. analyze:          DeepSeek 综合分析 → 结构化输出（含证据标注）
 #   6. save_knowledge:   知识条目入库
 #   7. save_todos:       提取的行动项落地
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 #
 # 触发方式:
 #   POST /api/chat
@@ -29,6 +26,7 @@ steps:
     plugin: search_plugin
     type: web_fetch
     timeout: 30
+    on_error: done
     inputs:
       url: "${input}"
     next: fetch_tree
@@ -37,6 +35,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: done
     inputs:
       query: "${input} site:github.com directory structure"
     next: identify_keywords
@@ -45,14 +44,17 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         基于以下项目的 README 和目录结构，输出严格的 JSON（不加任何其他文字）：
 
         {
           "core_files": ["最值得阅读的3个文件路径"],
           "search_keywords": ["用于定向挖掘的5个技术关键词"],
-          "design_questions": ["3个最值得搜索的设计决策问题"]
+          "design_questions": ["3个最值得搜索的设计决策问题"],
+          "source_confidence": "E1(来自README明确描述)/E2(从目录推断)/E3(推测)"
         }
 
         README 内容：
@@ -73,6 +75,7 @@ steps:
         timeout: 60
         retry: 2
         retry_delay: 2
+        on_error: skip
         inputs:
           url: "${input}/blob/main/${steps.identify_keywords.output.core_files[0]}"
 
@@ -80,6 +83,7 @@ steps:
         plugin: search_plugin
         type: web_search
         timeout: 30
+        on_error: skip
         inputs:
           query: "${steps.identify_keywords.output.search_keywords[0]} ${input} architecture design"
 
@@ -87,6 +91,7 @@ steps:
         plugin: search_plugin
         type: web_search
         timeout: 30
+        on_error: skip
         inputs:
           query: "site:github.com ${input} issues design why chose"
     next: analyze
@@ -98,9 +103,16 @@ steps:
     timeout: 180
     retry: 1
     retry_delay: 2
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个架构分析师。综合以下所有信息，输出严格的 JSON（不加任何其他文字）：
+        你是一个架构分析师。综合以下所有信息，输出严格的 JSON。
+        每条分析结论必须标注 evidence 等级：
+        E1 = 源码/文档直接可见
+        E2 = 从目录结构推断
+        E3 = 从 issue 讨论推断
+        E4 = 推测（标注 hypothesis）
 
         {
           "title": "项目一句话定位",
@@ -108,8 +120,16 @@ steps:
           "tags": ["技术标签"],
           "topics": ["领域标签"],
           "patterns": "可借鉴的设计模式说明",
+          "patterns_evidence": "E1/E2/E3/E4",
           "gaps": "与 beishan-core 的差距",
-          "tasks": ["具体可执行的行动项"]
+          "gaps_evidence": "E1/E2/E3/E4",
+          "tasks": [
+            {
+              "task": "具体可执行的行动项",
+              "priority": "high/medium/low",
+              "source": "从哪部分分析得出"
+            }
+          ]
         }
 
         README：
@@ -133,6 +153,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "opensource"
       title: "${steps.analyze.output.title}"
@@ -148,6 +169,7 @@ steps:
     plugin: todo_plugin
     type: todo_add
     timeout: 10
+    on_error: done
     inputs:
       todos: "${steps.analyze.output.tasks}"
       source: "${steps.save_knowledge.output.id}"

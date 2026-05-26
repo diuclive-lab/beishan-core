@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -28,24 +29,20 @@ const MAX_SPAWN_DEPTH = 10
 // currentSpawnDepth tracks nesting depth via task-local storage.
 // Implemented as a simple counter, incremented on each spawn.
 // Zero means we're in the root agent, not a sub-agent.
-var currentSpawnDepth int
+type spawnDepthKey struct{}
 
-// IncSpawnDepth increments and returns the new depth.
-// Returns error if depth would exceed MAX_SPAWN_DEPTH.
-func IncSpawnDepth() (int, error) {
-	currentSpawnDepth++
-	if currentSpawnDepth > MAX_SPAWN_DEPTH {
-		currentSpawnDepth--
-		return 0, fmt.Errorf("spawn depth exceeded: max %d", MAX_SPAWN_DEPTH)
+// CtxWithSpawnDepth returns a child context with incremented spawn depth.
+// Each goroutine gets its own context, so parallel spawns don't interfere.
+func CtxWithSpawnDepth(ctx context.Context) (context.Context, error) {
+	depth := 0
+	if d, ok := ctx.Value(spawnDepthKey{}).(int); ok {
+		depth = d
 	}
-	return currentSpawnDepth, nil
-}
-
-// DecSpawnDepth decrements the spawn depth counter.
-func DecSpawnDepth() {
-	if currentSpawnDepth > 0 {
-		currentSpawnDepth--
+	depth++
+	if depth > MAX_SPAWN_DEPTH {
+		return ctx, fmt.Errorf("spawn depth exceeded: max %d", MAX_SPAWN_DEPTH)
 	}
+	return context.WithValue(ctx, spawnDepthKey{}, depth), nil
 }
 
 // ModelSpec controls which model a sub-agent uses.

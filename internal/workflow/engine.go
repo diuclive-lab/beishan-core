@@ -592,6 +592,13 @@ func extractFieldFromValue(v interface{}, fieldPath string) (interface{}, bool) 
 
 // resolveJSONValue 递归解析 JSON，自动解包嵌套编码的字符串
 func resolveJSONValue(raw []byte) interface{} {
+	return resolveJSONValueDepth(raw, 0)
+}
+
+func resolveJSONValueDepth(raw []byte, depth int) interface{} {
+	if depth > 10 {
+		return string(raw)
+	}
 	// 先尝试去除 markdown 代码块包裹
 	s := strings.TrimSpace(string(raw))
 	if strings.HasPrefix(s, "```") {
@@ -618,7 +625,10 @@ func resolveJSONValue(raw []byte) interface{} {
 	// 如果是 JSON 字符串（嵌套编码），解包后递归
 	var str string
 	if err := json.Unmarshal(raw, &str); err == nil {
-		return resolveJSONValue([]byte(str))
+		if len(str) > 0 && len(str) < len(raw) {
+			return resolveJSONValueDepth([]byte(str), depth+1)
+		}
+		return raw
 	}
 	// 尝试从文本中提取 JSON（LLM 可能在 JSON 前后添加说明文字）
 	if idx := strings.IndexAny(s, "{["); idx >= 0 {
@@ -628,7 +638,7 @@ func resolveJSONValue(raw []byte) interface{} {
 		}
 		if lastIdx := strings.LastIndex(s, string(closeChar)); lastIdx > idx {
 			candidate := s[idx : lastIdx+1]
-			if parsed := resolveJSONValue([]byte(candidate)); parsed != nil {
+			if parsed := resolveJSONValueDepth([]byte(candidate), depth+1); parsed != nil {
 				return parsed
 			}
 		}

@@ -1,18 +1,16 @@
-# 批量内容导入 — 接受 URL 列表，逐个执行 content_review，汇总报告
+# 批量内容导入 v2.5 — 接受 URL 列表，逐个执行 content_review，汇总报告
 #
-# 触发方式：
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"batch_ingest","input":["url1","url2","url3"]}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: batch_ingest
 
 steps:
-  # ── Step 1: 批量审核 ──
   - id: review
     plugin: workflow_plugin
     type: workflow_run
     timeout: 300
+    on_error: done
     batch:
       foreach: "${input}"
       parallel: true
@@ -22,11 +20,11 @@ steps:
       input: "${item}"
     next: summary
 
-  # ── Step 2: 汇总报告 ──
   - id: summary
     plugin: think_plugin
     type: chat
     timeout: 60
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: |

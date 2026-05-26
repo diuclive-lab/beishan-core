@@ -1,58 +1,51 @@
-# L1 主动观察者 Agent
-# 定期轮询技术资讯源 → 按知识库主题筛选 → 高相关内容自动入库 → 通知用户
+# L1 主动观察者 Agent v2.5 — 定期轮询技术资讯 → 筛选 → 入库
 #
-# 触发方式（手动）：
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"agent_observer"}}
-#
-# 定时执行（由 scheduler_plugin 管理，main.go 注册 cron: "0 8 * * 1-5"）
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: agent_observer
 
 steps:
-  # ── Step 1: 抓取默认资讯源 ──
   - id: fetch
     plugin: memory_plugin
     type: rss_default
     timeout: 60
     retry: 1
+    on_error: done
     next: score
 
-  # ── Step 2: LLM 评估相关性并筛选 ──
   - id: score
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-
-        你的任务是从以下资讯中筛选出与 beishan-core 项目相关的条目。
+        从以下资讯中筛选出与 beishan-core 项目相关的条目。
 
         beishan-core 关注领域：
-        - 编程语言（Go/Python/Rust/TypeScript）、微内核架构、智能体编排
+        - Go/Python/Rust/TypeScript、微内核、智能体编排
         - 知识管理、语义检索、知识图谱
         - 量化交易、股票分析、金融数据
         - 图片生成、视觉 AI、提示词工程
-        - 开源项目工程实践、架构设计、DevOps
+        - 开源项目工程实践、架构设计
 
         资讯列表：
         ${steps.fetch.output}
 
-        对每条资讯：
-        1. 判断是否与关注领域相关
-        2. 如果相关，用中文总结核心价值（20字以内）
-        3. 输出 JSON 数组：[{"title":"...","url":"...","reason":"..."}]，不相关的不要包含
+        对每条相关资讯，输出 JSON 数组：
+        [{"title":"...","url":"...","reason":"...","evidence":"E1/E2"}]
 
-        如果都不相关，输出空数组 []。
-    next: auto_ingest
+        如果都不相关，输出 []。
+    next: extract_urls
 
-  # ── Step 3: 提取项目 URL ──
   - id: extract_urls
     plugin: think_plugin
     type: chat
     timeout: 60
-    skip_if: "len(steps.score.output) == 0 || steps.score.output == '[]'"
+    skip_if: "steps.score.output == '[]'"
+    on_error: report
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -61,16 +54,14 @@ steps:
         ${steps.score.output}
 
         格式：["url1","url2","url3"]
-
-        只输出 JSON 数组，不要其他文字。
     next: analyze
 
-  # ── Step 4: 逐个项目深度分析 ──
   - id: analyze
     plugin: workflow_plugin
     type: workflow_run
     timeout: 300
     skip_if: "steps.extract_urls.output == '[]'"
+    on_error: report
     batch:
       foreach: "${steps.extract_urls.output}"
       parallel: true
@@ -80,11 +71,11 @@ steps:
       input: "${item}"
     next: report
 
-  # ── Step 5: 汇总通知（含日期） ──
   - id: report
     plugin: think_plugin
     type: chat
     timeout: 60
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -93,9 +84,5 @@ steps:
         发现项目：${steps.score.output}
         分析完成：${steps.analyze.count} 个
 
-        如果分析完成 > 0：
-          用中文列出每个项目的名称、技术栈和可借鉴点。
-          在末尾加上今天的日期。
-
-        如果无项目：
-          输出"今日未发现与项目相关的新内容。"
+        如果分析完成 > 0：列出每个项目的名称、技术栈和可借鉴点。
+        如果无项目：输出"今日未发现与项目相关的新内容。"

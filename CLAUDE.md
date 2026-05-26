@@ -7,8 +7,8 @@
 - **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 104 registered (after cleanup + merges) (97 init + agent delegation tools)
-- **plugins**: 23 L4 + 33 YAML workflows
+- **tools**: 105 registered (after cleanup + merges) (including base_capability_inventory)
+- **plugins**: 23 L4 + 40 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
 
@@ -173,21 +173,24 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 
 ## Recent State
 
-**Last 5 commits** (2026-05-25):
+**Last 5 commits** (2026-05-26):
 ```
-dd22219 docs: AI 可读性升级 — 文档索引 + AI Summary
-b4cf2af docs: README 文档索引补 CLAUDE.md
-6bb42ee docs: CLAUDE.md + 开发日志完整总结
-8c02cb0 docs: devlog 补充深度吸收
-cb554b4 feat: 子智能体自动暴露为独立工具
+b9e3f8c docs: 会话交接文档更新
+7b5b714 workflow: 隐式假设挖掘 + 无源码重实现测试
+8d8fd53 workflow: 吸收工作流 v2 — 从流程正确到吃透为止
+5931746 workflow: 吸收工作流深度强化 — 源码研读 + 设计哲学 + 上游追踪
+c90080f fix: 全量排查 — 硬化层绕过/右花暴露/股票路由
 ```
 
-**Key milestones (May 24-25)**:
-- Right flower OpenHuman 全链路通车 ✅
-- 三次吸收完成（P0 向量检索 / P1 代码审查 / P2 Agent 委派）✅
-- 事件总线 + 对话持久化 ✅
-- 缺口分析 + 设计纪律更新 ✅
-- delegate_to_\* 工具自动注册 ✅
+**Key milestones (May 26)**:
+- 治理框架搭建（docs/ABSORPTION_GOVERNANCE.md）✅
+- 40/40 YAML 升级至 v2.5 标准 ✅
+- v2.5 参考标准文档（docs/V25_WORKFLOW_STANDARD.md）✅
+- Go 工具反推：code_tree/code_stats/go_struct_scan/code_read_external 增强 + base_capability_inventory 新建 ✅
+- Agent 系统 7 个缺口修复（并发安全、错误分类、截断通知、输出校验、LLM 重试、异步写盘、空 prompt）✅
+- Workflow engine 栈溢出 bug 修复 ✅
+- 本地模型：Qwen3.6-27B → gemma-4-E4B (4B) + failover gemma-4-31B ✅
+- 17/18 工作流 API 测试通过，evidence/risk_register 实际输出验证 ✅
 
 **Unfinished** (ask user before implementing):
 - Embedding endpoint (was Qwen 27B — too heavy, use gemma-4-E4B next)
@@ -240,10 +243,15 @@ curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-d
 | DIRECTORY.md | Code layout |
 | RIGHT_FLOWER_PROTOCOL.md | How to connect external tools |
 | CHANGELOG.md | Chronological change history |
-| `workflows/absorb_right_flower.yaml` | Absorption process (Step 2.5 gap analysis) |
+| `docs/ABSORPTION_GOVERNANCE.md` | 吸收治理框架：证据等级、吸收等级、风险分类、升级策略、决策登记册 |
+| `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 |
+| `docs/devlog/DEVLOG_20260526.md` | 全量 v2.5 升级记录：40 YAML + Go 工具反推 + 引擎修复 |
+| `workflows/absorb_right_flower.yaml` | Absorption process (v2.5, 14步, 引用治理框架) |
 
 **Quick lookup**:
 - "Why is X this way?" → DESIGN_PRINCIPLES.md
 - "Has this been decided before?" → MERGE_DECISIONS.md
 - "Is this known broken?" → KNOWN_LIMITATIONS.md
+- "What absorption level / evidence standard?" → docs/ABSORPTION_GOVERNANCE.md
+- "How to write a v2.5 workflow?" → docs/V25_WORKFLOW_STANDARD.md
 - "Where does this code live?" → DIRECTORY.md

@@ -32,8 +32,11 @@
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
 | `eval/` | 烟雾测试：场景定义、运行脚本、测试结果 | 测试 |
 | `examples/` | 开发/测试用示例插件（Go + Python 子进程模板） | 参考 |
-| `docs/` | 设计文档：架构决策、硬化层声明、已知限制 | 文档 |
+| `docs/` | 设计文档：架构决策、硬化层声明、已知限制、治理框架、v2.5 标准 | 文档 |
 | `docs/devlog/` | 开发日志，按日期记录内部开发过程 | 过程档案 |
+| `docs/ABSORPTION_GOVERNANCE.md` | 吸收治理框架：证据等级、吸收等级、风险分类、升级策略 | 治理根茎 |
+| `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 | 治理标准 |
+| `providers.json` | 声明式多 Provider 配置（failover 模型等），由 LLM_PROVIDERS_CONFIG 加载 | 配置 |
 
 ## 关键设计决策
 

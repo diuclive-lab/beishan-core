@@ -1,14 +1,7 @@
-# 旧项目审计 — 扫描旧项目结构，识别有价值的模块，过滤低质量代码
+# 旧项目审计 v2.5 — 扫描旧项目结构，识别有价值模块
 #
-# 流程：
-#   1. read_structure:  终端命令扫描项目文件结构
-#   2. audit:           DeepSeek 识别核心模块和架构
-#   3. save:            审计报告入库
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"legacy_code_audit","input":"/path/to/old/project"}}
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: legacy_code_audit
 
@@ -17,8 +10,9 @@ steps:
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 30
+    on_error: done
     inputs:
-      command: "find ${input} \\( -name '*.py' -o -name '*.go' \\) | grep -v __pycache__ | grep -v .pyc | grep -v _backup | grep -v .bak | head -100"
+      command: find ${input} -name '*.py' -o -name '*.go' \) | grep -v __pycache__ | grep -v .pyc  | head -100"
     next: audit
 
   - id: audit
@@ -27,21 +21,25 @@ steps:
     timeout: 180
     retry: 1
     retry_delay: 2
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个代码审计专家。分析以下旧项目文件列表，输出严格的 JSON（不加任何其他文字）：
+        审计以下旧项目文件列表，对每条判断标注 evidence=E1(可以直接看到)/E2(从文件名推断)/E3(猜测)。
 
+        输出 JSON：
         {
           "modules": [
             {
               "name": "模块名",
               "path": "路径",
-              "description": "一句话描述",
+              "description": "描述",
               "worth_reading": true,
-              "skip_reason": "如果不值得读，原因（backup/patch/test/data/unknown）"
+              "evidence": "E1/E2/E3",
+              "skip_reason": "不值得读的原因"
             }
           ],
-          "architecture": "整体架构一句话总结",
+          "architecture": "整体架构总结",
           "best_candidates": ["最值得移植的3个模块路径"]
         }
 
@@ -53,6 +51,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "code"
       title: "旧项目审计报告"

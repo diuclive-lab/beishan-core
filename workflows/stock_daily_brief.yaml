@@ -1,44 +1,37 @@
-# 股票日报 — 自动行情抓取 → AI 分析 → 推送报告
+# 股票日报 v2.5 — 行情抓取 → AI 分析 → 推送
 #
-# 用法：
-#   单个股票：
-#     POST /api/chat
-#     {"recipient":"workflow_plugin","type":"workflow_run",
-#      "payload":{"workflow":"stock_daily_brief","input":"600519"}}
-#
-#   多个股票（逗号分隔）：
-#     {"workflow":"stock_daily_brief","input":"600519,000001,300750"}
-#
-# 定时执行（通过 scheduler_plugin）：
-#     {"workflow":"stock_daily_brief","input":"600519","cron":"0 9 * * 1-5"}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: stock_daily_brief
 
 steps:
-  # ── Step 1: 拉取行情 ──
   - id: fetch
     plugin: memory_plugin
     type: stock_multi_quote
     timeout: 15
     retry: 2
+    on_error: done
     inputs:
       codes: "${input | split}"
     next: analyze
 
-  # ── Step 2: AI 分析 ──
   - id: analyze
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是股票分析助手。分析以下行情数据，输出 JSON：
+        你是股票分析助手。分析以下行情数据，对关键信号标注 evidence=E1(数据直接显示)/E2(推断)。
 
+        输出 JSON：
         {
           "summary": "一句话总结今日表现",
-          "gainers": ["涨幅居前的股票"],
-          "losers": ["跌幅居前的股票"],
-          "signals": ["技术面信号"],
+          "gainers": ["涨幅居前"],
+          "losers": ["跌幅居前"],
+          "signals": [{"signal": "技术面信号", "evidence": "E1/E2"}],
           "advice": "操作建议"
         }
 
@@ -46,7 +39,6 @@ steps:
         ${steps.fetch.output}
     next: report
 
-  # ── Step 3: 推送报告 ──
   - id: report
     plugin: notify_plugin
     type: notify_send

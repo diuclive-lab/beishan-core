@@ -1,6 +1,32 @@
 # 变更日志
 
+## 2026-05-26 v2.5 全量升级 + 治理框架 + Go 工具反推
 
+### 新增
+- **治理框架**: `docs/ABSORPTION_GOVERNANCE.md`（证据等级、吸收等级、风险分类、升级策略）
+- **v2.5 YAML 标准**: `docs/V25_WORKFLOW_STANDARD.md`（强制项、条件项、禁止项、骨架模板）
+- **base_capability_inventory L3 工具**: 返回底座自身能力资产清单（124 tools, 15 MCP, 41 workflows）
+- **Failover 模型**: gemma-4-31B（port 8091）作为 API 故障切换
+
+### 增强
+- **40/40 YAML 升级至 v2.5**: 治理引用 + on_error 兜底 + evidence 等级标注
+- **code_tree**: +list_files 返回文件列表 +lang 过滤
+- **code_stats**: +list_files 返回 top-N 文件行数排行
+- **go_struct_scan**: +root 批量目录扫描 + import 频率分析
+- **code_read_external**: +paths 多文件批量读取
+- **agent 系统**: 7 个缺口修复（并发安全、错误分类、截断通知、输出校验、LLM 重试、异步写盘、空 prompt 校验）
+
+### 修复
+- **workflow engine 栈溢出**: resolveJSONValue 递归无深度限制，+depth 参数 ≥10 截断
+
+### 模型
+- 本地推理: Qwen3.6-27B → gemma-4-E4B-it-Q4_K_M.gguf (4B)
+- Failover: 新增 gemma-4-31B-it-Q4_K_M.gguf (31B, port 8091)
+
+### 实测
+- 17/18 工作流 API 测试通过 (94.4%)
+- 2 个大 YAML（code_deep_analyze + content_review）输出质量验证通过
+- evidence + risk_register + source_credibility 字段在 LLM 输出中实际出现
 
 ## 2026-05-25 FangLab 桌面操作吸收 + 101 工具
 

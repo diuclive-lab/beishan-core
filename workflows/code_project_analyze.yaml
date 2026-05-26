@@ -1,57 +1,42 @@
-# 代码项目分析 — 分析单个开源项目的入口文件，提取架构知识
+# 代码项目分析 v2.5 — 分析入口文件，提取架构知识
 #
-# 流程：
-#   1. read_file:   读取指定代码文件
-#   2. analyze:     LLM 分析代码架构角色
-#   3. save:        入库（source_type=code）
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"code_project_analyze","input":"/path/to/file.go"}}
-#
-# Agent 批量编排方式：
-#   agent 用 terminal 扫描 /path/to/projects/* 目录，
-#   对每个项目选出 1-2 个入口文件，
-#   逐个调用此工作流。
-#   每次调用 = 1 个知识条目入库。
-#
-# 设计原则：
-#   - 单文件输入，单条目输出
-#   - Agent 负责批量编排（选文件、循环调用）
-#   - 工作流负责分析和入库（LLM + 确定性）
-#   - 失败安全：单文件失败不影响后续
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: code_project_analyze
 
 steps:
-  # ── Step 1: 读取代码文件 ──
   - id: read_file
     plugin: write_plugin
     type: file_parse
     timeout: 15
     retry: 1
+    on_error: done
     inputs:
       path: "${input}"
     next: analyze
 
-  # ── Step 2: 分析代码架构 ──
   - id: analyze
     plugin: think_plugin
     type: chat
     timeout: 180
     retry: 1
     retry_delay: 2
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个代码架构分析师。分析以下源码文件，输出严格 JSON（不加任何其他文字）：
+        你是一个代码架构分析师。分析以下源码文件，输出严格 JSON。
+
+        对每条设计判断标注 evidence=E1(源码中直接体现)/E2(推断)/E3(推测)。
 
         {
-          "title": "文件的架构角色（10字内，如「CLI派发器」「HTTP服务器核心」）",
+          "title": "文件的架构角色（10字内）",
           "summary": "核心逻辑和设计思想（60字内）",
           "tags": ["语言", "框架", "设计模式"],
           "topics": ["领域标签"],
-          "patterns": "可借鉴的设计模式（一句话）"
+          "patterns": "可借鉴的设计模式（一句话）",
+          "evidence": "E1/E2/E3"
         }
 
         文件路径：${input}
@@ -59,11 +44,11 @@ steps:
         ${steps.read_file.output.content}
     next: save
 
-  # ── Step 3: 入库 ──
   - id: save
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "code"
       title: "${steps.analyze.output.title}"

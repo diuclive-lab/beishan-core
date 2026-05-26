@@ -1,16 +1,9 @@
-# 知识关联建议 — 为指定知识条目推荐可关联的条目
+# 知识关联建议 v2.5 — 为指定条目推荐可关联的条目
 #
-# 流程：
-#   1. suggest:   L3 引擎按标签/主题/关键词匹配，找出候选关联
-#   2. report:    DeepSeek 分析候选列表，推荐最佳关联并说明理由
+# 注意：仅输出建议，不自动写入 links 字段
 #
-# 注意：本工作流仅输出建议，不自动写入 links 字段。
-# 如需确认关联，用户手动调用 knowledge_update 写入 links。
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"knowledge_suggest_links","input":"kn_xxxxxxxx"}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: knowledge_suggest_links
 
@@ -19,6 +12,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_suggest_links
     timeout: 15
+    on_error: done
     inputs:
       id: "${input}"
       max_results: 15
@@ -28,15 +22,17 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 60
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        基于以下关联建议结果，生成一段可读的中文报告。
+        基于以下关联建议结果，生成可读的中文报告。
 
         说明：
-        - 哪些候选条目值得关联（score ≥ 0.5 的强关联）
-        - 哪些可以顺便看看（score ≥ 0.3 的弱关联）
+        - score >= 0.5 的强关联条目
+        - score >= 0.3 的弱关联条目
         - 如果候选数为 0，说明"暂无相关条目"
-        - 最后建议用户通过 "帮我关联 kn_A 到 kn_B" 来确认写入
+        - 建议用户通过 "帮我关联 kn_A 到 kn_B" 确认写入
 
         关联建议结果：
         ${steps.suggest.output}

@@ -128,7 +128,7 @@ func SetProvider(name string) {
 }
 
 // FailoverProvider switches to the local provider for fallback.
-func FailoverProvider() { SetProvider("local") }
+func FailoverProvider() { SetProvider("failover") }
 
 var providers = map[string]Provider{
 	"deepseek": {
@@ -195,7 +195,7 @@ Input: %s`,
 	"local": {
 		Name:    "local",
 		BaseURL: "http://127.0.0.1:8090/v1",
-		Model:   "qwen3.6-27B",
+		Model:   "gemma-4-E4B-it-Q4_K_M.gguf",
 		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
 Recipient is the plugin to handle this request. msg_type is the message type the plugin expects.
 When routing to workflow_plugin, set msg_type to "workflow_run" and payload to {"workflow":"<name>"}

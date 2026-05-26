@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,14 +20,28 @@ type RunOptions struct {
 	TaskTimeout time.Duration
 }
 
+// SubagentErrorCode classifies sub-agent failures for structured error handling.
+type SubagentErrorCode string
+
+const (
+	ErrDepthExceeded SubagentErrorCode = "depth_exceeded"
+	ErrTimeout       SubagentErrorCode = "timeout"
+	ErrTool          SubagentErrorCode = "tool_error"
+	ErrLLM           SubagentErrorCode = "llm_error"
+	ErrNotFound      SubagentErrorCode = "agent_not_found"
+	ErrEmptyPrompt   SubagentErrorCode = "empty_prompt"
+	ErrUnknown       SubagentErrorCode = "unknown"
+)
+
 // SubagentResult is the outcome of a sub-agent run.
 type SubagentResult struct {
-	TaskID     string `json:"task_id"`
-	AgentID    string `json:"agent_id"`
-	Output     string `json:"output"`
-	Iterations int    `json:"iterations"`
-	ElapsedMs  int64  `json:"elapsed_ms"`
-	Error      string `json:"error,omitempty"`
+	TaskID     string            `json:"task_id"`
+	AgentID    string            `json:"agent_id"`
+	Output     string            `json:"output"`
+	Iterations int               `json:"iterations"`
+	ElapsedMs  int64             `json:"elapsed_ms"`
+	Error      string            `json:"error,omitempty"`
+	ErrorCode  SubagentErrorCode `json:"error_code,omitempty"`
 }
 
 // ParallelTask is one unit of work in a parallel spawn.
@@ -36,19 +51,29 @@ type ParallelTask struct {
 }
 
 // RunSubagent executes a sub-agent with the given definition and task prompt.
-func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duration) SubagentResult {
+func RunSubagent(ctx context.Context, taskID, taskPrompt string, def Definition, timeout time.Duration) SubagentResult {
 	start := time.Now()
 
-	// Check spawn depth to prevent infinite recursion
-	_, err := IncSpawnDepth()
+	// Check spawn depth via context (goroutine-safe — each goroutine has its own context)
+	_, err := CtxWithSpawnDepth(ctx)
 	if err != nil {
 		return SubagentResult{
 			TaskID: taskID, AgentID: def.ID,
 			Error:     fmt.Sprintf("spawn depth exceeded: possible infinite recursion"),
+			ErrorCode: ErrDepthExceeded,
 			ElapsedMs: time.Since(start).Milliseconds(),
 		}
 	}
-	defer DecSpawnDepth()
+
+	// Reject empty prompts before any LLM call
+	if strings.TrimSpace(taskPrompt) == "" {
+		return SubagentResult{
+			TaskID: taskID, AgentID: def.ID,
+			Error:     "empty task prompt — sub-agent requires a non-empty prompt",
+			ErrorCode: ErrEmptyPrompt,
+			ElapsedMs: time.Since(start).Milliseconds(),
+		}
+	}
 
 	if timeout <= 0 {
 		timeout = 120 * time.Second
@@ -92,15 +117,34 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 
 		var reply string
 		var llmErr error
-		if useProvider != "" {
-			reply, _, llmErr = llm.ChatCompletionWithProvider(useProvider, messages, timeout)
-		} else {
-			reply, _, llmErr = llm.ChatCompletionWithUsage(messages, timeout)
+		for attempt := 0; attempt < 2; attempt++ {
+			if useProvider != "" {
+				reply, _, llmErr = llm.ChatCompletionWithProvider(useProvider, messages, timeout)
+			} else {
+				reply, _, llmErr = llm.ChatCompletionWithUsage(messages, timeout)
+			}
+			if llmErr == nil {
+				break
+			}
+			// Retry once on transient errors, bail on auth/permanent failures
+			errMsg := llmErr.Error()
+			if attempt == 0 && !strings.Contains(errMsg, "auth") && !strings.Contains(errMsg, "invalid") && !strings.Contains(errMsg, "not found") {
+				log.Printf("[subagent %s] LLM attempt 1 failed, retrying: %v", def.ID, llmErr)
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			break
 		}
 		if llmErr != nil {
+			errCode := ErrLLM
+			errMsg := llmErr.Error()
+			if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline") {
+				errCode = ErrTimeout
+			}
 			return SubagentResult{
 				TaskID: taskID, AgentID: def.ID,
-				Error:     "LLM call: " + llmErr.Error(),
+				Error:     "LLM call: " + errMsg,
+				ErrorCode: errCode,
 				ElapsedMs: time.Since(start).Milliseconds(),
 			}
 		}
@@ -127,6 +171,12 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 		lastOutput = reply
 	}
 
+	// Validate output quality — detect empty/meaningless completions
+	outputValid, outputWarning := validateOutput(lastOutput)
+	if !outputValid {
+		log.Printf("[subagent %s] output validation: %s", def.ID, outputWarning)
+	}
+
 	observatory.PublishEvent(observatory.Event{
 		Type: observatory.EventAgentComplete,
 		Data: observatory.AgentCompleteData{
@@ -147,7 +197,7 @@ func RunSubagent(taskID, taskPrompt string, def Definition, timeout time.Duratio
 }
 
 // RunParallel executes multiple sub-agent tasks concurrently and returns combined results.
-func RunParallel(tasks []ParallelTask, timeout time.Duration) []SubagentResult {
+func RunParallel(ctx context.Context, tasks []ParallelTask, timeout time.Duration) []SubagentResult {
 	results := make([]SubagentResult, len(tasks))
 	done := make(chan struct{}, len(tasks))
 
@@ -157,12 +207,14 @@ func RunParallel(tasks []ParallelTask, timeout time.Duration) []SubagentResult {
 			if !ok {
 				results[idx] = SubagentResult{
 					TaskID: task.AgentID, AgentID: task.AgentID,
-					Error: fmt.Sprintf("agent %q not found", task.AgentID),
+					Error:     fmt.Sprintf("agent %q not found", task.AgentID),
+					ErrorCode: ErrNotFound,
 				}
 				done <- struct{}{}
 				return
 			}
-			results[idx] = RunSubagent(fmt.Sprintf("parallel-%d", idx), task.Prompt, def, timeout)
+			// Each goroutine runs with its own context depth — no race on the counter
+			results[idx] = RunSubagent(ctx, fmt.Sprintf("parallel-%d", idx), task.Prompt, def, timeout)
 			done <- struct{}{}
 		}(i, t)
 	}
@@ -201,12 +253,15 @@ func executeTool(tc *parsedToolCall) string {
 		return fmt.Sprintf("Error: tool %q not found", tc.Tool)
 	}
 	argsJSON, _ := json.Marshal(tc.Arguments)
-	_ = argsJSON
 	result := tools.ValidateAndExecute(tc.Tool, json.RawMessage(argsJSON))
 	if result.Error != "" {
 		return fmt.Sprintf("Tool %s error: %s", tc.Tool, result.Error)
 	}
-	return fmt.Sprintf("Tool %s result:\n%s", tc.Tool, truncateStr(result.Output, 2000))
+	output, truncated := truncateStr(result.Output, 2000)
+	if truncated {
+		return fmt.Sprintf("Tool %s result (%d total chars, truncated to 2000):\n%s", tc.Tool, len(result.Output), output)
+	}
+	return fmt.Sprintf("Tool %s result:\n%s", tc.Tool, output)
 }
 
 func buildSubagentPrompt(def Definition) string {
@@ -233,10 +288,28 @@ func buildToolDescriptions(allowedTools []string) string {
 	return b.String()
 }
 
-func truncateStr(s string, n int) string {
+// validateOutput checks agent output for empty/meaningless results.
+// Returns (valid, warning_message). Callers should log the warning.
+func validateOutput(output string) (bool, string) {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return false, "sub-agent completed but produced no output"
+	}
+	lower := strings.ToLower(trimmed)
+	giveupPhrases := []string{"i cannot complete", "i'm unable", "i am unable", "i cannot fulfill",
+		"unable to complete", "sorry, i cannot", "i don't know how to"}
+	for _, phrase := range giveupPhrases {
+		if strings.Contains(lower, phrase) {
+			return false, "sub-agent returned a give-up response (matched: " + phrase + ")"
+		}
+	}
+	return true, ""
+}
+
+func truncateStr(s string, n int) (string, bool) {
 	runes := []rune(s)
 	if len(runes) <= n {
-		return s
+		return s, false
 	}
-	return string(runes[:n]) + "..."
+	return string(runes[:n]) + "...[truncated]", true
 }

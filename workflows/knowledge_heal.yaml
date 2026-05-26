@@ -1,21 +1,26 @@
-# 知识自愈 — 定期扫描重复/缺失关联 + 自动修复 + 报告
+# 知识自愈 v2.5 — 定期扫描重复/缺失关联 + 自动修复 + 报告
 #
 # 定时执行（由 scheduler_plugin 管理，cron: "0 4 * * 1" 每周一 04:00）
+#
+# 治理框架引用：
+#   - 风险分类 → docs/ABSORPTION_GOVERNANCE.md §3
+#   - 升级策略 → docs/ABSORPTION_GOVERNANCE.md §4
 
 id: knowledge_heal
 
 steps:
-  # ── Step 1: 自愈扫描（自动合并 HitCount=0 的高相似条目）──
+  # ── Step 1: 自愈扫描 ──
   - id: scan
     plugin: memory_plugin
     type: knowledge_heal
     timeout: 60
+    on_error: done
     inputs:
       threshold: 60
       auto_merge: true
     next: report
 
-  # ── Step 2: 生成报告 ──
+  # ── Step 2: 生成报告（含修复记录）──
   - id: report
     plugin: think_plugin
     type: chat
@@ -24,19 +29,23 @@ steps:
     inputs:
       mode: "no_retrieval"
       message: >-
-        生成知识自愈报告。
+        生成知识自愈报告。输出严格 JSON，不含其他文字：
+
+        {
+          "merged_count": 自动合并的条目对数,
+          "manual_count": 待人工处理的条目数,
+          "issues": [
+            {
+              "type": "duplicate/relation_missing",
+              "description": "问题描述",
+              "evidence": "E1/E2",
+              "auto_fixed": true/false
+            }
+          ],
+          "heal_summary": "总体情况（50字内）"
+        }
 
         扫描结果：${steps.scan.output}
 
-        如果 merged_count > 0，先报告自动合并结果：
-        "🩺 知识自愈自动合并 {merged_count} 对重复条目。"
-
-        如果 count > 0，继续输出：
-        "待人工处理 {count} 项：
-         - 建议合并：X 组
-         - 建议关联：X 组
-         - 最紧急：{最高相似度的条目对}
-        可使用 knowledge_merge 和 knowledge_update 处理。"
-
-        如果 count == 0 且 merged_count == 0，输出：
-        "🩺 知识自愈扫描完成，未发现待处理项。知识库状态良好。"
+        如果 merged_count == 0 且 manual_count == 0：
+        {"merged_count":0, "manual_count":0, "issues":[], "heal_summary":"知识库状态良好"}

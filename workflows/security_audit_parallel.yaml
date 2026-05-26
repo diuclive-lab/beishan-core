@@ -1,74 +1,58 @@
-# 安全审计双通道 — 规则 + AI 并行审查
+# 安全审计双通道 v2.5 — 规则 + AI 并行审查
 #
-# 设计原则：
-#   - 并行执行：code_security_check（规则）和 code_ai_review（AI）同时跑
-#   - 硬化层优先：规则检查先出结果，AI 审查作为补充
-#
-# 流程：
-#   1. get_diff:        获取代码变更（终端，零 LLM）
-#   2. parallel:        规则检查 + AI 审查 同时跑
-#   3. cross_check:     对比两份审查结果
-#   4. save:            入库
-#
-# 触发：
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"security_audit_parallel","input":"src/main.go"}}
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 
 id: security_audit_parallel
 
 steps:
-
-  # ── Step 1: 获取审查代码 ───────────────────
   - id: get_diff
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 15
+    on_error: done
     inputs:
       command: >-
         if [ -f "${input}" ]; then cat "${input}"; else echo "file not found"; fi
     next: parallel_audit
 
-  # ── Step 2: 并行审查（规则 + AI）────────────
   - id: parallel_audit
     type: parallel
     timeout: 60
     steps:
-
-      # 维度 A: 规则审查（毫秒级，确定性）
       - id: rule_check
         plugin: memory_plugin
         type: code_security_check
         inputs:
           diff: "${steps.get_diff.output}"
-
-      # 维度 B: AI 审查（秒级，语义级）
       - id: ai_review
         plugin: memory_plugin
         type: code_ai_review
+        on_error: skip
         inputs:
           code: "${steps.get_diff.output}"
-
     next: cross_check
 
-  # ── Step 3: 交叉验证 ───────────────────────
   - id: cross_check
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        对比以下两份审查结果，输出最终安全评分和修复建议：
+        对比以下两份审查结果，输出最终安全评分和修复建议（含 evidence 等级和风险分类）：
 
         规则审查：${steps.parallel_audit.rule_check.output}
-
         AI 审查：${steps.parallel_audit.ai_review.output}
     next: save_result
 
-  # ── Step 4: 入库 ───────────────────────────
   - id: save_result
     plugin: memory_plugin
     type: knowledge_add
     timeout: 10
+    on_error: done
     inputs:
       title: "安全审计报告: ${input}"
       summary: "${steps.cross_check.output}"

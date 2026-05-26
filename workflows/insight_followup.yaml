@@ -1,6 +1,11 @@
-# 洞察跟进 — 评估分析结果，可借鉴点转为待办事项
+# 洞察跟进 v2.5 — 评估分析结果，可借鉴点转为待办事项
 #
-# 由 project_analyze 自动触发，也可手动对已有条目调用。
+# 由 project_analyze / code_deep_analyze 自动触发，也可手动对已有条目调用。
+# 是多个上游 YAML 的下游枢纽，必须保证稳定性和可追溯性。
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 升级策略       → docs/ABSORPTION_GOVERNANCE.md §4
 #
 # 手动触发：
 #   {"recipient":"workflow_plugin","type":"workflow_run",
@@ -14,19 +19,25 @@ steps:
     plugin: memory_plugin
     type: knowledge_get
     timeout: 10
+    on_error: done
     inputs:
       id: "${input}"
     next: evaluate
 
-  # ── Step 2: LLM 评估是否可落地 ──
+  # ── Step 2: LLM 评估是否可落地（含证据标注）──
   - id: evaluate
     plugin: think_plugin
     type: chat
     timeout: 60
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-
         分析以下知识条目，判断其中是否包含对 beishan-core 项目可落地的改进建议。
+        对每条判断标注 evidence 等级：
+        E1 = 条目内容明确说明
+        E2 = 可从条目内容推断
+        E3 = 推测
 
         条目内容：
         ${steps.get_entry.output}
@@ -35,10 +46,12 @@ steps:
         {
           "actionable": true/false,
           "reason": "判断理由",
+          "reason_evidence": "E1/E2/E3",
           "title": "改进事项标题（actionable=true 时必填）",
           "summary": "一句话描述要做什么",
           "tags": ["改进建议", "相关技术领域"],
-          "priority": "high/medium/low"
+          "priority": "high/medium/low",
+          "source_entry_id": "${input}"
         }
 
         判断标准：
@@ -52,6 +65,7 @@ steps:
     type: knowledge_add
     timeout: 15
     skip_if: "steps.evaluate.output.actionable != true"
+    on_error: done
     inputs:
       source_type: "note"
       title: "${steps.evaluate.output.title}"
@@ -60,13 +74,14 @@ steps:
       content: "${steps.get_entry.output}"
     next: add_todo
 
-  # ── Step 4: 添加待办（使用 todo 工具） ──
+  # ── Step 4: 添加待办 ──
   - id: add_todo
     plugin: todo_plugin
     type: todo_add
     timeout: 10
+    on_error: done
     inputs:
-      todos: ["${steps.evaluate.output.title}（优先级: ${steps.evaluate.output.priority}）"]
+      todos: ["${steps.evaluate.output.title}（优先级: ${steps.evaluate.output.priority}，来源条目: ${input}）"]
     next: link
 
   # ── Step 5: 关联到原始条目 ──
@@ -74,16 +89,18 @@ steps:
     plugin: memory_plugin
     type: knowledge_confirm_links
     timeout: 10
+    on_error: done
     inputs:
       id: "${input}"
       link_ids: ["${steps.create_todo.output.id}"]
     next: done
 
-  # ── Step 6: 完成（无操作） ──
+  # ── Step 6: 完成报告 ──
   - id: done
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -94,7 +111,7 @@ steps:
         是否创建待办：${steps.evaluate.output.actionable}
 
         actionable=true 时输出：
-        "✅ 已创建改进建议并添加待办：[标题]"
+        "✅ 已创建改进建议并添加待办：[标题]（证据等级: [E1/E2/E3]）"
 
         actionable=false 时输出：
         "ℹ️ 未发现可落地改进建议。

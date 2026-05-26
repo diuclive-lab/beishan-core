@@ -1,19 +1,7 @@
-# 本地代码入库 — 将代码文件提取为知识条目
+# 本地代码入库 v2.5 — 将代码文件提取为知识条目
 #
-# 流程：
-#   1. parse_file: 读取代码文件内容
-#   2. analyze:    DeepSeek 分析代码架构和设计模式
-#   3. save_knowledge: 入库（source_type=code）
-#   4. save_todos:     落地改进/移植行动项
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"code_knowledge_ingest","input":"/path/to/code/file.go"}}
-#
-# 注意事项:
-#   - 支持 .go, .py, .js, .rs, .ts, .java 等常见语言文件
-#   - 建议只导入核心/有设计价值的文件，不导入工具类、自动生成代码
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: code_knowledge_ingest
 
@@ -23,6 +11,7 @@ steps:
     type: file_parse
     timeout: 15
     retry: 1
+    on_error: done
     inputs:
       path: "${input}"
     next: analyze
@@ -33,17 +22,21 @@ steps:
     timeout: 180
     retry: 1
     retry_delay: 2
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个代码分析师。分析以下代码，输出严格的 JSON（不加任何其他文字）：
+        你是一个代码分析师。分析以下代码，对关键判断标注 evidence=E1(源码直接体现)/E2(推断)/E3(推测)。
 
+        输出 JSON：
         {
           "title": "文件/模块做什么（10字内）",
           "summary": "核心逻辑（50字内）",
-          "tags": ["技术标签（如 go/http/memory）"],
-          "topics": ["领域标签（如 plugin/routing/storage）"],
-          "tasks": ["可改进或可移植的具体行动项"],
-          "patterns": "这段代码里有价值的设计模式"
+          "tags": ["技术标签"],
+          "topics": ["领域标签"],
+          "tasks": ["可改进或可移植的行动项"],
+          "patterns": "有价值的设计模式",
+          "evidence": "E1/E2/E3"
         }
 
         代码：
@@ -54,6 +47,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "code"
       title: "${steps.analyze.output.title}"
@@ -69,6 +63,7 @@ steps:
     plugin: todo_plugin
     type: todo_add
     timeout: 10
+    on_error: done
     inputs:
       todos: "${steps.analyze.output.tasks}"
       source: "${steps.save_knowledge.output.id}"

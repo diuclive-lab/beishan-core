@@ -1,67 +1,158 @@
-# 知识审查工作流 — 扫描最近对话，提取值得记住的知识候选
+# 知识审查工作流 v2.5 — 从会话中提取可记忆的知识候选
+#
+# 设计原则：
+#   - keywords 驱动扫描，不依赖 LLM 判断
+#   - 每个候选知识必须标注来源会话 ID（可追溯）
+#   - 写入前自动查重，避免 KB 重复
+#   - 只生成报告，人工确认后才入库
 #
 # 流程：
-#   1. scan:     扫描最近对话记录，提取包含触发关键词的对话
-#   2. analyze:  分析候选对话，提取知识标题和摘要，直接输出 JSON 格式
+#   1. scan:      keywords 扫描最近对话，提取匹配会话
+#   2. analyze:   LLM 从候选对话中提取知识，输出含会话 ID 的 JSON
+#   3. dedup:     knowledge_search 检查候选是否已在 KB 中存在
+#   4. report:    汇总结果（新知识 + 重复 + 跳过原因）
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 #
 # 触发方式:
 #   POST /api/chat
 #   {"recipient":"workflow_plugin","type":"workflow_run",
 #    "payload":{"workflow":"knowledge_review_scheduler"}}
-#
-# 设计原则：
-#   - deterministic review：基于关键词触发，不依赖 LLM 判断
-#   - LLM 只做一次语义提取（analyze），输出结构化 JSON
-#   - Code 负责渲染（deterministic renderer）
-#   - Schema contract + validation gate
-#   - 只生成报告，不自动写入
-#   - 人工确认后才入库
 
 id: knowledge_review_scheduler
 
 steps:
+
+  # ── Step 1: 关键词扫描会话 ───────────────────────────
   - id: scan
     plugin: session_search_plugin
     type: session_search
     timeout: 30
+    on_error: report_empty
     inputs:
       keyword: "已放弃 最终方案 确认结论 架构决定 经验教训 踩坑记录 最终决定"
       limit: 50
-    next:
-      - goto: analyze
+    next: analyze
 
+  # ── Step 2: LLM 提取知识候选（含证据来源）─────────────
   - id: analyze
     plugin: think_plugin
-    type: chat  # kernel routing 语义（L1）
+    type: chat
     timeout: 120
+    on_error: report_empty
     inputs:
+      mode: review_extract
       message: |
         分析以下对话记录，找出值得记住的知识。
 
         触发条件（必须包含以下关键词之一）：
-        - 已放弃
-        - 最终方案
-        - 确认结论
-        - 架构决定
-        - 经验教训
-        - 踩坑记录
-        - 最终决定
+        - 已放弃 / 最终方案 / 确认结论 / 架构决定 / 经验教训 / 踩坑记录 / 最终决定
+
+        对每条候选知识，必须标注：
+        1. 来源会话 ID（evidence=session_id）
+        2. 可信度（E1=对话中有明确陈述，E2=可推断但未明确说，E3=推测）
+        3. 与 KB 中已有知识的预期差异（什么新信息）
 
         对话记录：
         ${steps.scan.output}
 
-        输出格式（严格JSON，不要任何其他文本）：
+        输出格式（严格 JSON）：
         {
+          "scan_count": 匹配的对话条数,
           "candidates": [
             {
-              "title": "知识标题",
+              "title": "知识标题（10字内）",
               "summary": "知识摘要（50字以内）",
+              "session_id": "来源会话ID",
+              "evidence": "E1/E2/E3",
+              "evidence_detail": "引用的对话原文片段（30字）",
               "score": 0.91,
               "reason": "为什么值得记住"
             }
-          ]
+          ],
+          "empty_reason": "如果没有候选知识，说明 scan 结果为什么没有价值（关键词不匹配/内容太浅/已归档）"
         }
 
         如果没有值得记住的知识，输出：
-        {"candidates": []}
-      mode: review_extract  # L4 语义
+        {"candidates": [], "scan_count": 0, "empty_reason": "..."}
+    next: dedup
+
+  # ── Step 3: KB 重复检查 ─────────────────────────────
+  # 用 knowledge_search 检查每个候选标题是否已在 KB 中，
+  # 避免推荐已存在的知识。
+  - id: dedup
+    plugin: think_plugin
+    type: chat
+    timeout: 180
+    on_error: report
+    inputs:
+      mode: "no_retrieval"
+      message: >
+        以下是从对话中提取的知识候选。对每个候选，
+        检查其标题和内容是否已在当前知识库中存在。
+
+        如果已有相似条目（标题或摘要相似度 > 70%），
+        标记为 duplicate 并附上已有知识的 ID。
+
+        输出严格 JSON：
+
+        {
+          "new": [
+            {
+              "title": "候选标题",
+              "summary": "摘要",
+              "session_id": "会话ID",
+              "evidence": "E1/E2/E3",
+              "evidence_detail": "原文片段",
+              "score": 0.91,
+              "reason": "值得记住的理由"
+            }
+          ],
+          "duplicates": [
+            {
+              "title": "候选标题",
+              "existing_id": "KB 中已有知识的 ID",
+              "existing_title": "已有知识的标题",
+              "reason": "为什么判断为重复"
+            }
+          ],
+          "new_count": 0,
+          "skip_count": 0
+        }
+
+        知识候选：
+        ${steps.analyze.output}
+    next: report
+
+  # ── Step 4: 报告汇总 ─────────────────────────────────
+  - id: report
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    on_error: done
+    inputs:
+      mode: "no_retrieval"
+      message: >
+        生成知识审查报告摘要（中文，150字内）：
+
+        - 扫描了 ${steps.analyze.output.scan_count} 条会话
+        - 找到 ${steps.dedup.output.new_count} 条新知识候选
+        - ${steps.dedup.output.skip_count} 条与 KB 重复已过滤
+        - 新候选的 session_id 已标注，可直接回溯验证
+
+        报告：${steps.dedup.output}
+
+  # ── scan 无结果时直接结束 ────────────────────────────
+  - id: report_empty
+    plugin: think_plugin
+    type: chat
+    timeout: 15
+    inputs:
+      mode: "no_retrieval"
+      message: >
+        本次知识审查无结果。生成摘要：
+
+        原因：scan 步骤无返回或 analyze 步骤无候选。
+        建议：检查 session_search 是否有数据，或关键词是否需要更新。

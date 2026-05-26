@@ -1,34 +1,31 @@
 # ═══════════════════════════════════════════════════════════
-# code_review_9x — 9 路并行代码审查
+# code_review_9x v2.5 — 9 路并行代码审查 + 证据驱动
 # ═══════════════════════════════════════════════════════════
 #
-# 设计来源：Qwen Code /review 技能（DESIGN.md）
-#   9 智能体并行审查 → 批量验证 → 迭代逆向审计（最多 3 轮）
-#
-# 工作流步骤：
+# 流程：
 #   Step 1:  获取 diff（git diff 或直接读文件）
 #   Step 2:  9 路并行审查（6 维度 + 3 角色）
-#   Step 3:  批量验证（汇总所有发现，逐条确认）
-#   Step 4-6: 逆向审计（最多 3 轮，无新发现时提前终止）
-#   Step 7:  生成报告
+#   Step 3:  批量验证 + 证据标注
+#   Step 4-6: 逆向审计（最多 3 轮，硬上限）
+#   Step 7:  生成报告（含 risk_register）
 #
-# 用法：
-#   POST /api/chat
-#   {"message":"运行 code_review_9x 审查当前改动"}
-#   或指定文件：{"recipient":"workflow_plugin","type":"workflow_run",
-#     "payload":{"workflow":"code_review_9x","input":"src/main.go"}}
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
+#   - 升级策略       → docs/ABSORPTION_GOVERNANCE.md §4
 #
 # ═══════════════════════════════════════════════════════════
 
 id: code_review_9x
 
 steps:
+
   # ── Step 1: 获取审查代码 ──────────────────────────
-  # 支持两种输入：指定文件路径，或自动取 git diff
   - id: get_diff
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 15
+    on_error: done
     inputs:
       command: >-
         if [ -n "${input}" ]; then
@@ -39,7 +36,6 @@ steps:
     next: parallel_review
 
   # ── Step 2: 9 路并行审查 ──────────────────────────
-  # 6 个审查维度 + Build & Test + 3 个非定向角色
   - id: parallel_review
     type: parallel
     timeout: 300
@@ -51,7 +47,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你是代码审查专家，专注于**逻辑正确性**。检查：竞态条件、空指针、边界情况、资源泄漏、并发安全。只输出 JSON 数组：[{\"severity\":\"critical|warning|info\",\"rule\":\"规则名\",\"line\":行号,\"description\":\"问题描述\",\"suggestion\":\"修复建议\"}]。没有发现时返回 []。"
+          system: "你是代码审查专家，专注于**逻辑正确性**。检查：竞态条件、空指针、边界情况、资源泄漏、并发安全。对每条发现必须标注 evidence=E1(源码行号)/E2(推断)/E3(经验)。输出 JSON 数组：[{\"severity\":\"critical|warning|info\",\"rule\":\"规则名\",\"line\":行号,\"description\":\"问题描述\",\"suggestion\":\"修复建议\",\"evidence\":\"E1/E2/E3\",\"source\":\"行号/推断\"}]。没有发现时返回 []。"
           message: "审查以下代码的逻辑正确性：\n\n${steps.get_diff.output}"
 
       # 维度 B: 安全漏洞
@@ -60,7 +56,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你是安全审查专家，专注于**安全漏洞**。检查：注入、XSS、路径遍历、命令注入、硬编码密钥、权限绕过、不安全的序列化、SQL 注入、SSRF。输出 JSON 数组，格式同正确性审查。"
+          system: "你是安全审查专家，专注于**安全漏洞**。检查：注入、XSS、路径遍历、命令注入、硬编码密钥、权限绕过、不安全的序列化、SQL 注入、SSRF。每条标注 evidence。输出 JSON 数组，格式同正确性审查。"
           message: "审查以下代码的安全漏洞：\n\n${steps.get_diff.output}"
 
       # 维度 C: 代码质量
@@ -69,7 +65,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你是代码质量专家，专注于**可读性与可维护性**。检查：命名规范、函数长度、重复代码、错误处理模式、注释质量、单一职责、过度抽象。输出 JSON 数组，格式同正确性审查。"
+          system: "你是代码质量专家，专注于**可读性与可维护性**。检查：命名规范、函数长度、重复代码、错误处理模式、注释质量、单一职责、过度抽象。每条标注 evidence。输出 JSON 数组，格式同正确性审查。"
           message: "审查以下代码的代码质量：\n\n${steps.get_diff.output}"
 
       # 维度 D: 性能
@@ -78,7 +74,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你是性能审查专家，专注于**性能瓶颈**。检查：不必要的内存分配、N+1 查询、缓存缺失、锁竞争、I/O 模式、goroutine 泄漏、大对象复制。输出 JSON 数组，格式同正确性审查。"
+          system: "你是性能审查专家，专注于**性能瓶颈**。检查：不必要的内存分配、N+1 查询、缓存缺失、锁竞争、I/O 模式、goroutine 泄漏、大对象复制。每条标注 evidence。输出 JSON 数组，格式同正确性审查。"
           message: "审查以下代码的性能问题：\n\n${steps.get_diff.output}"
 
       # 维度 E: 测试覆盖率
@@ -87,7 +83,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你是测试覆盖率专家，专注于**测试缺口**。检查：未覆盖的分支、缺失的错误路径测试、边界值缺失、未测试的公共 API。输出 JSON 数组，格式同正确性审查。"
+          system: "你是测试覆盖率专家，专注于**测试缺口**。检查：未覆盖的分支、缺失的错误路径测试、边界值缺失、未测试的公共 API。每条标注 evidence。输出 JSON 数组，格式同正确性审查。"
           message: "审查以下代码的测试覆盖率：\n\n${steps.get_diff.output}"
 
       # 维度 F-1: 非定向 — 攻击者视角
@@ -96,7 +92,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你以**攻击者视角**审查代码。关注：这个改动可以被怎样滥用？攻击路径是什么？最坏情况下会造成什么损失？输出 JSON 数组，格式同正确性审查。"
+          system: "你以**攻击者视角**审查代码。关注：这个改动可以被怎样滥用？攻击路径是什么？最坏情况下会造成什么损失？每条标注 evidence=E1(代码有直接问题)/E2(可能有问题)/E3(只是猜测)。输出 JSON 数组，格式同正确性审查。"
           message: "从攻击者角度审查以下代码：\n\n${steps.get_diff.output}"
 
       # 维度 F-2: 非定向 — 3am 值班视角
@@ -105,7 +101,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你以**凌晨 3 点值班工程师**视角审查代码。关注：这个改动上线后出问题会怎样？回滚难度？告警是否足够？异常是否被静默吞掉了？输出 JSON 数组，格式同正确性审查。"
+          system: "你以**凌晨 3 点值班工程师**视角审查代码。关注：这个改动上线后出问题会怎样？回滚难度？告警是否足够？异常是否被静默吞掉了？每条标注 evidence=E1(明确可触发)/E2(可能路径)/E3(极端场景)。输出 JSON 数组，格式同正确性审查。"
           message: "从值班工程师角度审查以下代码：\n\n${steps.get_diff.output}"
 
       # 维度 F-3: 非定向 — 维护者视角
@@ -114,7 +110,7 @@ steps:
         type: chat
         inputs:
           mode: "no_retrieval"
-          system: "你以**长期维护者**视角审查代码。关注：6 个月后还能理解这段代码吗？接口是否稳定？依赖是否合理？文档是否足够？输出 JSON 数组，格式同正确性审查。"
+          system: "你以**长期维护者**视角审查代码。关注：6 个月后还能理解这段代码吗？接口是否稳定？依赖是否合理？文档是否足够？每条标注 evidence。输出 JSON 数组，格式同正确性审查。"
           message: "从长期维护者角度审查以下代码：\n\n${steps.get_diff.output}"
 
       # 维度 G: 编译与测试
@@ -129,16 +125,16 @@ steps:
 
     next: verify
 
-  # ── Step 3: 批量验证 ──────────────────────────────
-  # 一个智能体接收所有发现，逐条验证准确性和优先级。
+  # ── Step 3: 批量验证 + 风险登记 ──────────────────
   - id: verify
     plugin: think_plugin
     type: chat
     timeout: 180
     retry: 1
+    on_error: report
     inputs:
       mode: "no_retrieval"
-      system: "你是验证专家。接收所有 9 路审查的发现，逐条确认。对每条发现标注：✅ 确认 / ⚠️ 存疑 / ❌ 误报。合并同类项，按 severity 排序。输出 JSON 对象：{\"verified_findings\":[...], \"false_positives\":[...], \"summary\":\"总体评价（100字内）\"}"
+      system: "你是验证专家。接收所有 9 路审查的发现，逐条确认。对每条发现标注：✅ 确认 / ⚠️ 存疑 / ❌ 误报。合并同类项，按 severity 排序。输出 JSON 对象：{\"verified_findings\":[{\"severity\":\"critical|warning|info\",\"rule\":\"规则名\",\"line\":行号,\"description\":\"问题描述\",\"evidence\":\"E1/E2/E3\",\"status\":\"confirmed|dubious|false_positive\"}],\"risk_register\":[{\"risk\":\"风险描述\",\"category\":\"correctness/compatibility/performance/security/operability\",\"severity\":\"low/medium/high/critical\",\"mitigation\":\"应对措施\",\"status\":\"open/accepted\"}],\"false_positives\":[...],\"summary\":\"总体评价（100字内）\"}"
       message: >-
         验证以下 9 路审查结果：
 
@@ -170,36 +166,32 @@ steps:
         ${steps.parallel_review.output.review_build_test}
     next: reverse_audit_r1
 
-  # ── Step 4: 逆向审计第 1 轮 ───────────────────────
-  # 重新扫描 diff，找出所有审查遗漏的问题。
-  # 如果无新发现，提前终止（不再进入第 2 轮）。
+  # ── Step 4-6: 逆向审计（最多 3 轮，硬上限）────────
   - id: reverse_audit_r1
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: report
     inputs:
       mode: "no_retrieval"
-      system: "你正在做逆向审计。重新完整扫描 diff，找出前面 9 路审查遗漏的任何问题。如果确实没有新发现，输出 {\"new_findings\":[], \"status\":\"clean\"}。如果有新发现，输出 {\"new_findings\":[...], \"status\":\"found\"}。"
+      system: "你正在做逆向审计。重新完整扫描 diff，找出前面 9 路审查遗漏的任何问题。如果确实没有新发现，输出 {\"new_findings\":[], \"status\":\"clean\"}。如果有新发现，每条必须标注 evidence。"
       message: >-
         逆向审计第 1 轮。已确认的发现：
         ${steps.verify.output}
 
         代码 diff：
         ${steps.get_diff.output}
-
-        找出遗漏的问题（如果有的话）。
     next:
       - if: "steps.reverse_audit_r1.output.status == 'clean'"
         goto: report
       - default: true
         goto: reverse_audit_r2
 
-  # ── Step 5: 逆向审计第 2 轮 ───────────────────────
-  # 在第 1 轮基础上继续深挖，最多 cap 在 3 轮。
   - id: reverse_audit_r2
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: report
     inputs:
       mode: "no_retrieval"
       system: "逆向审计第 2 轮。前一轮发现了新问题，本轮的焦点是更深层的隐藏问题。如果没有新发现，输出 {\"new_findings\":[], \"status\":\"clean\"}。"
@@ -209,8 +201,6 @@ steps:
 
         代码 diff：
         ${steps.get_diff.output}
-
-        还有遗漏吗？
     next:
       - if: "steps.reverse_audit_r2.output.status == 'clean'"
         goto: report
@@ -219,29 +209,28 @@ steps:
       - default: true
         goto: report
 
-  # ── Step 6: 逆向审计第 3 轮（硬上限）─────────────
-  # 最多 3 轮，防止无限循环和 LLM 胡编问题。
+  # 第 3 轮——硬上限，结束后无论结果都终止
   - id: reverse_audit_r3
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: report
     inputs:
       mode: "no_retrieval"
-      system: "逆向审计最终轮（第 3 轮）。这是最后一次检查，之后无论是否发现新问题都终止。"
+      system: "逆向审计最终轮（第 3 轮）。这是最后一次检查，之后无论是否发现新问题都终止。必须标注 evidence。"
       message: >-
         逆向审计最终轮。第 2 轮发现：
         ${steps.reverse_audit_r2.output}
 
         代码 diff：
         ${steps.get_diff.output}
-
-        最后一次检查。
     next: report
 
   # ── Step 7: 生成审查报告 ──────────────────────────
   - id: report
     plugin: write_plugin
     type: write_file
+    on_error: done
     inputs:
       path: "/tmp/code_review_report_${id}.md"
       content: >-

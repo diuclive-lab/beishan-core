@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "name": "failover",
+      "endpoint": "http://127.0.0.1:8091/v1",
+      "model": "gemma-4-31B-it-Q4_K_M.gguf",
+      "type": "local",
+      "api_key_env": "LOCAL_API_KEY"
+    }
+  ]
+}

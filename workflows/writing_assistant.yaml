@@ -1,17 +1,7 @@
-# 写作助手 — 搜索相关记忆，辅助写作全流程
+# 写作助手 v2.5 — 搜索相关记忆，辅助写作全流程
 #
-# 流程：
-#   1. search_memory:   搜索知识库获取相关材料
-#   2. build_outline:   生成大纲（标注可引用的知识条目 ID）
-#   3. draft:           根据大纲和材料写初稿
-#   4. critique:        自我批评（输出 score/issues/suggestions）
-#   5. revise:          根据批评意见修订
-#   6. save:            成品入库（source_type=note）
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"writing_assistant","input":"写一篇关于XX的文章"}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: writing_assistant
 
@@ -20,6 +10,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_search
     timeout: 15
+    on_error: done
     inputs:
       keyword: "${input}"
     next: build_outline
@@ -28,19 +19,16 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         基于以下相关知识，为"${input}"生成写作大纲。
 
-        要求：
-        - 结构清晰，3-5 个主要章节
-        - 每个章节标注可引用的知识条目 ID
+        要求：结构清晰，3-5 个主要章节，每个章节标注可引用的知识条目 ID。
 
         相关知识：
         ${steps.search_memory.output}
-
-        关联推荐：
-        ${steps.suggest_links.output}
     next: draft
 
   - id: draft
@@ -48,31 +36,28 @@ steps:
     type: chat
     timeout: 180
     retry: 1
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个写作助手。根据以下大纲和参考资料，用流畅的中文写出完整的文章初稿。
+        根据以下大纲和参考资料，用流畅的中文写出完整的文章初稿。
 
         主题：${input}
+        大纲：${steps.build_outline.output}
+        参考资料：${steps.search_memory.output}
 
-        大纲：
-        ${steps.build_outline.output}
-
-        参考资料：
-        ${steps.search_memory.output}
-
-        输出要求：
-        - 约 800-1500 字
-        - 参考资料中的有用信息融入文章，不要生硬引用
-        - 风格统一、逻辑通顺
+        约 800-1500 字，参考资料融入文章，不要生硬引用。
     next: critique
 
   - id: critique
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个资深编辑。审查以下文章草稿，输出严格的 JSON（不加任何其他文字）：
+        审查以下文章草稿，输出 JSON：
 
         {
           "score": 0-10,
@@ -88,21 +73,21 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 180
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个写作助手。根据审查意见修订以下文章。
+        根据审查意见修订以下文章。
 
-        原稿：
-        ${steps.draft.output}
-
-        审查意见：
-        ${steps.critique.output}
+        原稿：${steps.draft.output}
+        审查意见：${steps.critique.output}
     next: save
 
   - id: save
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "note"
       title: "${input}"

@@ -1,14 +1,8 @@
-# GitHub 开源雷达 — 每日监控对 beishan-core 有价值的开源项目
+# GitHub 开源雷达 v2.5 — 每日监控有价值开源项目
 #
-# 触发方式:
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"github_radar"}}
-#
-# 各步骤:
-#   1-4: 四个搜索方向
-#   5:   think_plugin 汇总筛选
-#   6:   存 memory
-#   7:   推送通知（callback 配置后启用）
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
+
 id: github_radar
 
 steps:
@@ -16,6 +10,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: done
     inputs:
       query: "GitHub trending Go microkernel plugin framework 2026"
     next: search_llm_routing
@@ -24,6 +19,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: done
     inputs:
       query: "GitHub trending LLM routing agent orchestration framework 2026"
     next: search_python_tools
@@ -32,6 +28,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: done
     inputs:
       query: "GitHub trending Python tool library subprocess plugin agent 2026"
     next: search_workflow
@@ -40,6 +37,7 @@ steps:
     plugin: search_plugin
     type: web_search
     timeout: 30
+    on_error: done
     inputs:
       query: "GitHub trending workflow engine YAML DAG orchestration 2026"
     next: summarize
@@ -48,14 +46,12 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         从以下四个方向的搜索结果中，筛选出对 beishan-core 项目有参考价值的开源项目。
-        标准：和微内核架构、LLM 路由、Python 插件系统、工作流引擎相关，
-        且 GitHub 星数增长快或设计理念新颖。
         每个方向最多推荐 3 个项目，说明为什么值得关注。
-
-        搜索结果：
 
         【Go 微内核/插件框架】
         ${steps.search_go_kernel.output}
@@ -74,6 +70,7 @@ steps:
     plugin: memory_plugin
     type: session_add
     timeout: 10
+    on_error: done
     inputs:
       session_id: "github_radar"
       role: "system"
@@ -85,5 +82,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: "今日 GitHub 开源雷达报告已生成。\n${steps.summarize.output}"

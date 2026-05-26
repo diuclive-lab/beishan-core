@@ -1,17 +1,7 @@
-# 知识分类 — 用本地模型为知识条目打上 knowledge_type 标签
+# 知识分类 v2.5 — 用本地模型为知识条目打上 knowledge_type 标签
 #
-# 认知类型：
-#   Principle    — 稳定原则（不应轻易改变的规则）
-#   ADR          — 架构决策记录（技术选型、设计取舍）
-#   Lesson       — 经验总结（从实践中提炼的经验）
-#   AntiPattern  — 禁止行为（明确不应该做的事）
-#   Hotspot      — 代码风险点（需要关注的脆弱区域）
-#   Telemetry    — 指标反馈（从数据/监控中得出的结论）
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"knowledge_classify","input":"kn_xxx"}}
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: knowledge_classify
 
@@ -20,6 +10,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_get
     timeout: 10
+    on_error: done
     inputs:
       id: "${input}"
     next: classify
@@ -27,31 +18,34 @@ steps:
   - id: classify
     plugin: think_plugin
     type: chat
-    provider: local
+    provider: deepseek
     timeout: 120
     retry: 1
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个知识分类助手。请分析以下知识条目，判断其认知类型。
+        你是一个知识分类助手。分析条目，判断其认知类型。
+        对判断结果标注 evidence=E1(内容明确)/E2(推断)/E3(猜测)。
 
-        认知类型定义：
-        - Principle: 稳定原则，不应轻易改变的规则或信念
-        - ADR: 架构决策记录，技术选型、设计取舍的决策
-        - Lesson: 经验总结，从实践/失败/成功中提炼的经验
-        - AntiPattern: 禁止行为，明确不应该做的事
-        - Hotspot: 代码风险点，需要关注的脆弱区域或技术债
-        - Telemetry: 指标反馈，从数据/监控/指标中得出的结论
+        认知类型：
+        - Principle: 稳定原则
+        - ADR: 架构决策记录
+        - Lesson: 经验总结
+        - AntiPattern: 禁止行为
+        - Hotspot: 代码风险点
+        - Telemetry: 指标反馈
 
         当前条目：
         ${steps.get.output}
 
-        请严格输出以下 JSON 格式（不加任何其他文字）：
-
+        输出 JSON：
         {
           "knowledge_type": "类型名称",
           "confidence": 0.85,
           "importance": "high|medium|low",
-          "reason": "分类理由（一句话）"
+          "reason": "分类理由",
+          "evidence": "E1/E2/E3"
         }
     next: update
 
@@ -59,6 +53,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_update
     timeout: 15
+    on_error: done
     inputs:
       id: "${input}"
       knowledge_type: "${steps.classify.output.knowledge_type}"

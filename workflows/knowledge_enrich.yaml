@@ -1,21 +1,7 @@
-# 知识条目增强 — 用本地模型分析并补充知识条目的摘要/标签/主题
+# 知识条目增强 v2.5 — 分析并补充摘要/标签/主题
 #
-# 全程使用 local provider（Qwen3.6-27B），不消耗云端 token。
-#
-# 流程：
-#   1. get:      读取指定知识条目
-#   2. analyze:  本地模型分析内容，提取更好的摘要/标签/主题
-#   3. update:   更新知识条目
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"knowledge_enrich","input":"kn_xxx"}}
-#
-# 批量触发（所有条目）:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"knowledge_enrich_batch","input":"all"}}
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: knowledge_enrich
 
@@ -24,6 +10,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_get
     timeout: 10
+    on_error: done
     inputs:
       id: "${input}"
     next: analyze
@@ -31,33 +18,28 @@ steps:
   - id: analyze
     plugin: think_plugin
     type: chat
-    provider: local
+    provider: deepseek
     timeout: 300
     retry: 1
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个知识管理助手。请分析以下知识条目，输出改进后的结构化信息。
-
-        原则：
-        - 摘要要精炼（50字以内），突出核心价值
-        - 标签要精准（3-5个），便于检索
-        - 主题要明确（1-2个），归类清晰
-        - 如果原文质量已经很好，保持不变
+        你是一个知识管理助手。分析以下知识条目，输出改进后的结构化信息。
 
         当前条目：
         ${steps.get.output}
 
-        请严格输出以下 JSON 格式（不加任何其他文字）：
-
+        输出 JSON：
         {
-          "title": "标题（如需修改）",
-          "summary": "改进后的摘要",
+          "title": "标题",
+          "summary": "改进后的摘要（50字内）",
           "tags": ["标签1", "标签2", "标签3"],
           "topics": ["主题1"],
           "changed": true
         }
 
-        如果条目质量已经足够好，不需要修改，请输出：
+        如果条目质量已经足够好，不需要修改，输出：
         {"changed": false}
     next: update
 
@@ -66,6 +48,7 @@ steps:
     type: knowledge_update
     timeout: 15
     skip_if: "steps.analyze.output.changed == 'false'"
+    on_error: done
     inputs:
       id: "${input}"
       title: "${steps.analyze.output.title}"

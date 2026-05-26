@@ -346,7 +346,7 @@ func main() {
 				if !ok {
 					return tools.ErrorResult("agent not found: " + aid)
 				}
-				result := agent.RunSubagent("delegate-"+aid, prompt, def, 120*time.Second)
+				result := agent.RunSubagent(context.Background(), "delegate-"+aid, prompt, def, 120*time.Second)
 				if result.Error != "" {
 					return tools.ErrorResult(result.Error)
 				}
@@ -373,11 +373,14 @@ func main() {
 					"output":     data.Output,
 					"messages":   data.Messages,
 				}
-				if f, err := os.Create(filepath.Join(convPath, fname)); err == nil {
-					json.NewEncoder(f).Encode(conv)
-					f.Close()
-					log.Printf("[events] conversation saved: %s", fname)
-				}
+				// Write asynchronously — disk I/O should not block agent completion
+				go func(path, name string, content map[string]interface{}) {
+					if f, err := os.Create(path); err == nil {
+						json.NewEncoder(f).Encode(content)
+						f.Close()
+						log.Printf("[events] conversation saved: %s", name)
+					}
+				}(filepath.Join(convPath, fname), fname, conv)
 			}
 		}
 	})
@@ -392,7 +395,7 @@ func main() {
 		if !ok {
 			return tools.ErrorResult(fmt.Sprintf("agent %q not found. Available: %s", agentID, strings.Join(agent.List(), ", ")))
 		}
-		result := agent.RunSubagent("spawn-"+agentID, prompt, def, timeout)
+		result := agent.RunSubagent(context.Background(), "spawn-"+agentID, prompt, def, timeout)
 		if result.Error != "" {
 			return tools.ErrorResult(result.Error)
 		}
@@ -403,7 +406,7 @@ func main() {
 		if err := json.Unmarshal([]byte(tasksJSON), &tasks); err != nil {
 			return tools.ErrorResult("parse error: " + err.Error())
 		}
-		results := agent.RunParallel(tasks, 120*time.Second)
+		results := agent.RunParallel(context.Background(), tasks, 120*time.Second)
 		var out []string
 		for _, r := range results {
 			if r.Error != "" {

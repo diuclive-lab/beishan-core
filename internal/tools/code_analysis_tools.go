@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"beishan/internal/mcp"
 )
 
 /* ─── 代码分析工具集 ──────────────────────
@@ -26,15 +28,35 @@ import (
 
 func CodeReadExternalHandler(args map[string]interface{}) *ToolResult {
 	path, _ := args["path"].(string)
+	pathsRaw, _ := args["paths"].([]interface{})
 	maxLines := 500
 	if m, ok := args["max_lines"].(float64); ok && m > 0 {
 		maxLines = int(m)
 	}
 
-	if path == "" {
-		return errorResult("path 不能为空")
+	// Batch mode: read multiple files
+	if len(pathsRaw) > 0 {
+		var results []map[string]interface{}
+		for _, p := range pathsRaw {
+			if pStr, ok := p.(string); ok {
+				r := readSingleFile(pStr, maxLines)
+				results = append(results, r)
+			}
+		}
+		b, _ := json.MarshalIndent(map[string]interface{}{"files": results}, "", "  ")
+		return successResult(string(b))
 	}
 
+	// Single file mode (original)
+	if path == "" {
+		return errorResult("需要 path（单文件）或 paths（批量读取）参数")
+	}
+	r := readSingleFile(path, maxLines)
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
+func readSingleFile(path string, maxLines int) map[string]interface{} {
 	// 展开 ~/
 	if strings.HasPrefix(path, "~/") {
 		home, _ := os.UserHomeDir()
@@ -43,29 +65,29 @@ func CodeReadExternalHandler(args map[string]interface{}) *ToolResult {
 
 	clean := filepath.Clean(path)
 
-	// 基本安全检查：禁止 /etc/shadow 等敏感路径
+	// 基本安全检查
 	sensitive := []string{"/etc/shadow", "/etc/passwd", "/private/etc"}
 	for _, s := range sensitive {
 		if strings.HasPrefix(clean, s) {
-			return errorResult("禁止读取敏感系统文件")
+			return map[string]interface{}{"path": path, "error": "禁止读取敏感系统文件"}
 		}
 	}
 
 	// 大小限制：2MB
 	info, err := os.Stat(clean)
 	if err != nil {
-		return errorResult(fmt.Sprintf("文件未找到: %s", path))
+		return map[string]interface{}{"path": path, "error": "文件未找到"}
 	}
 	if info.IsDir() {
-		return errorResult(fmt.Sprintf("%s 是目录，请用 dir_scan", path))
+		return map[string]interface{}{"path": path, "error": "是目录，请用 dir_scan"}
 	}
 	if info.Size() > 2*1024*1024 {
-		return errorResult("文件超过 2MB 限制")
+		return map[string]interface{}{"path": path, "error": "文件超过 2MB 限制"}
 	}
 
 	data, err := os.ReadFile(clean)
 	if err != nil {
-		return errorResult(fmt.Sprintf("读取失败: %v", err))
+		return map[string]interface{}{"path": path, "error": fmt.Sprintf("读取失败: %v", err)}
 	}
 
 	content := string(data)
@@ -77,16 +99,14 @@ func CodeReadExternalHandler(args map[string]interface{}) *ToolResult {
 		content = strings.Join(lines, "\n")
 	}
 
-	result := map[string]interface{}{
-		"path":      clean,
-		"size":      info.Size(),
-		"total_lines": len(strings.Split(string(data), "\n")),
+	return map[string]interface{}{
+		"path":           clean,
+		"size":           info.Size(),
+		"total_lines":    len(strings.Split(string(data), "\n")),
 		"returned_lines": len(lines),
-		"truncated": truncated,
-		"content":   content,
+		"truncated":      truncated,
+		"content":        content,
 	}
-	b, _ := json.MarshalIndent(result, "", "  ")
-	return successResult(string(b))
 }
 
 // ─── dir_scan ────────────────────────────────────────────────────────────────
@@ -240,8 +260,19 @@ type GoScanResult struct {
 
 func GoStructScanHandler(args map[string]interface{}) *ToolResult {
 	path, _ := args["path"].(string)
+	root, _ := args["root"].(string)
+	importLimit := 40
+	if l, ok := args["import_limit"].(float64); ok && l > 0 {
+		importLimit = int(l)
+	}
+
+	// root mode: batch scan entire directory
+	if root != "" {
+		return goStructScanBatch(root, importLimit)
+	}
+
 	if path == "" {
-		return errorResult("path 不能为空")
+		return errorResult("需要 path（单文件）或 root（批量目录）参数")
 	}
 
 	if strings.HasPrefix(path, "~/") {
@@ -449,6 +480,106 @@ func goStructScanRegex(path string) *ToolResult {
 	return successResult(string(b))
 }
 
+/* ─── goStructScanBatch — go_struct_scan 的批量模式 ── */
+type ImportFreq struct {
+	ImportPath string `json:"import_path"`
+	Count      int    `json:"count"`
+}
+
+type BatchScanResult struct {
+	Root      string       `json:"root"`
+	Files     int          `json:"files"`
+	Types     []GoType     `json:"types"`
+	Functions []GoType     `json:"functions"`
+	Exports   []string     `json:"exports"`
+	Imports   []ImportFreq `json:"imports_frequency,omitempty"`
+}
+
+func goStructScanBatch(root string, importLimit int) *ToolResult {
+	r := BatchScanResult{Root: root}
+	exportSet := make(map[string]bool)
+	importCounts := make(map[string]int)
+
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".go") || strings.HasSuffix(info.Name(), "_test.go") ||
+			strings.Contains(path, "/vendor/") || strings.Contains(path, "/.git/") {
+			return nil
+		}
+		r.Files++
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return nil
+		}
+		// Collect imports for frequency analysis
+		for _, imp := range file.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			if strings.Contains(path, "/") {
+				importCounts[path]++
+			}
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.GenDecl:
+				if node.Tok == token.TYPE {
+					for _, spec := range node.Specs {
+						ts, ok := spec.(*ast.TypeSpec)
+						if !ok {
+							continue
+						}
+						gt := GoType{Name: ts.Name.Name, Kind: "type_alias", Line: fset.Position(ts.Pos()).Line}
+						switch ts.Type.(type) {
+						case *ast.StructType:
+							gt.Kind = "struct"
+						case *ast.InterfaceType:
+							gt.Kind = "interface"
+						}
+						r.Types = append(r.Types, gt)
+						if ts.Name.IsExported() {
+							exportSet[ts.Name.Name] = true
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if node.Recv == nil {
+					r.Functions = append(r.Functions, GoType{
+						Name: node.Name.Name, Kind: "func",
+						Line: fset.Position(node.Pos()).Line,
+					})
+					if node.Name.IsExported() {
+						exportSet[node.Name.Name] = true
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+
+	for e := range exportSet {
+		r.Exports = append(r.Exports, e)
+	}
+	sort.Strings(r.Exports)
+
+	if importLimit > 0 {
+		var freq []ImportFreq
+		for path, count := range importCounts {
+			freq = append(freq, ImportFreq{ImportPath: path, Count: count})
+		}
+		sort.Slice(freq, func(i, j int) bool { return freq[i].Count > freq[j].Count })
+		if len(freq) > importLimit {
+			freq = freq[:importLimit]
+		}
+		r.Imports = freq
+	}
+
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
 func regexExtract(content, pattern string) []string {
 	re := regexp.MustCompile(pattern)
 	matches := re.FindAllStringSubmatch(content, -1)
@@ -468,10 +599,17 @@ func regexExtract(content, pattern string) []string {
 
 /* ─── code_tree — 源码文件树扫描 ───────────────── */
 
+type FileEntry struct {
+	Path  string `json:"path"`
+	Lang  string `json:"lang"`
+	Lines int    `json:"lines,omitempty"`
+}
+
 type TreeResult struct {
 	TotalFiles int            `json:"total_files"`
 	ByLang     map[string]int `json:"by_lang"`
 	ByDir      map[string]int `json:"by_dir"`
+	Files      []FileEntry    `json:"files,omitempty"`
 }
 
 func CodeTreeHandler(args map[string]interface{}) *ToolResult {
@@ -479,40 +617,102 @@ func CodeTreeHandler(args map[string]interface{}) *ToolResult {
 	if root == "" {
 		return errorResult("root 不能为空")
 	}
+	listMode, _ := args["list_files"].(bool)
+	langFilter, _ := args["lang"].(string) // comma-separated: "go,py"
+
 	root = filepath.Clean(root)
-	r := TreeResult{ByLang: make(map[string]int), ByDir: make(map[string]int)}
+	r := TreeResult{
+		ByLang: make(map[string]int),
+		ByDir:  make(map[string]int),
+	}
+	if listMode {
+		r.Files = make([]FileEntry, 0)
+	}
+
+	// Parse language filter
+	var langSet map[string]bool
+	if langFilter != "" {
+		langSet = make(map[string]bool)
+		for _, l := range strings.Split(langFilter, ",") {
+			langSet[strings.TrimSpace(strings.ToLower(l))] = true
+		}
+	}
+
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
-		if lang := detectSrcLang(filepath.Ext(path), info.Name()); lang != "" {
-			relDir, _ := filepath.Rel(root, filepath.Dir(path))
-			r.ByLang[lang]++
-			r.ByDir[relDir]++
-			r.TotalFiles++
+		lang := detectSrcLang(filepath.Ext(path), info.Name())
+		if lang == "" {
+			return nil
+		}
+		if langSet != nil && !langSet[strings.ToLower(lang)] {
+			return nil
+		}
+		// Skip vendor, test, generated, hidden dirs
+		if strings.Contains(path, "/vendor/") || strings.Contains(path, "/.git/") ||
+			strings.Contains(path, "/__pycache__/") || strings.Contains(path, "/node_modules/") ||
+			strings.Contains(path, "/generated/") {
+			return nil
+		}
+		if strings.HasSuffix(info.Name(), "_test.go") || strings.HasPrefix(info.Name(), "test_") {
+			return nil
+		}
+
+		relDir, _ := filepath.Rel(root, filepath.Dir(path))
+		r.ByLang[lang]++
+		r.ByDir[relDir]++
+		r.TotalFiles++
+
+		if listMode {
+			r.Files = append(r.Files, FileEntry{
+				Path:  path,
+				Lang:  lang,
+				Lines: countFileLines(path),
+			})
 		}
 		return nil
 	})
+
+	// Sort files by path for deterministic output
+	if listMode {
+		sort.Slice(r.Files, func(i, j int) bool { return r.Files[i].Path < r.Files[j].Path })
+	}
+
 	b, _ := json.MarshalIndent(r, "", "  ")
 	return successResult(string(b))
 }
 
 /* ─── code_stats — 代码量统计 ──────────────────── */
 
+type FileLineEntry struct {
+	Path  string `json:"path"`
+	Lang  string `json:"lang"`
+	Lines int    `json:"lines"`
+}
+
 type CodeStatsResult struct {
-	TotalFiles  int            `json:"total_files"`
-	TotalLines  int            `json:"total_lines"`
-	ByLang      map[string]int `json:"by_lang"`
-	EntryPoints []string       `json:"entry_points"`
+	TotalFiles  int             `json:"total_files"`
+	TotalLines  int             `json:"total_lines"`
+	ByLang      map[string]int  `json:"by_lang"`
+	EntryPoints []string        `json:"entry_points"`
+	TopFiles    []FileLineEntry `json:"top_files,omitempty"`
 }
 
 func CodeStatsHandler(args map[string]interface{}) *ToolResult {
 	root, _ := args["root"].(string)
+	listFiles, _ := args["list_files"].(bool)
+	limit := 30
+	if l, ok := args["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
 	if root == "" {
 		return errorResult("root 不能为空")
 	}
 	root = filepath.Clean(root)
 	r := CodeStatsResult{ByLang: make(map[string]int)}
+
+	var files []FileLineEntry
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -520,13 +720,24 @@ func CodeStatsHandler(args map[string]interface{}) *ToolResult {
 		if lang := detectSrcLang(filepath.Ext(path), info.Name()); lang != "" {
 			r.TotalFiles++
 			r.ByLang[lang]++
-			r.TotalLines += countFileLines(path)
+			lines := countFileLines(path)
+			r.TotalLines += lines
 			if n := info.Name(); n == "main.go" || n == "cli.py" || n == "main.py" {
 				r.EntryPoints = append(r.EntryPoints, path)
+			}
+			if listFiles {
+				files = append(files, FileLineEntry{Path: path, Lang: lang, Lines: lines})
 			}
 		}
 		return nil
 	})
+	if listFiles {
+		sort.Slice(files, func(i, j int) bool { return files[i].Lines > files[j].Lines })
+		if len(files) > limit {
+			files = files[:limit]
+		}
+		r.TopFiles = files
+	}
 	b, _ := json.MarshalIndent(r, "", "  ")
 	return successResult(string(b))
 }
@@ -597,6 +808,43 @@ func countFileLines(path string) int {
 	if e != nil { return 0 }
 	return len(strings.Split(string(d), "\n"))
 }
+
+/* ─── base_capability_inventory — 底座能力资产清单 ─── */
+
+type CapInventory struct {
+	Tools        int      `json:"tools"`
+	ToolNames    []string `json:"tool_names"`
+	MCPSkills    int      `json:"mcp_skills"`
+	Workflows    int      `json:"workflows"`
+	RightFlowers int      `json:"right_flowers"`
+	InternalPkgs []string `json:"internal_packages"`
+}
+
+func BaseCapabilityInventoryHandler(args map[string]interface{}) *ToolResult {
+	r := CapInventory{}
+	r.Tools = len(Registry)
+	for name := range Registry {
+		r.ToolNames = append(r.ToolNames, name)
+	}
+	sort.Strings(r.ToolNames)
+	if mcpRunner != nil {
+		r.MCPSkills = len(mcp.List())
+	}
+	if dirs, err := filepath.Glob("internal/*/"); err == nil {
+		for _, d := range dirs {
+			r.InternalPkgs = append(r.InternalPkgs, d)
+		}
+	}
+	if wfs, err := filepath.Glob("workflows/*.yaml"); err == nil {
+		r.Workflows = len(wfs)
+	}
+	if rfs, err := filepath.Glob("right_flowers/*.yaml"); err == nil {
+		r.RightFlowers = len(rfs)
+	}
+	b, _ := json.MarshalIndent(r, "", "  ")
+	return successResult(string(b))
+}
+
 func registerCodeAnalysisTools() {
 	Register("code_read_external", "读取外部项目文件（无项目根目录限制）。支持 ~/ 展开，最大 2MB。",
 		map[string]interface{}{
@@ -635,23 +883,27 @@ func registerCodeAnalysisTools() {
 		},
 		GoStructScanHandler,
 	)
-	Register("code_tree", "扫描项目源码文件树。按语言和目录统计。替代 find 命令。",
+	Register("code_tree", "扫描项目源码文件树。list_files=true 时返回文件列表（含行数）。lang 过滤（如 go,py）。替代 find 命令。",
 		map[string]interface{}{
-			"type": "object",
+			"type":     "object",
 			"required": []string{"root"},
 			"properties": map[string]interface{}{
-				"root": stringParam("项目根目录路径"),
+				"root":       stringParam("项目根目录路径"),
+				"list_files": boolParam("设为 true 返回文件路径列表（含行数）"),
+				"lang":       stringParam("语言过滤，逗号分隔（如 go,py），不传则全语言"),
 			},
 		},
 		CodeTreeHandler,
 	)
 
-	Register("code_stats", "统计项目代码量：文件数、行数、语言分布、入口点。替代 grep 计数。",
+	Register("code_stats", "统计项目代码量：文件数、行数、语言分布、入口点。list_files=true 返回 top-N 文件行数排行。替代 wc 和 find 计数。",
 		map[string]interface{}{
-			"type": "object",
+			"type":     "object",
 			"required": []string{"root"},
 			"properties": map[string]interface{}{
-				"root": stringParam("项目根目录路径"),
+				"root":       stringParam("项目根目录路径"),
+				"list_files": boolParam("设为 true 返回 top-N 文件行数排行"),
+				"limit":      intParam("返回条数（默认 30）"),
 			},
 		},
 		CodeStatsHandler,
@@ -666,6 +918,15 @@ func registerCodeAnalysisTools() {
 			},
 		},
 		CodeLangDetectHandler,
+	)
+
+	Register("base_capability_inventory", "返回底座自身的能力资产清单：工具数/分类、MCP技能、工作流、右花、内部包。替代 grep+ls 拼凑。",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{},
+			"properties": map[string]interface{}{},
+		},
+		BaseCapabilityInventoryHandler,
 	)
 
 }

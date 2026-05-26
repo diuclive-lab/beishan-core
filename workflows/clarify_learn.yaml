@@ -1,11 +1,15 @@
-# 澄清学习工作流
-# 调用结构化 clarify，结果记录到知识库形成学习闭环
+# 澄清学习工作流 v2.5 — 结构化 clarify → 入库形成学习闭环
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+
 id: clarify_learn
 steps:
   - id: ask
     plugin: memory_plugin
     type: clarify
     timeout: 30
+    on_error: done
     inputs:
       message: "${input}"
       format: "structured"
@@ -15,6 +19,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "clarify_response"
       title: "澄清记录: ${input}"

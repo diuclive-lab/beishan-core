@@ -1,8 +1,13 @@
-# 知识库巡检增强版 — 审计 → 修复 → 重建索引
+# 知识库巡检增强版 v2.5 — 审计 → 修复 → 重建索引
 #
 # 设计原则：
 #   - 零 LLM：全部确定性工具
 #   - 渐进式：先检后修再重建
+#   - 每次巡检记录审计结果到 gap register
+#
+# 治理框架引用：
+#   - 风险分类 → docs/ABSORPTION_GOVERNANCE.md §3
+#   - 升级策略 → docs/ABSORPTION_GOVERNANCE.md §4
 #
 # 流程：
 #   1. kb_audit:     知识库完整性检查
@@ -17,12 +22,14 @@ steps:
     plugin: memory_plugin
     type: kb_audit
     timeout: 30
+    on_error: notify_done
     next: kb_repair
 
   - id: kb_repair
     plugin: memory_plugin
     type: kb_repair
     timeout: 30
+    on_error: notify_done
     inputs:
       audit: "${steps.kb_audit.output}"
     next: embed_index
@@ -31,6 +38,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_embed_all
     timeout: 120
+    on_error: notify_done
     next: notify_done
 
   - id: notify_done

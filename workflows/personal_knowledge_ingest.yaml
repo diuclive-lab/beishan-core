@@ -1,14 +1,7 @@
-# 个人知识入库 — 将聊天、文章、想法、笔记自动整理为结构化知识条目
+# 个人知识入库 v2.5 — 聊天/文章/想法/笔记 → 结构化知识条目
 #
-# 流程：
-#   1. analyze:       DeepSeek 分析输入内容，提取摘要/标签/主题/待办
-#   2. save_knowledge: 存入 knowledge 结构化存储（统一 schema）
-#   3. save_tasks:     提取的待办事项写入 todo 列表（关联知识 ID）
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"personal_knowledge_ingest","input":"你的文章/想法/笔记内容"}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: personal_knowledge_ingest
 
@@ -17,17 +10,19 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 120
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个知识管理助手。请分析以下内容，输出严格的 JSON 格式（不加任何其他文字）：
+        你是一个知识管理助手。分析以下内容，输出严格的 JSON：
 
         {
           "title": "简洁的标题（10字以内）",
           "summary": "一句话摘要（50字以内）",
-          "source_type": "来源类型：article|idea|chat|note|web 之一",
+          "source_type": "article|idea|chat|note|web",
           "tags": ["标签1", "标签2"],
           "topics": ["所属主题"],
-          "tasks": ["提取的行动项/待办事项（无则空数组）"]
+          "tasks": ["提取的行动项（无则空数组）"]
         }
 
         待分析内容：
@@ -38,6 +33,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "${steps.analyze.output.source_type}"
       title: "${steps.analyze.output.title}"
@@ -52,6 +48,7 @@ steps:
     plugin: todo_plugin
     type: todo_add
     timeout: 10
+    on_error: done
     inputs:
       todos: "${steps.analyze.output.tasks}"
       source: "${steps.save_knowledge.output.id}"

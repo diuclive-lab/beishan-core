@@ -1,28 +1,15 @@
-# 通用内容审核 v2 — 挖金子：评估→过滤→入库洞察
+# 通用内容审核 v2.5 — 挖金子：评估→过滤→入库洞察
 #
 # 设计原则：
 #   - 分层评估：先分类 → 再验证 → 最后打分，每步收窄范围
 #   - 双评分过滤：quality + relevance 双 3 分门槛，防止低质内容入库污染
+#   - 证据标注：每条评估结论标注可信度
 #   - 容错降级：cross_check/kb_check 失败不阻塞评估，靠已有数据走 evaluate
 #   - 自动化闭环：store 动作自动入库 + insight_followup，无需人工确认
 #
-# 流程：
-#   1. fetch:        web_render 获取页面内容（约 ¥0）
-#   2. classify:      DeepSeek 分类 + 提取标签/搜索词（约 ¥0.01）
-#   3. cross_check:   全网搜索验证（可降级，约 ¥0）
-#   4. kb_check:      知识库检索对比（可降级，约 ¥0）
-#   5. evaluate:      DeepSeek 综合评分 + 洞察提炼（约 ¥0.02）
-#   6. auto_store:    条件入库（仅 action=store 时）
-#   7. report:        生成最终评估报告（约 ¥0.01）
-#
-# 评分标准：
-#   quality_score:   0=纯噪音  1=低质  2=一般  3=有参考价值  4=高质量  5=顶级
-#   relevance_score: 0=无关  1=弱  2=一般  3=可参考  4=直接借鉴  5=核心必须
-#   action: discard(<3/<3) → report(>=3/<3) → store(>=3/>=3)
-#
-# 总成本估算：
-#   DeepSeek：3 次，约 1000 tokens ≈ ¥0.04
-#   网络/搜索：2-3 次外部请求，零 LLM 成本
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 #
 # 触发方式：
 #   POST /api/chat
@@ -32,7 +19,7 @@
 id: content_review
 
 steps:
-  # ── Step 1: 获取内容（web_render 通用入口） ──
+  # ── Step 1: 获取内容 ──
   - id: fetch
     plugin: search_plugin
     type: web_render
@@ -45,7 +32,7 @@ steps:
       wait: 5
     next: classify
 
-  # ── Step 2: 内容分类 ──
+  # ── Step 2: 内容分类 + 证据初判 ──
   - id: classify
     provider: deepseek
     plugin: think_plugin
@@ -53,14 +40,26 @@ steps:
     timeout: 120
     retry: 1
     retry_delay: 5
+    on_error: report_direct
     inputs:
+      mode: "no_retrieval"
       message: >-
-        分析内容输出 JSON。
+        分析内容输出 JSON。对关键判断标注证据等级：
+        E1 = 原文明确陈述
+        E2 = 可从内容推断
+        E3 = 推测
 
-        source_category: knowledge|news|promotion|opinion|tutorial|video
-
-        { "title": "", "source": "", "source_category": "", "content_type": "",
-          "core_idea": "", "summary": "", "tags": [], "search_queries": [] }
+        {
+          "title": "...",
+          "source": "...",
+          "source_category": "knowledge|news|promotion|opinion|tutorial|video",
+          "content_type": "...",
+          "core_idea": "...",
+          "summary": "...",
+          "tags": [],
+          "search_queries": [],
+          "source_credibility": "official/权威/普通/未验证"
+        }
 
         内容：${steps.fetch.output}
     next: cross_check
@@ -87,7 +86,7 @@ steps:
       keyword: "${steps.classify.output.core_idea}"
     next: evaluate
 
-  # ── Step 5: 核心步骤 — 评估 + 洞察提炼 ──
+  # ── Step 5: 核心评估 + 洞察提炼（含风险登记）──
   - id: evaluate
     provider: deepseek
     plugin: think_plugin
@@ -95,37 +94,35 @@ steps:
     timeout: 300
     retry: 2
     retry_delay: 5
+    on_error: report
     inputs:
+      mode: "no_retrieval"
       message: >-
         你是评估+提炼助手。评估内容质量和项目相关度，双评分 0-5。
+        对每条评估结论标注 evidence 等级。
 
-        quality_score（内容质量）：
-          0=纯噪音 1=低质 2=一般
-          3=有参考价值 4=高质量有洞见 5=顶级
-
-        relevance_score（项目相关度）：
-          0=无关 1=弱 2=一般
-          3=相关可参考 4=直接有借鉴 5=核心必须入库
+        quality_score（内容质量 0-5）：
+        relevance_score（项目相关度 0-5）：
 
         action 取值：
           discard: quality<3 → 出报告标记已过滤，不入库
           report:  quality>=3但relevance<3 → 出报告已评估未入库
           store:   quality>=3且relevance>=3 → 提炼洞察入库
 
-        store 时需提炼 actionable insights（文章对 beishan-core 可借鉴的工程思路）。
-        不是原文摘要，是可执行的知识。
-
         输出 JSON：
         {
           "quality_score": 0,
           "quality_reason": "",
+          "quality_evidence": "E1/E2/E3",
           "relevance_score": 0,
           "relevance_reason": "",
+          "relevance_evidence": "E1/E2/E3",
           "action": "discard|report|store",
           "action_reason": "",
           "insight_title": "store时必填",
           "insight_summary": "store时必填",
           "insight_tags": [],
+          "insight_evidence": "E1/E2/E3",
           "report": {
             "title": "",
             "type": "",
@@ -149,7 +146,7 @@ steps:
         已有知识：${steps.kb_check.output}
     next: auto_store
 
-  # ── Step 6: 自动入库（仅 action=store 时执行） ──
+  # ── Step 6: 自动入库 ──
   - id: auto_store
     plugin: memory_plugin
     type: knowledge_remember
@@ -171,42 +168,36 @@ steps:
     retry: 1
     on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         根据评估生成最终报告。
 
         评估结果：${steps.evaluate.output}
 
         报告结构：
-        1. 标题和来源
-        2. 内容质量和类型
-        3. 项目相关度评估
+        1. 标题和来源（含来源可信度）
+        2. 内容质量和类型（含 evidence 等级）
+        3. 项目相关度评估（含 evidence 等级）
         4. 全网验证情况
         5. 与已有知识的关系
         6. 处理动作（discard/report/store）
         7. 理由说明
 
-        action=store 时：
-          说明洞察已自动入库
-          附上入库的条目标题和摘要
-          不再询问确认
-
-        action=discard 时：
-          说明已标记为低质量
-          记录过滤原因供日后参考
-
-        action=report 时：
-          说明已评估但未入库的原因
-          可供日后重新评估
+        action=store 时：说明洞察已自动入库，附 evidence 等级。
+        action=discard 时：说明已标记为低质量，记录过滤原因。
+        action=report 时：说明已评估但未入库的原因。
 
         纯文本输出。
     next: done
 
-  # ── 降级：获取页面失败时直接出简要报告 ──
+  # ── 降级：获取页面失败时 ──
   - id: report_direct
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         页面获取失败，URL: ${input}，生成一条简要记录告知用户。
         输出纯文本，50 字以内，说明该 URL 当前不可达。

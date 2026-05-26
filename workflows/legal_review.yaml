@@ -1,14 +1,15 @@
-# 法律审查工作流
-# 等价于 plugins/legal_review_plugin.go 的硬编码四步链
+# 法律审查工作流 v2.5
 #
-# 触发: 发消息到 workflow_plugin
-#   {"type":"workflow_run","payload":{"workflow":"legal_review","input":"审查这份合同：..."}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
+
 id: legal_review
 steps:
   - id: cold_start
     plugin: cold_start_plugin
     type: cold_start
-    timeout: 30                # 30 秒超时
+    timeout: 30
+    on_error: done
     inputs:
       contract_text: "${input}"
     next: legal_search
@@ -17,7 +18,8 @@ steps:
     plugin: legal_search_plugin
     type: legal_search
     timeout: 30
-    retry: 1                   # 失败重试 1 次
+    retry: 1
+    on_error: done
     inputs:
       query: "${steps.cold_start.output}"
     next: clause_analysis
@@ -26,6 +28,7 @@ steps:
     plugin: clause_analyzer_plugin
     type: clause_analysis
     timeout: 30
+    on_error: done
     inputs:
       contract: "${input}"
       profile: "${steps.cold_start.output}"
@@ -36,8 +39,8 @@ steps:
     plugin: legal_write_plugin
     type: legal_generate_report
     timeout: 30
+    on_error: done
     inputs:
       analysis_report: "${steps.clause_analysis.output}"
       document_type: "contract_review"
       output_format: "markdown"
-    next: done

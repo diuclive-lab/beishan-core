@@ -1,10 +1,14 @@
-# 文件入库 — 解析本地文件并自动入库为知识条目
+# 文件入库 v2.5 — 解析本地文件并自动入库为知识条目
 #
 # 流程：
 #   1. parse:   file_parse 提取文件内容
-#   2. analyze: DeepSeek 结构化分析
+#   2. analyze: DeepSeek 结构化分析（含证据标注）
 #   3. save:    knowledge_add 入库
 #   4. suggest: 关联已有知识
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 #
 # 触发方式:
 #   POST /api/chat
@@ -21,6 +25,7 @@ steps:
     type: file_parse
     timeout: 30
     retry: 1
+    on_error: done
     inputs:
       path: "${input}"
     next: analyze
@@ -30,9 +35,15 @@ steps:
     type: chat
     timeout: 180
     retry: 1
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
-        你是一个知识提炼助手。请分析以下文件内容，输出严格的结构化 JSON（不加任何其他文字）。
+        你是一个知识提炼助手。请分析以下文件内容，输出严格的结构化 JSON。
+        对提取的关键信息标注证据等级：
+        - E1: 文件内容直接说明的
+        - E2: 可从内容推断的
+        - E3: 推测的（需标注）
 
         文件类型：${steps.parse.output.type}
         文件名：${steps.parse.output.filename}
@@ -47,7 +58,14 @@ steps:
           "summary": "一句话摘要",
           "tags": ["标签1", "标签2"],
           "topics": ["所属主题"],
-          "tasks": ["提取的行动项（无则空数组）"]
+          "tasks": ["提取的行动项（无则空数组）"],
+          "key_claims": [
+            {
+              "claim": "文件中提到的事实或结论",
+              "evidence": "E1/E2/E3",
+              "source": "原文片段/推断"
+            }
+          ]
         }
     next: save
 
@@ -70,6 +88,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_suggest_links
     timeout: 10
+    on_error: done
     inputs:
       id: "${steps.save.output.id}"
       max_results: 5

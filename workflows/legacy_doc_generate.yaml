@@ -1,15 +1,7 @@
-# 反向生成文档 — 从知识库分析结果生成标准技术文档
+# 反向生成文档 v2.5 — 从知识库分析结果生成标准技术文档
 #
-# 流程：
-#   1. search_analysis:  搜索知识库获取模块分析结果
-#   2. generate:         DeepSeek 生成标准格式文档
-#   3. save_file:        写入 docs/legacy/
-#   4. save_knowledge:   文档本身入库
-#
-# 触发方式:
-#   POST /api/chat
-#   {"recipient":"workflow_plugin","type":"workflow_run",
-#    "payload":{"workflow":"legacy_doc_generate","input":"模块名"}}
+# 治理框架引用：
+#   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: legacy_doc_generate
 
@@ -18,6 +10,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_search
     timeout: 15
+    on_error: done
     inputs:
       keyword: "${input}"
     next: generate
@@ -27,41 +20,32 @@ steps:
     type: chat
     timeout: 180
     retry: 1
+    on_error: done
     inputs:
+      mode: "no_retrieval"
       message: >-
         基于以下知识库分析结果，生成标准格式的技术文档。
 
         文档模板：
         # ${input}
-
         ## 功能描述
-        （模块实际做什么）
-
         ## 核心逻辑
-        （关键算法或流程）
-
         ## 有价值的设计模式
-        （值得借鉴的部分）
-
         ## 对 beishan-core 的参考价值
-        （具体说明哪里可以用）
-
         ## 待改进点
-        （原代码的问题）
-
         ## 行动项
-        （具体可执行的下一步）
 
         知识库分析结果：
         ${steps.search_analysis.output}
 
-        请输出完整的 Markdown 文档，不要用代码块包裹。
+        请输出完整的 Markdown 文档。
     next: save_file
 
   - id: save_file
     plugin: write_plugin
     type: write_file
     timeout: 15
+    on_error: done
     inputs:
       path: "docs/legacy/${input}.md"
       content: "${steps.generate.output}"
@@ -71,6 +55,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "note"
       title: "${input} 文档"
