@@ -446,10 +446,16 @@ LLM 需要结构化的意图表达通道（如 tool_suggestion、search_suggesti
 
 文档和代码一样，是项目基础设施的一部分。
 
-- 重大架构决策记录在 `docs/MERGE_DECISIONS.md`（不是分散在提交信息中）
-- 硬化层的能力边界声明在 `docs/HARDENING_LAYER.md`（保证什么 + 不保证什么）
-- 已知限制诚实记录在 `docs/KNOWN_LIMITATIONS.md`（不回避设计边界）
-- 代码变更时同步更新文档，如同同步更新测试一样
+| 文档 | 维护规则 |
+|-----|---------|
+| `docs/DATA_FLOW.md` | 每次新增功能必须更新 |
+| `docs/MERGE_DECISIONS.md` | 每次重大架构决策必须记录 |
+| `docs/KNOWN_LIMITATIONS.md` | 每个 UNIMPLEMENTED 占位符必须在此登记 |
+| `docs/HARDENING_LAYER.md` | 硬化层能力边界声明（保证什么 + 不保证什么） |
+| `CHANGELOG.md` | 面向用户的版本摘要 |
+
+代码变更时同步更新文档，如同同步更新测试一样。
+**DATA_FLOW.md 的断路状态（❌）不是羞耻，是诚实。** 比不存在这个文档要好。
 
 ### 参考项目
 
