@@ -144,6 +144,7 @@ func (r *EvidenceRouter) RouteTopN(input string, n int) []*RouteResult {
 
 		candidates = append(candidates, candidate{
 			tool:       rule.Tool,
+			msgType:    rule.MsgType,
 			confidence: score,
 			evidence:   evidence,
 		})
@@ -164,6 +165,7 @@ func (r *EvidenceRouter) RouteTopN(input string, n int) []*RouteResult {
 	for i, c := range candidates {
 		result[i] = &RouteResult{
 			Tool:       c.tool,
+			MsgType:    c.msgType,
 			Confidence: c.confidence,
 			Evidence:   c.evidence,
 		}
