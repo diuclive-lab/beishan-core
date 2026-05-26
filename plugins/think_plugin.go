@@ -282,10 +282,6 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 	}
 
 	// 加载工作状态上下文（跨会话连续性）
-	if wc := tools.BuildWorkspaceContext(""); wc != "" {
-		background = wc + "\n\n"
-	}
-
 	// Query 改写：口语化查询 → 精确检索关键词
 	searchQuery := userText
 	if needsQueryRewrite(userText) {
@@ -298,6 +294,14 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 	if len(results) > 0 {
 		background = retrieval.FormatForPromptFull(results)
 		fmt.Printf("[思考] 检索到 %d 条相关记忆\n", len(results))
+	}
+
+	// 跨会话上下文：在工作状态知识库中检索当前项目上下文
+	if wc := tools.BuildWorkspaceContext(""); wc != "" {
+		if background != "" {
+			background += "\n\n"
+		}
+		background += wc
 	}
 	trace.Log()
 

@@ -70,18 +70,21 @@ func registerWorkspaceTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			project, _ := args["project"].(string)
-
-			keyword := "workspace_state"
-			if project != "" {
-				keyword = project + " workspace_state"
+			results := SearchMemoryFull("[工作状态]", 50, nil)
+			var matches []string
+			for _, r := range results {
+				if !hasTag(r.Tags, "workspace_state") {
+					continue
+				}
+				if project != "" && !hasTag(r.Tags, strings.ToLower(project)) {
+					continue
+				}
+				matches = append(matches, fmt.Sprintf("[%s] %s | %s", r.EntryID, r.Title, r.Summary))
 			}
-
-			result := KnowledgeSearch(keyword)
-			if !result.Success {
+			if len(matches) == 0 {
 				return ErrorResult("没有找到工作状态")
 			}
-
-			return result
+			return SuccessResult(strings.Join(matches, "\n"))
 		},
 	)
 }
@@ -89,29 +92,29 @@ func registerWorkspaceTools() {
 // BuildWorkspaceContext 格式化工作状态为 LLM 上下文提示。
 // 返回空字符串表示没有活跃的工作状态。
 func BuildWorkspaceContext(project string) string {
-	// 使用唯一前缀搜索工作状态条目，避免普通全文搜索误中
-	keyword := "[工作状态]"
-	if project != "" {
-		keyword = "[工作状态] " + project
-	}
-	result := KnowledgeSearch(keyword)
-	if !result.Success || result.Output == "" {
+	results := SearchMemoryFull("[工作状态]", 50, nil)
+	if len(results) == 0 {
 		return ""
 	}
-	// 取第一条匹配工作状态的行
-	for _, line := range strings.Split(result.Output, "\n") {
-		if !strings.Contains(line, "[工作状态]") {
+	for _, r := range results {
+		if !hasTag(r.Tags, "workspace_state") {
 			continue
 		}
-		if idx := strings.Index(line, "] "); idx > 0 {
-			entry := strings.TrimSpace(line[idx+2:])
-			if idx2 := strings.Index(entry, " | "); idx2 > 0 {
-				entry = entry[:idx2]
-			}
-			return "── 上次工作状态 ──\n- " + entry
+		if project != "" && !hasTag(r.Tags, strings.ToLower(project)) {
+			continue
 		}
+		return "[上次工作状态] " + r.Title
 	}
 	return ""
+}
+
+func hasTag(tags []string, target string) bool {
+	for _, t := range tags {
+		if t == target {
+			return true
+		}
+	}
+	return false
 }
 
 // extractID 从 KnowledgeRemember 输出中提取知识条目 ID
