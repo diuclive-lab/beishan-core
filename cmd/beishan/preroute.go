@@ -19,9 +19,19 @@ type preroutePattern struct {
 // 例："搜索知识库" 必须在 "搜索" 之前匹配。
 var preroutePatterns = []preroutePattern{
 
+	// 桌面文件列表（路由到文件操作，不是截屏）
+	{
+		keywords:  []string{"桌面文件", "桌面有什么文件", "桌面目录", "桌面上有什么"},
+		recipient: "terminal_plugin",
+		msgType:   "terminal_exec",
+		extract: func(text string) json.RawMessage {
+			b, _ := json.Marshal(map[string]string{"command": "ls -la ~/Desktop/"})
+			return b
+		},
+	},
 	// 桌面操作（确定性路由，绕开 LLM）
 	{
-		keywords:  []string{"看桌面", "桌面有什么", "帮我看看", "帮我看一下", "电脑桌面", "操作电脑", "打开程序", "截屏", "截图", "桌面文件"},
+		keywords:  []string{"看桌面", "桌面有什么", "帮我看看", "帮我看一下", "电脑桌面", "操作电脑", "打开程序", "截屏", "截图"},
 		recipient: "memory_plugin",
 		msgType:   "desktop_actuator",
 		extract: func(text string) json.RawMessage {

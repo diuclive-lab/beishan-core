@@ -41,7 +41,7 @@ const msgs=document.getElementById('msgs');
 const input=document.getElementById('input');
 const sendBtn=document.getElementById('send');
 const statusDot=document.getElementById('status');
-let sessionId='';
+let sessionId=localStorage.getItem('sessionId')||'';
 
 async function send(){
   const text=input.value.trim();
@@ -55,7 +55,7 @@ async function send(){
     if(sessionId) body=JSON.stringify({session_id:sessionId,message:text});
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body});
     const d=await r.json();
-    if(d.session_id) sessionId=d.session_id;
+    if(d.session_id){sessionId=d.session_id;localStorage.setItem("sessionId",sessionId);}
     const thinking=document.querySelector('.thinking');
     if(thinking) thinking.remove();
     const payload=d.payload||'';
