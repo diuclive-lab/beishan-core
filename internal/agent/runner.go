@@ -201,7 +201,8 @@ func executeTool(tc *parsedToolCall) string {
 		return fmt.Sprintf("Error: tool %q not found", tc.Tool)
 	}
 	argsJSON, _ := json.Marshal(tc.Arguments)
-	result := tools.Execute(tc.Tool, string(argsJSON))
+	_ = argsJSON
+	result := tools.ValidateAndExecute(tc.Tool, json.RawMessage(argsJSON))
 	if result.Error != "" {
 		return fmt.Sprintf("Tool %s error: %s", tc.Tool, result.Error)
 	}

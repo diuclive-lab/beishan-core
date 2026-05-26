@@ -3,7 +3,7 @@ type: "personal_context"
 protocol: "http"
 endpoint: "http://localhost:9529/dispatch"
 enabled: true
-route_exposed: true
+route_exposed: false
 capabilities:
   - memory.search
   - code.review

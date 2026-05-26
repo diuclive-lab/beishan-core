@@ -3,7 +3,7 @@ type: "agent"
 protocol: "http"
 endpoint: "http://localhost:9533/dispatch"
 enabled: true
-route_exposed: true
+route_exposed: false
 capabilities:
   - agent.chat
   - tool.execute
