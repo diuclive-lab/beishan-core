@@ -281,29 +281,48 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 		projectPath = "."
 	}
 
-	// 加载工作状态上下文（跨会话连续性）
-	// Query 改写：口语化查询 → 精确检索关键词
-	searchQuery := userText
-	if needsQueryRewrite(userText) {
-		searchQuery = rewriteQuery(userText, sessionID)
-	}
-
-	// 执行完整检索管道
-	results, trace := RunFullRetrieval(searchQuery, projectPath)
-
-	if len(results) > 0 {
-		background = retrieval.FormatForPromptFull(results)
-		fmt.Printf("[思考] 检索到 %d 条相关记忆\n", len(results))
-	}
-
-	// 跨会话上下文：在工作状态知识库中检索当前项目上下文
-	if wc := tools.BuildWorkspaceContext(""); wc != "" {
-		if background != "" {
-			background += "\n\n"
+	// 短时记忆优先：先判断用户是否在问近期对话
+	recencyWords := []string{"刚才", "之前", "上次", "刚刚", "上一句", "刚刚说", "我们聊", "你刚才", "你没"}
+	asksAboutRecent := false
+	for _, w := range recencyWords {
+		if strings.Contains(userText, w) {
+			asksAboutRecent = true
+			break
 		}
-		background += wc
 	}
-	trace.Log()
+
+	// 加载最近对话历史
+	history := loadRecentSessionMessages(sessionID, 5)
+
+	var (
+		results []retrieval.RetrievalResult
+		trace  *tools.RetrievalTrace
+	)
+
+	if asksAboutRecent && len(history) > 0 {
+		fmt.Printf("[思考] 近期上下文查询，跳过知识库检索\n")
+	} else {
+		searchQuery := userText
+		if needsQueryRewrite(userText) {
+			searchQuery = rewriteQuery(userText, sessionID)
+		}
+		results, trace = RunFullRetrieval(searchQuery, projectPath)
+		if len(results) > 0 {
+			background = retrieval.FormatForPromptFull(results)
+			fmt.Printf("[思考] 检索到 %d 条相关记忆\n", len(results))
+		}
+		if trace != nil {
+			trace.Log()
+		}
+		if len(history) == 0 {
+			if wc := tools.BuildWorkspaceContext(""); wc != "" {
+				if background != "" {
+					background += "\n\n"
+				}
+				background += wc
+			}
+		}
+	}
 
 	// 构建多轮对话 messages
 	userMsg := userText
@@ -320,8 +339,8 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 	messages := []llm.ChatMessage{
 		{Role: "system", Content: sysContent},
 	}
-	// 加载最近 5 轮对话作为上下文
-	if history := loadRecentSessionMessages(sessionID, 5); len(history) > 0 {
+	// 加载最近 5 轮对话作为上下文（已提前加载，直接用 history 变量）
+	if len(history) > 0 {
 		// token 截断保护：从最新往前累计，超 8000 rune 时丢弃最早的历史
 		const maxHistoryRunes = 8000
 		total := 0
