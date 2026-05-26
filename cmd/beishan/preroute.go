@@ -2,152 +2,101 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
+	"beishan/internal/tools"
 	"beishan/kernel"
 )
 
-type preroutePattern struct {
-	keywords  []string
-	recipient string
-	msgType   string
-	extract   func(userText string) json.RawMessage // nil = keep original payload
+// preRoute 用 evidence_router 做确定性预路由，跳过 LLM Router。
+func preRoute(msg *kernel.Message) bool {
+	if msg.Recipient != "" {
+		return false
+	}
+
+	userText := extractUserText(msg.Payload)
+	if userText == "" {
+		return false
+	}
+
+	router := tools.NewEvidenceRouter(tools.DefaultRoutingRules())
+	result := router.Route(userText)
+	if result == nil || result.Confidence < 0.3 {
+		return false
+	}
+
+	msg.Recipient = result.Tool
+	msg.Type = result.MsgType
+
+	// 搜索歧义二次检查
+	if result.Tool == "search_plugin" && (strings.Contains(userText, "知识库") || strings.Contains(userText, "记忆")) {
+		msg.Recipient = "memory_plugin"
+		msg.Type = "knowledge_search"
+		if payload := buildSearchPayload(userText); payload != nil {
+			msg.Payload = payload
+		}
+		return true
+	}
+
+	if payload := buildPayload(result.Tool, result.MsgType, userText); payload != nil {
+		msg.Payload = payload
+	}
+
+	fmt.Printf("[preRoute] %s → %s(%s) %.2f\n", truncateStr(userText, 40), result.Tool, result.MsgType, result.Confidence)
+	return true
 }
 
-// 匹配顺序：长关键词在前，避免短关键词截胡。
-// 例："搜索知识库" 必须在 "搜索" 之前匹配。
-var preroutePatterns = []preroutePattern{
-
-	// 桌面文件列表（路由到文件操作，不是截屏）
-	{
-		keywords:  []string{"桌面文件", "桌面有什么文件", "桌面目录", "桌面上有什么"},
-		recipient: "terminal_plugin",
-		msgType:   "terminal_exec",
-		extract: func(text string) json.RawMessage {
-			b, _ := json.Marshal(map[string]string{"command": "ls -la ~/Desktop/"})
-			return b
-		},
-	},
-	// 桌面操作（确定性路由，绕开 LLM）
-	{
-		keywords:  []string{"看桌面", "桌面有什么", "帮我看看", "帮我看一下", "电脑桌面", "操作电脑", "打开程序", "截屏", "截图"},
-		recipient: "memory_plugin",
-		msgType:   "desktop_actuator",
-		extract: func(text string) json.RawMessage {
-			action := "get_window_tree"
-			if strings.Contains(text, "截图") || strings.Contains(text, "截屏") {
-				action = "screenshot"
-			}
-			if strings.Contains(text, "点击") || strings.Contains(text, "按") {
-				action = "click"
-			}
-			b, _ := json.Marshal(map[string]string{"action": action})
-			return b
-		},
-	},
-	// 知识库搜索
-	{
-		keywords:  []string{"搜索知识库", "查知识", "我的笔记"},
-		recipient: "memory_plugin",
-		msgType:   "knowledge_search",
-		extract: func(text string) json.RawMessage {
-			kw := text
-			for _, prefix := range []string{"搜索知识库", "查知识", "我的笔记"} {
-				kw = strings.TrimPrefix(kw, prefix)
-			}
-			kw = strings.TrimSpace(kw)
-			if kw == "" {
-				return nil
-			}
-			b, _ := json.Marshal(map[string]string{"keyword": kw})
-			return b
-		},
-	},
-	// 对比/差异类
-	{
-		keywords:  []string{"对比", "区别", "差异", "不同", "差距"},
-		recipient: "",
-		msgType:   "",
-	},
-	// 搜索兜底
-	{
-		keywords:  []string{"搜一下", "帮我查", "查查", "查一下"},
-		recipient: "search_plugin",
-		msgType:   "web_search",
-		extract: func(text string) json.RawMessage {
-			kw := text
-			for _, p := range []string{"搜一下", "帮我查", "查查", "查一下"} {
-				kw = strings.TrimPrefix(kw, p)
-			}
-			kw = strings.TrimSpace(kw)
-			if kw == "" { return nil }
-			b, _ := json.Marshal(map[string]string{"query": kw})
-			return b
-		},
-	},
-	// 创建工作流
-	{
-		keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
-		recipient: "skill_factory_plugin",
-		msgType:   "skill_create",
-		extract:   func(text string) json.RawMessage { return json.RawMessage(`{}`) },
-	},
-	// 添加待办
-	{
-		keywords:  []string{"添加待办", "新建待办", "新增待办"},
-		recipient: "todo_plugin",
-		msgType:   "todo_add",
-		extract: func(text string) json.RawMessage {
-			task := text
-			for _, kw := range []string{"添加待办", "新建待办", "新增待办"} {
-				task = strings.TrimPrefix(task, kw)
-			}
-			task = strings.TrimSpace(task)
-			if task == "" {
-				return nil
-			}
-			b, _ := json.Marshal(map[string]string{"task": task})
-			return b
-		},
-	},
-	// 待办列表
-	{
-		keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
-		recipient: "todo_plugin",
-		msgType:   "todo_list",
-		extract:   func(text string) json.RawMessage { return json.RawMessage(`{}`) },
-	},
-	// 搜索意图（放后面，避免截胡"搜索知识库"等长关键词）
-	{
-		keywords:  []string{"搜一下", "查找资料", "帮我搜", "搜索"},
-		recipient: "search_plugin",
-		msgType:   "web_search",
-		extract: func(text string) json.RawMessage {
-			q := text
-			for _, kw := range []string{"帮我搜索", "帮我搜一下", "搜索一下", "搜一下", "查找资料", "搜索", "帮我搜"} {
-				q = strings.TrimPrefix(q, kw)
-			}
-			q = strings.TrimSpace(q)
-			if q == "" {
-				return nil
-			}
-			b, _ := json.Marshal(map[string]string{"query": q})
-			return b
-		},
-	},
-	// 记住意图
-	// 股票行情（必须有 6 位数字代码）
-	{
-		keywords:  []string{"股价", "行情", "股票"},
-		recipient: "memory_plugin",
-		msgType:   "stock_multi_quote",
-		extract: func(text string) json.RawMessage {
-			re := regexp.MustCompile(`(\d{6})`)
-			matches := re.FindAllStringSubmatch(text, -1)
-			if len(matches) == 0 {
-				return nil
-			}
+func buildPayload(tool, msgType, text string) json.RawMessage {
+	switch {
+	case tool == "terminal_plugin" && msgType == "terminal_exec":
+		if strings.Contains(text, "桌面") || strings.Contains(text, "Desktop") {
+			return rawMsg(map[string]string{"command": "ls -la ~/Desktop/"})
+		}
+	case tool == "memory_plugin" && msgType == "desktop_actuator":
+		action := "get_window_tree"
+		if strings.Contains(text, "截图") || strings.Contains(text, "截屏") {
+			action = "screenshot"
+		}
+		if strings.Contains(text, "点击") || strings.Contains(text, "按") {
+			action = "click"
+		}
+		return rawMsg(map[string]string{"action": action})
+	case tool == "search_plugin" && msgType == "web_search":
+		q := text
+		for _, p := range []string{"帮我搜索", "帮我搜一下", "搜索一下", "搜一下", "查找资料", "搜索", "帮我搜", "帮我查", "查查", "查一下"} {
+			q = strings.TrimPrefix(q, p)
+		}
+		q = strings.TrimSpace(q)
+		if q != "" {
+			return rawMsg(map[string]string{"query": q})
+		}
+	case tool == "memory_plugin" && msgType == "knowledge_search":
+		kw := text
+		for _, prefix := range []string{"搜索知识库", "查知识", "我的笔记"} {
+			kw = strings.TrimPrefix(kw, prefix)
+		}
+		kw = strings.TrimSpace(kw)
+		if kw != "" {
+			return rawMsg(map[string]string{"keyword": kw})
+		}
+	case tool == "todo_plugin" && (msgType == "todo_add" || msgType == "todo_list"):
+		if msgType == "todo_list" {
+			return rawMsg(map[string]interface{}{})
+		}
+		task := text
+		for _, kw := range []string{"添加待办", "新建待办", "新增待办"} {
+			task = strings.TrimPrefix(task, kw)
+		}
+		task = strings.TrimSpace(task)
+		if task != "" {
+			return rawMsg(map[string]string{"task": task})
+		}
+	case tool == "memory_plugin" && msgType == "stock_multi_quote":
+		re := regexp.MustCompile(`(\d{6})`)
+		matches := re.FindAllStringSubmatch(text, -1)
+		if len(matches) > 0 {
 			var codes []string
 			seen := make(map[string]bool)
 			for _, m := range matches {
@@ -156,65 +105,17 @@ var preroutePatterns = []preroutePattern{
 					codes = append(codes, m[1])
 				}
 			}
-			b, _ := json.Marshal(map[string]interface{}{"codes": codes})
-			return b
-		},
-	},
-	{
-		keywords:  []string{"记住", "记录一下"},
-		recipient: "think_plugin",
-		msgType:   "chat",
-		extract:   nil, // keep original payload
-	},
-}
-
-// preRoute 确定性预路由：高频意图关键词匹配，50ms 内完成，跳过 LLM Router。
-// 返回 true 表示已匹配，msg 的 Recipient/Type/Payload 已就绪。
-func preRoute(msg *kernel.Message) bool {
-	if msg.Recipient != "" {
-		return false // 已指定收件人，跳过
-	}
-	// 记录匹配结果用于通知
-	var matchedPattern string
-	_ = matchedPattern // reserved for routing notification
-
-	// 从 payload 提取用户文本
-	userText := extractUserText(msg.Payload)
-	if userText == "" {
-		return false
-	}
-
-	for _, p := range preroutePatterns {
-		for _, kw := range p.keywords {
-			if strings.Contains(userText, kw) {
-				msg.Recipient = p.recipient
-				msg.Type = p.msgType
-
-				// 搜索歧义二次检查：命中 search_plugin 但内容指知识库/记忆时改路由
-				if p.recipient == "search_plugin" && p.msgType == "web_search" {
-					if strings.Contains(userText, "知识库") || strings.Contains(userText, "记忆") {
-						msg.Recipient = "memory_plugin"
-						msg.Type = "knowledge_search"
-						if payload := buildSearchPayload(userText); payload != nil {
-							msg.Payload = payload
-						}
-						return true
-					}
-				}
-
-				if p.extract != nil {
-					if payload := p.extract(userText); payload != nil {
-						msg.Payload = payload
-					}
-				}
-				return true
-			}
+			return rawMsg(map[string]interface{}{"codes": codes})
 		}
 	}
-	return false
+	return nil
 }
 
-// buildSearchPayload 从用户文本中提取搜索关键词，构造 knowledge_search payload
+func rawMsg(v interface{}) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
+}
+
 func buildSearchPayload(text string) json.RawMessage {
 	for _, prefix := range []string{"搜索一下", "搜索知识", "查知识", "搜一下", "搜索", "搜"} {
 		text = strings.TrimPrefix(text, prefix)
@@ -223,11 +124,9 @@ func buildSearchPayload(text string) json.RawMessage {
 	if text == "" {
 		return nil
 	}
-	b, _ := json.Marshal(map[string]string{"keyword": text})
-	return b
+	return rawMsg(map[string]string{"keyword": text})
 }
 
-// extractUserText 从 message payload 中提取用户文本
 func extractUserText(payload json.RawMessage) string {
 	var obj map[string]interface{}
 	if err := json.Unmarshal(payload, &obj); err != nil {
@@ -237,4 +136,12 @@ func extractUserText(payload json.RawMessage) string {
 		return txt
 	}
 	return ""
+}
+
+func truncateStr(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
 }

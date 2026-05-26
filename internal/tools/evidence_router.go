@@ -18,6 +18,7 @@ import (
 type RouteRule struct {
 	Name      string   // route identifier
 	Tool      string   // target tool name
+	MsgType   string   // message type to set (e.g. "knowledge_search")
 	Prefixes  []string // fast-path prefix matches
 	Keywords  []string // positive evidence keywords
 	Negatives []string // negative evidence keywords
@@ -34,13 +35,15 @@ type RouteEvidence struct {
 
 // RouteResult is the output of evidence-based routing.
 type RouteResult struct {
-	Tool       string          // selected tool
+	Tool       string          // selected tool (plugin name)
+	MsgType    string          // message type to set
 	Confidence float64         // total score
 	Evidence   []RouteEvidence // what contributed to the decision
 }
 
 type candidate struct {
 	tool       string
+	msgType    string
 	confidence float64
 	evidence   []RouteEvidence
 }
@@ -311,73 +314,83 @@ func SortRulesByPriority(rules []RouteRule) {
 func DefaultRoutingRules() []RouteRule {
 	return []RouteRule{
 		{
-			Name:      "desktop",
+			Name:      "desktop_screen",
 			Tool:      "memory_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"看桌面", "帮我看看", "截屏", "截图", "桌面文件"},
-			Negatives: []string{},
+			MsgType:   "desktop_actuator",
+			Keywords:  []string{"看桌面", "屏幕", "截屏", "截图", "屏幕上"},
+			Negatives: []string{"文件", "目录", "md", "有哪些"},
 			Threshold: 0.3,
 			Priority:  1,
 		},
 		{
-			Name:      "knowledge_search",
-			Tool:      "memory_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"搜索知识库", "查知识", "我的笔记"},
-			Negatives: []string{},
+			Name:      "desktop_files",
+			Tool:      "terminal_plugin",
+			MsgType:   "terminal_exec",
+			Keywords:  []string{"桌面文件", "桌面目录", "桌面上", "桌面.*文件", "桌面上都有"},
+			Negatives: []string{"屏幕", "截图", "窗口"},
 			Threshold: 0.3,
 			Priority:  2,
 		},
 		{
-			Name:      "web_search",
-			Tool:      "search_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"搜索", "搜一下", "帮我查", "查找资料"},
-			Negatives: []string{"知识库", "笔记", "记忆"},
+			Name:      "knowledge_search",
+			Tool:      "memory_plugin",
+			MsgType:   "knowledge_search",
+			Keywords:  []string{"搜索知识库", "查知识", "我的笔记", "知识.*搜索"},
 			Threshold: 0.3,
 			Priority:  3,
 		},
 		{
-			Name:      "create_workflow",
-			Tool:      "skill_factory_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
-			Negatives: []string{},
+			Name:      "web_search",
+			Tool:      "search_plugin",
+			MsgType:   "web_search",
+			Keywords:  []string{"搜一下", "帮我查", "查查", "搜索", "查找资料"},
+			Negatives: []string{"知识库", "笔记", "记忆"},
 			Threshold: 0.3,
 			Priority:  4,
 		},
 		{
-			Name:      "todo_add",
-			Tool:      "todo_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"添加待办", "新建待办", "新增待办"},
-			Negatives: []string{},
+			Name:      "create_workflow",
+			Tool:      "skill_factory_plugin",
+			MsgType:   "skill_create",
+			Keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
 			Threshold: 0.3,
 			Priority:  5,
 		},
 		{
-			Name:      "todo_list",
+			Name:      "todo_add",
 			Tool:      "todo_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
-			Negatives: []string{},
+			MsgType:   "todo_add",
+			Keywords:  []string{"添加待办", "新建待办", "新增待办"},
 			Threshold: 0.3,
 			Priority:  6,
 		},
 		{
-			Name:      "stock_query",
-			Tool:      "memory_plugin",
-			Prefixes:  []string{},
-			Keywords:  []string{"股价", "行情", "股票"},
-			Negatives: []string{},
+			Name:      "todo_list",
+			Tool:      "todo_plugin",
+			MsgType:   "todo_list",
+			Keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
 			Threshold: 0.3,
 			Priority:  7,
+		},
+		{
+			Name:      "stock_query",
+			Tool:      "memory_plugin",
+			MsgType:   "stock_multi_quote",
+			Keywords:  []string{"股价", "行情", "股票"},
+			Threshold: 0.3,
+			Priority:  8,
+		},
+		{
+			Name:      "chat_greeting",
+			Tool:      "think_plugin",
+			MsgType:   "chat",
+			Keywords:  []string{"聊聊", "聊天", "你好", "在吗"},
+			Threshold: 0.2,
+			Priority:  9,
 		},
 	}
 }
 
-// MatchIntent runs evidence-based routing against the default rules.
-// Returns the matched tool and confidence, or ("", 0) if no match.
 func MatchIntent(input string) (tool string, confidence float64) {
 	r := NewEvidenceRouter(DefaultRoutingRules())
 	result := r.Route(input)
