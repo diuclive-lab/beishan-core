@@ -150,6 +150,7 @@ Routing rules with payload formats:
 - "创建工作流"/"新建工作流"/"生成工作流" → recipient:skill_factory_plugin, msg_type:skill_create, payload:{}
 - "记住"/"记录" (memory requests like "记住我叫X") → recipient:think_plugin, msg_type:chat, payload:{}
 - workflow (execute existing workflow) → recipient:workflow_plugin, msg_type:workflow_run, payload:{"workflow":"name"}
+- "看桌面"/"桌面操作"/"帮我看看"/"操作电脑" (desktop/view/click) → recipient:memory_plugin, msg_type:desktop_actuator, payload:{"action":"get_window_tree"}
 - ALL other queries (including questions about past discussions, decisions, code, etc.) → recipient:think_plugin, msg_type:chat, payload:{}
 - think_plugin handles its own retrieval (knowledge + code + session history). Do NOT route conversational queries to memory_plugin.
 - ONLY output the JSON, no markdown, no explanations

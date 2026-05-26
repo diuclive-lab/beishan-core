@@ -18,6 +18,24 @@ type preroutePattern struct {
 // 匹配顺序：长关键词在前，避免短关键词截胡。
 // 例："搜索知识库" 必须在 "搜索" 之前匹配。
 var preroutePatterns = []preroutePattern{
+
+	// 桌面操作（确定性路由，绕开 LLM）
+	{
+		keywords:  []string{"看桌面", "桌面有什么", "帮我看看", "帮我看一下", "电脑桌面", "操作电脑", "打开程序", "截屏", "截图", "桌面文件"},
+		recipient: "memory_plugin",
+		msgType:   "desktop_actuator",
+		extract: func(text string) json.RawMessage {
+			action := "get_window_tree"
+			if strings.Contains(text, "截图") || strings.Contains(text, "截屏") {
+				action = "screenshot"
+			}
+			if strings.Contains(text, "点击") || strings.Contains(text, "按") {
+				action = "click"
+			}
+			b, _ := json.Marshal(map[string]string{"action": action})
+			return b
+		},
+	},
 	// 知识库搜索
 	{
 		keywords:  []string{"搜索知识库", "查知识", "我的笔记"},

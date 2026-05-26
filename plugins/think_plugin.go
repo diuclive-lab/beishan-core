@@ -519,7 +519,7 @@ func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 	}
 	// 通过 L3 read_file 工具读取会话文件
 	res := tools.ValidateAndExecute("read_file", rawMsg(map[string]interface{}{
-		"path": filepath.Join(os.Getenv("HOME"), ".hermes", "memory", "sessions", sessionID+".json"),
+		"path": filepath.Join(tools.MemoryDir, "sessions", sessionID+".json"),
 	}))
 	if !res.Success || res.Output == "" {
 		return nil
