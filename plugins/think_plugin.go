@@ -281,6 +281,11 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 		projectPath = "."
 	}
 
+	// 加载工作状态上下文（跨会话连续性）
+	if wc := tools.BuildWorkspaceContext(""); wc != "" {
+		background = wc + "\n\n"
+	}
+
 	// Query 改写：口语化查询 → 精确检索关键词
 	searchQuery := userText
 	if needsQueryRewrite(userText) {
