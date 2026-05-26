@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Toolset defines a named group of tools for a specific capability.
@@ -120,6 +121,22 @@ func ResolveToolset(name string, toolsets map[string]*Toolset) ([]string, error)
 	}
 	sort.Strings(deduped)
 	return deduped, nil
+}
+
+// BuildToolsetSummary returns a formatted string of all toolsets and their tools,
+// suitable for injection into the Router prompt via SetWorkflowSummary.
+func BuildToolsetSummary() string {
+	var b strings.Builder
+	b.WriteString("\nTool groups (toolsets):\n")
+	for _, name := range ListToolsetNames(DefaultToolsets) {
+		ts := DefaultToolsets[name]
+		tools, err := ResolveToolset(name, nil)
+		if err != nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("- %s (%s): %s\n", name, ts.Description, strings.Join(tools, ", ")))
+	}
+	return b.String()
 }
 
 // ListToolsetNames returns sorted toolset names from the given map.

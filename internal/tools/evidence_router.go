@@ -305,3 +305,84 @@ func SortRulesByPriority(rules []RouteRule) {
 		return rules[i].Priority > rules[j].Priority
 	})
 }
+
+// DefaultRoutingRules returns the default set of pre-routing rules
+// matching beishan-core's common intent patterns.
+func DefaultRoutingRules() []RouteRule {
+	return []RouteRule{
+		{
+			Name:      "desktop",
+			Tool:      "memory_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"看桌面", "帮我看看", "截屏", "截图", "桌面文件"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  1,
+		},
+		{
+			Name:      "knowledge_search",
+			Tool:      "memory_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"搜索知识库", "查知识", "我的笔记"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  2,
+		},
+		{
+			Name:      "web_search",
+			Tool:      "search_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"搜索", "搜一下", "帮我查", "查找资料"},
+			Negatives: []string{"知识库", "笔记", "记忆"},
+			Threshold: 0.3,
+			Priority:  3,
+		},
+		{
+			Name:      "create_workflow",
+			Tool:      "skill_factory_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"创建工作流", "新建工作流", "生成工作流"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  4,
+		},
+		{
+			Name:      "todo_add",
+			Tool:      "todo_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"添加待办", "新建待办", "新增待办"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  5,
+		},
+		{
+			Name:      "todo_list",
+			Tool:      "todo_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"查看待办", "待办列表", "列出待办", "我的待办"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  6,
+		},
+		{
+			Name:      "stock_query",
+			Tool:      "memory_plugin",
+			Prefixes:  []string{},
+			Keywords:  []string{"股价", "行情", "股票"},
+			Negatives: []string{},
+			Threshold: 0.3,
+			Priority:  7,
+		},
+	}
+}
+
+// MatchIntent runs evidence-based routing against the default rules.
+// Returns the matched tool and confidence, or ("", 0) if no match.
+func MatchIntent(input string) (tool string, confidence float64) {
+	r := NewEvidenceRouter(DefaultRoutingRules())
+	result := r.Route(input)
+	if result == nil {
+		return "", 0
+	}
+	return result.Tool, result.Confidence
+}
