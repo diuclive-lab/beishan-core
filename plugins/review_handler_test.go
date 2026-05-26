@@ -234,11 +234,10 @@ func TestPendingRememberExpiry(t *testing.T) {
 	sessionID := "test_session_expiry"
 	createPendingRemember(sessionID, "test", "test")
 	// Manually expire it
-	pendingRemembersMu.Lock()
-	if pr, ok := pendingRemembers[sessionID]; ok {
-		pr.ExpiresAt = time.Now().Unix() - 1
+	s := sessionManager.Get(sessionID)
+	if s.Pending != nil {
+		s.Pending.ExpiresAt = time.Now().Unix() - 1
 	}
-	pendingRemembersMu.Unlock()
 	if isConfirmReply(sessionID, "确认") {
 		t.Error("isConfirmReply should be false after expiry")
 	}
@@ -247,16 +246,13 @@ func TestPendingRememberExpiry(t *testing.T) {
 func TestCleanupExpiredPending(t *testing.T) {
 	sessionID := "test_session_cleanup"
 	createPendingRemember(sessionID, "test", "test")
-	pendingRemembersMu.Lock()
-	if pr, ok := pendingRemembers[sessionID]; ok {
-		pr.ExpiresAt = time.Now().Unix() - 1
+	s := sessionManager.Get(sessionID)
+	if s.Pending != nil {
+		s.Pending.ExpiresAt = time.Now().Unix() - 1
 	}
-	pendingRemembersMu.Unlock()
 	cleanupExpiredPending()
-	pendingRemembersMu.Lock()
-	_, exists := pendingRemembers[sessionID]
-	pendingRemembersMu.Unlock()
-	if exists {
+	s2 := sessionManager.Get(sessionID)
+	if s2.Pending != nil {
 		t.Error("expired pending should be cleaned up")
 	}
 }

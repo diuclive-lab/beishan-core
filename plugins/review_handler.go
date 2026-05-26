@@ -196,9 +196,7 @@ type ReviewFile struct {
 }
 
 var (
-	// session-scoped pending remember
-	pendingRemembers   = make(map[string]*PendingRemember)
-	pendingRemembersMu sync.Mutex
+	sessionManager = NewSessionManager()
 
 	// session-scoped pending review（内存缓存，加速访问）
 	pendingReviews   = make(map[string]*PendingReview)
@@ -332,43 +330,26 @@ func extractRememberCandidate(userText, reply string) (title, summary string) {
 
 // createPendingRemember 创建待确认记忆（session-scoped，single-active）
 func createPendingRemember(sessionID, title, summary string) *PendingRemember {
-	id := "pr_" + newID()
 	pr := &PendingRemember{
-		ID:        id,
+		ID:        "pr_" + newID(),
 		Title:     title,
 		Summary:   summary,
 		ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
 	}
-	pendingRemembersMu.Lock()
-	pendingRemembers[sessionID] = pr // replace previous
-	pendingRemembersMu.Unlock()
+	sessionManager.SetRememberPending(sessionID, pr)
 	return pr
 }
 
 // confirmPendingRemember 确认待确认记忆
 func confirmPendingRemember(sessionID string) *PendingRemember {
-	pendingRemembersMu.Lock()
-	defer pendingRemembersMu.Unlock()
-	pr, ok := pendingRemembers[sessionID]
-	if !ok {
-		return nil
-	}
-	if time.Now().Unix() > pr.ExpiresAt {
-		delete(pendingRemembers, sessionID)
-		return nil
-	}
-	delete(pendingRemembers, sessionID)
-	return pr
+	return sessionManager.Confirm(sessionID)
 }
 
 // isForceSaveReply 检测是否是强制记录回复（跳过事实核查）
 func isForceSaveReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "强制记录" || t == "是的，强制记录" || t == "强制入库" {
-		pendingRemembersMu.Lock()
-		defer pendingRemembersMu.Unlock()
-		pr, ok := pendingRemembers[sessionID]
-		return ok && time.Now().Unix() <= pr.ExpiresAt
+		return sessionManager.HasValidPending(sessionID)
 	}
 	return false
 }
@@ -377,10 +358,7 @@ func isForceSaveReply(sessionID, text string) bool {
 func isMergeReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "确认合并" || t == "合并" {
-		pendingRemembersMu.Lock()
-		defer pendingRemembersMu.Unlock()
-		pr, ok := pendingRemembers[sessionID]
-		return ok && time.Now().Unix() <= pr.ExpiresAt
+		return sessionManager.HasValidPending(sessionID)
 	}
 	return false
 }
@@ -389,24 +367,14 @@ func isMergeReply(sessionID, text string) bool {
 func isConfirmReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "确认" || t == "是" || t == "yes" {
-		pendingRemembersMu.Lock()
-		defer pendingRemembersMu.Unlock()
-		pr, ok := pendingRemembers[sessionID]
-		return ok && time.Now().Unix() <= pr.ExpiresAt
+		return sessionManager.HasValidPending(sessionID)
 	}
 	return false
 }
 
 // cleanupExpiredPending 清理过期的 pending remember
 func cleanupExpiredPending() {
-	pendingRemembersMu.Lock()
-	defer pendingRemembersMu.Unlock()
-	now := time.Now().Unix()
-	for id, pr := range pendingRemembers {
-		if now > pr.ExpiresAt {
-			delete(pendingRemembers, id)
-		}
-	}
+	sessionManager.Cleanup()
 }
 
 // isBatchConfirm 检测是否是批量确认回复（如 "确认 1,2" 或 "确认 reviewID 1,2"）
