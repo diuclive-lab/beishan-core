@@ -1,9 +1,11 @@
 package plugins
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"beishan/internal/tools"
 	"beishan/kernel"
-	"fmt"
 )
 
 type TerminalPlugin struct{}
@@ -18,7 +20,13 @@ func (p *TerminalPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		if result.Error != "" {
 			return kernel.Message{Type: msg.Type + ".error", Payload: []byte(result.Error)}, nil
 		}
-		return kernel.Message{Type: msg.Type, Payload: []byte(result.Output)}, nil
+		var respPayload json.RawMessage
+		if len(result.Output) > 0 && result.Output[0] == '{' && json.Valid([]byte(result.Output)) {
+			respPayload = json.RawMessage(result.Output)
+		} else {
+			respPayload, _ = json.Marshal(result.Output)
+		}
+		return kernel.Message{Type: msg.Type, Payload: respPayload}, nil
 	default:
 		return kernel.Message{}, fmt.Errorf("terminal_plugin: 未知类型 %s", msg.Type)
 	}

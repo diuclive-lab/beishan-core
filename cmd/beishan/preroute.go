@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -10,12 +9,10 @@ import (
 	"beishan/kernel"
 )
 
-// preRoute 用 evidence_router 做确定性预路由，跳过 LLM Router。
 func preRoute(msg *kernel.Message) bool {
 	if msg.Recipient != "" {
 		return false
 	}
-
 	userText := extractUserText(msg.Payload)
 	if userText == "" {
 		return false
@@ -30,7 +27,6 @@ func preRoute(msg *kernel.Message) bool {
 	msg.Recipient = result.Tool
 	msg.Type = result.MsgType
 
-	// 搜索歧义二次检查
 	if result.Tool == "search_plugin" && (strings.Contains(userText, "知识库") || strings.Contains(userText, "记忆")) {
 		msg.Recipient = "memory_plugin"
 		msg.Type = "knowledge_search"
@@ -39,12 +35,9 @@ func preRoute(msg *kernel.Message) bool {
 		}
 		return true
 	}
-
 	if payload := buildPayload(result.Tool, result.MsgType, userText); payload != nil {
 		msg.Payload = payload
 	}
-
-	fmt.Printf("[preRoute] %s → %s(%s) %.2f\n", truncateStr(userText, 40), result.Tool, result.MsgType, result.Confidence)
 	return true
 }
 
@@ -69,22 +62,21 @@ func buildPayload(tool, msgType, text string) json.RawMessage {
 			q = strings.TrimPrefix(q, p)
 		}
 		q = strings.TrimSpace(q)
-		if q != "" {
-			return rawMsg(map[string]string{"query": q})
+		if q == "" {
+			q = text
 		}
+		return rawMsg(map[string]string{"query": q})
 	case tool == "memory_plugin" && msgType == "knowledge_search":
 		kw := text
 		for _, prefix := range []string{"搜索知识库", "查知识", "我的笔记"} {
 			kw = strings.TrimPrefix(kw, prefix)
 		}
 		kw = strings.TrimSpace(kw)
-		if kw != "" {
-			return rawMsg(map[string]string{"keyword": kw})
+		if kw == "" {
+			kw = text
 		}
-	case tool == "todo_plugin" && (msgType == "todo_add" || msgType == "todo_list"):
-		if msgType == "todo_list" {
-			return rawMsg(map[string]interface{}{})
-		}
+		return rawMsg(map[string]string{"keyword": kw})
+	case tool == "todo_plugin" && msgType == "todo_add":
 		task := text
 		for _, kw := range []string{"添加待办", "新建待办", "新增待办"} {
 			task = strings.TrimPrefix(task, kw)
@@ -93,6 +85,8 @@ func buildPayload(tool, msgType, text string) json.RawMessage {
 		if task != "" {
 			return rawMsg(map[string]string{"task": task})
 		}
+	case tool == "todo_plugin" && msgType == "todo_list":
+		return rawMsg(map[string]interface{}{})
 	case tool == "memory_plugin" && msgType == "stock_multi_quote":
 		re := regexp.MustCompile(`(\d{6})`)
 		matches := re.FindAllStringSubmatch(text, -1)
@@ -136,12 +130,4 @@ func extractUserText(payload json.RawMessage) string {
 		return txt
 	}
 	return ""
-}
-
-func truncateStr(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n]) + "..."
 }
