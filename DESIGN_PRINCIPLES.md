@@ -3,7 +3,7 @@
 
 > **AI Summary:** beishan-core design principles. Core rule: kernel is frozen (register+route+forward only).
 > Hardening layer: all tools go through ValidateAndExecute. Type = intent, Payload = data (router never reads Payload).
-> Right flower = protocol, not integration. MCP = skill framework (15 servers).
+> Right flower = protocol, not integration. MCP framework kept for future use.
 > Deep + breadth required for all changes.
 > "Design decision vs omission" — if 3 lines fix it, it was an omission.
 
@@ -327,7 +327,7 @@ beishan-core = **硬化底座 + 左花执行侧**。
 
 ### 右花是协议，不是集成
 
-右花是 **协议层概念**，不绑定到任何具体项目。OpenHuman、FangLab、MCP 工具链，任何实现该协议的外部服务都可以作为右花接入。
+右花是 **协议层概念**，不绑定到任何具体项目。任何实现该协议的外部服务都可以作为右花接入。
 
 ```
 right_flowers/
@@ -535,8 +535,8 @@ LLM 需要结构化的意图表达通道（如 tool_suggestion、search_suggesti
 | 能力 | 内化位置 | 说明 |
 |------|---------|------|
 | 声明式多 Provider 配置 | `internal/llm/provider_config.go` | 硬化校验 + 配置文件加载，不完整吸收 |
-| 通道层接口 | `internal/channels/` | 余量设计，当前无实现 |
-| 记忆存储接口 | `internal/memory/` | MemoryStore + FileStore 实现 |
+| 通道层接口 | （已放弃，纯接口无实现） | 功能被知识库覆盖，2026-05-26 删除 |
+| 记忆存储接口 | （已放弃，功能被 knowledge.go 覆盖） | 功能被 knowledge.go 覆盖，2026-05-26 删除 |
 
 **保持右花协议调用**：
 | 方法 | 说明 |

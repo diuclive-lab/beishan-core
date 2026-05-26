@@ -9,8 +9,8 @@ beishan-core 是一个以**硬化层架构**为核心的 AI Agent 框架。
 >
 > 📐 硬化底座+左花（内置插件）+右花（外部协议）。Go 1.26。
 > 🔒 核心规则：内核冻结、硬化层强制、Type即意图Payload即数据。
-> 📦 当前：100 工具 · 23 插件 · 33 工作流 · 3 右花（OpenHuman / Hermes Agent / OpenClaw）
-> 🚧 未完成：embedding 未配置、跨平台部署待办。详见 CLAUDE.md Unfinished 章节。
+> 📦 当前：115 工具 · 25 插件 · 40 工作流 · 3 右花（OpenHuman / Hermes Agent / OpenClaw）
+> 🚧 未完成：跨平台部署待办。详见 CLAUDE.md Unfinished 章节。
 
 ## 产品形态三分
 
@@ -30,13 +30,12 @@ beishan-core 是一个以**硬化层架构**为核心的 AI Agent 框架。
 
 **能力概览**：
 - 🔒 **硬化层**：ValidateAndExecute + code_security + isSafePath + parseDecision 五道防线
-- 🔍 **L3 工具（100 个）**：文件处理 · 网页搜索 · 知识管理 · 终端执行 · 浏览器自动化 · 待办管理 · 代码安全 · AI 审查 · 子智能体委派 · 图像生成 · 语音合成 · 汇率天气 · RSS · GitHub 集成 · 通知推送 · 更多
+- 🔍 **L3 工具（115 个）**：文件处理 · 网页搜索 · 知识管理 · 终端执行 · 浏览器自动化 · 文件类型检测 · 归档解压 · JSON 提取 · CSV 列筛选 · 文件对比 · 文本字段提取 · 待办管理 · 代码安全 · AI 审查 · 工作状态追踪 · 图像生成 · 语音合成 · 更多
 - 🧠 **双工作流引擎**：YAML（AI 可修改）+ Go-DSL（编译时安全）
 - 🤖 **子智能体委派**：AgentDefinition 注册表 + spawn_subagent/spawn_parallel + 对话持久化
-- 🧠 **MCP 技能框架**：15 个技能服务器（金融/法律/数学/代码审查/股票分析等）
-- 🌸 **右花协议**：HTTP dispatch + manifest 加载 + probe-methods + 统一健康监控（3 右花在线）
-- 📊 **可观测性**：决策追踪 · 因果证据图 · 评估框架（bench + 检索质量 15 测试）· 事件日志
-- 🧩 **插件体系**：23 个 L4 编排插件 + 33 个 YAML 工作流
+- 🌸 **右花协议**：HTTP dispatch + manifest 加载 + 统一健康监控（3 右花已注册）
+- 📊 **可观测性**：决策追踪 · /metrics 端点 · 事件日志 · 健康脉冲 · 评估框架
+- 🧩 **插件体系**：25 个 L4 编排插件 + 40 个 YAML 工作流（v2.5）
 - 📝 **澄清系统**：结构化澄清契约 + EWMA 模式学习（歧义消解）
 - 🔄 **本地模型故障切换**：11 引擎扫描 + API→local 自动降级 + 滞后防抖回切
 
