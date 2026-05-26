@@ -21,6 +21,7 @@
 | 变更历史——面向用户的版本摘要 | `CHANGELOG.md` |
 | 开发日志——每日过程记录 | `docs/devlog/` |
 | 右花接入协议——外部工具如何连到底座 | `docs/RIGHT_FLOWER_PROTOCOL.md` |
+| 系统真实数据流——端到端路径状态 | `docs/DATA_FLOW.md` |
 
 **新加入者建议阅读顺序**：`DIRECTORY.md` → 本文件 → `docs/HARDENING_LAYER.md` → `docs/MERGE_DECISIONS.md`
 
@@ -152,6 +153,153 @@ LLM 只做它擅长的事：生成文本。
 内核验证：输入 -> 输出 -> 确认路由到正确的插件。
 不测试 DeepSeek 的行为，只测试硬化层的校验逻辑。
 不需要 mock DeepSeek，因为路由决策不是内核的职责。
+
+## 集成纪律（AI 辅助开发的强制约束）
+
+**这是本文件最重要的章节。**
+它针对的是 AI 辅助开发产生的特有问题：代码局部正确，但全局断路。
+
+### 问题的根源
+
+AI 每次对话都是局部视角。它实现了一个功能，写出的代码在自己范围内是完整的，
+但不会自动验证这个功能是否被系统的其他部分真正调用到。
+
+这会产生三类死代码：
+
+**类型一：孤岛函数。** 函数存在，但从未被调用。`parseToolSuggestions` 就是例子。
+**类型二：占位符伪装成实现。** 空结构体、空接口、空包，看起来完整，实际上什么也做不到。
+**类型三：断路模块。** 模块写好了，但上游没有注入，消息到不了这里。`SessionHandler = nil` 就是例子。
+
+### 完成的定义
+
+**一个功能"完成"，当且仅当同时满足以下三条：**
+
+1. **有非测试调用点**：新增的导出函数或包，在 `_test.go` 以外的文件里至少有一个调用点
+2. **数据流可追溯**：能在 `docs/DATA_FLOW.md` 里画出从 HTTP 入口到该功能、再到出口的完整路径
+3. **机器检查通过**：`scripts/integration_check.sh` 运行结果无新增警告
+
+不满足以上任意一条，都不叫完成，叫"实现了但未集成"。这两种状态必须显式区分。
+
+### 占位符标准
+
+如果一个模块当前无实现，必须诚实标记，不得伪装：
+
+```go
+// ❌ 禁止：伪装成实现的占位符
+package channels
+type Channel interface {
+    Send(msg Message) error
+}
+
+// ✅ 要求：诚实的占位符
+package channels
+
+// UNIMPLEMENTED: 此包是预留设计，当前未实现，未被任何地方 import。
+// 创建日期: YYYY-MM-DD
+// 实现前提: 需要明确多通道接入的具体场景
+// 超过 60 天未实现且无 issue 跟踪：直接删除
+var Unimplemented = true
+```
+
+**规则：** 代码库中不允许存在既没有 `UNIMPLEMENTED` 标记、又没有调用点的导出符号。
+
+### DATA_FLOW.md 是强制文档
+
+`docs/DATA_FLOW.md` 记录系统中所有真实的端到端路径，格式如下：
+
+```markdown
+## 路径 A：普通聊天（✅ 已验证 2026-05-xx）
+
+HTTP POST /api/chat
+  → kernel.Call
+  → Router.Route (DeepSeek)
+  → think_plugin.OnMessage → handleChat
+  → llm.ChatCompletionWithUsage
+  → kernel.deliverResponse → HTTP response
+
+## 路径 B：session 回程（❌ 断路：SessionHandler 未注入）
+
+HTTP POST /api/session
+  → msg.ReplyTo = "session:xxx"
+  → kernel.deliverReply
+  → SessionHandler ← nil，消息在此丢失
+```
+
+**维护规则：**
+- 每次新增功能，必须在 DATA_FLOW.md 里增加或更新对应路径
+- 路径状态只有两种：`✅ 已验证` 或 `❌ 断路`
+- 不允许存在"可能通"或"应该通"的路径——只有验证过的才算通
+
+### integration_check.sh 是强制工具
+
+项目根目录维护 `scripts/integration_check.sh`。
+每次 AI 辅助开发完成后，必须运行并确认输出无新增警告：
+
+```bash
+#!/bin/bash
+set -e
+
+echo "=== 检查未被 import 的包 ==="
+UNIMPORTED=0
+for pkg in $(find internal -mindepth 1 -maxdepth 2 -type d); do
+    import_path="beishan/${pkg}"
+    if ! grep -r "\"${import_path}\"" --include="*.go" . \
+         --exclude-dir=vendor > /dev/null 2>&1; then
+        # 检查是否有 UNIMPLEMENTED 标记
+        if ! grep -r "UNIMPLEMENTED" "${pkg}/" > /dev/null 2>&1; then
+            echo "⚠️  包未被 import 且无 UNIMPLEMENTED 标记: ${pkg}"
+            UNIMPORTED=$((UNIMPORTED + 1))
+        fi
+    fi
+done
+
+echo "=== 检查关键注入点 ==="
+if ! grep -n "SessionHandler\s*=" cmd/beishan/main.go > /dev/null 2>&1; then
+    echo "❌ SessionHandler 未在 main.go 中注入"
+fi
+
+if ! grep -n "observatory" cmd/beishan/main.go > /dev/null 2>&1; then
+    echo "⚠️  observatory 未在 main.go 中接出（无 /metrics 端点）"
+fi
+
+echo "=== 检查孤岛函数（导出但无非测试调用）==="
+# 找新增的导出函数（可配合 git diff 使用）
+
+echo "=== 统计 UNIMPLEMENTED 占位符 ==="
+COUNT=$(grep -r "UNIMPLEMENTED" --include="*.go" . | wc -l | tr -d ' ')
+echo "当前占位符数量: ${COUNT}（记录在 docs/KNOWN_LIMITATIONS.md）"
+
+echo "=== 验证 DATA_FLOW.md 存在 ==="
+if [ ! -f "docs/DATA_FLOW.md" ]; then
+    echo "❌ docs/DATA_FLOW.md 不存在"
+    exit 1
+fi
+
+if [ $UNIMPORTED -gt 0 ]; then
+    echo "❌ 发现 ${UNIMPORTED} 个未集成包，请修复后再提交"
+    exit 1
+fi
+
+echo "✅ 集成检查通过"
+```
+
+### pre-commit hook 是最终防线
+
+`.git/hooks/pre-commit` 在提交时自动运行，不依赖 AI 的自觉性：
+
+```bash
+#!/bin/bash
+# 运行集成检查，阻断不完整的提交
+bash scripts/integration_check.sh
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "提交被阻断：集成检查未通过。"
+    echo "请修复上述问题，或将未完成功能标记为 UNIMPLEMENTED。"
+    exit 1
+fi
+```
+
+安装方法：`cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`
 
 ## 双工作流引擎
 

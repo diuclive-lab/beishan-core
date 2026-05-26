@@ -1,3 +1,6 @@
+// UNIMPLEMENTED: legacy 包目前未被任何地方 import（含具体实现但无调用点）。
+// 创建日期: 2026-05-25 | 实现前提: 需要有旧方法名需要解析的接入场景
+//
 // Package legacy provides backward-compatible method name resolution.
 // Inspired by OpenHuman core/legacy_aliases.rs.
 package legacy

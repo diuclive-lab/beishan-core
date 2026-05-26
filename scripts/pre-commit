@@ -1,0 +1,9 @@
+#!/bin/bash
+# pre-commit hook: 运行集成检查，阻断不完整的提交
+bash scripts/integration_check.sh
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "提交被阻断：集成检查未通过。"
+    echo "请修复上述问题，或将未完成功能标记为 UNIMPLEMENTED。"
+    exit 1
+fi

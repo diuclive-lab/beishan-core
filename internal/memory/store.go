@@ -1,3 +1,6 @@
+// UNIMPLEMENTED: memory 包当前未被任何地方 import（有实现但无调用点）。
+// 创建日期: 2026-05-25 | 实现前提: 需要通过 memory_plugin 等接入主流程
+//
 // Package memory 定义记忆存储抽象层。
 //
 // 设计原则：

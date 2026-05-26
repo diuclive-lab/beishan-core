@@ -127,6 +127,102 @@ kernel.Kernel  ─── 按 recipient 转发
 | ❌ Don't forget to update docs | After any code change, update relevant MD files. CI will check. |
 | ❌ Don't add dependencies lightly | Zero external Go deps except stdlib. |
 
+## 集成纪律
+
+### 你的默认假设
+
+在这个项目里，你必须假设：
+- 你上一次对话写的代码，**可能没有被真正集成**
+- 你认为"显然会被调用"的函数，**可能根本没有调用点**
+- 你更新的文档，**可能和实际代码不符**
+- 你认为"完成了"的功能，**可能只是实现了但未接入**
+
+不要假设上一次的工作是正确的。每次对话从怀疑开始。
+
+### 对话开始时的强制检查
+
+如果用户没有明确提供以下信息，你必须主动询问：
+
+```
+在开始实现之前，我需要确认：
+1. scripts/integration_check.sh 当前的输出是什么？
+2. 这次要实现的功能，在 docs/DATA_FLOW.md 里是否已有对应路径（哪怕是 ❌ 断路状态）？
+```
+
+唯一的例外：用户明确说"不用检查，直接做"——此时你必须在回复开头写一行：
+`⚠️ 跳过集成检查，此功能可能未完成集成。`
+
+### 声明"完成"前的强制输出格式
+
+在你认为任何功能"完成"之前，你的回复必须包含以下结构。
+如果你无法填写其中任意一项，你必须说"此功能未完成集成"，不得声称完成。
+
+```
+---INTEGRATION_PROOF---
+新增符号: [函数名 / 包名 / 方法名]
+非测试调用点: [文件路径:行号] 或 [无，原因: ...]
+数据流:
+  入口: [HTTP端点 / 插件名 / 工具名]
+  经过: [你实现的代码位置]
+  出口: [最终到达哪里]
+DATA_FLOW.md 已更新: [是 / 否，原因: ...]
+integration_check.sh 无新增警告: [是 / 否，输出: ...]
+状态: [已完成集成 / 已实现但未集成（标记为 UNIMPLEMENTED）]
+---END_PROOF---
+```
+
+### 被允许说的话
+
+你被允许说：
+- "我实现了 X，但还没有集成进主流程，需要在 Y 处调用它，现在先标记为 UNIMPLEMENTED"
+- "这个函数目前没有调用点，我认为应该在 Z 处调用，是否需要我一并实现？"
+- "DATA_FLOW.md 的路径 B 仍然是 ❌ 断路，这次改动没有修复它"
+
+你不被允许说：
+- "功能已完成" 但没有 INTEGRATION_PROOF
+- "应该能工作" 但没有验证
+- "之前已经实现了" 但无法指出调用点
+
+### 占位符规则
+
+如果当前不实现某个功能，你必须在代码里加 `UNIMPLEMENTED` 注释，
+**不得**写看起来完整的空结构体或空接口来"占位"。
+
+```go
+// ✅ 正确
+// UNIMPLEMENTED: 此包预留设计，当前无实现，未被任何地方 import
+// 创建日期: YYYY-MM-DD | 超过 60 天无进展请删除
+var Unimplemented = true
+
+// ❌ 禁止
+type Channel interface {
+    Send(msg Message) error  // 没有实现，也没有标记
+}
+```
+
+同时在 `docs/KNOWN_LIMITATIONS.md` 里登记这个占位符。
+
+### 关于 kernel/ 的硬性规定
+
+`kernel/` 目录是**冻结区域**。
+
+你不得修改 `kernel/` 下的任何文件，除非用户明确说：
+"我批准修改 kernel"。
+
+如果你认为需要修改 kernel 才能实现某功能，你必须停下来说：
+"这个需求需要修改 kernel/，这违反了冻结规则。请明确批准，或者我们重新设计方案。"
+
+### 你不是连续工作的
+
+你没有跨会话的记忆。每次对话结束时，你完成的工作如果没有：
+1. 体现在 git commit 里
+2. 更新在 DATA_FLOW.md 里
+3. 通过 integration_check.sh
+
+那么从下一次对话的角度看，这个工作**不存在**。
+
+这不是你的缺陷，是你的工作方式。接受它，并在每次对话里把工作做到可被验证的程度。
+
 ## Build & Test
 
 ```bash
@@ -244,6 +340,7 @@ curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-d
 | RIGHT_FLOWER_PROTOCOL.md | How to connect external tools |
 | CHANGELOG.md | Chronological change history |
 | `docs/ABSORPTION_GOVERNANCE.md` | 吸收治理框架：证据等级、吸收等级、风险分类、升级策略、决策登记册 |
+| `docs/DATA_FLOW.md` | 系统真实数据流——端到端路径状态 | |
 | `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 |
 | `docs/devlog/DEVLOG_20260526.md` | 全量 v2.5 升级记录：40 YAML + Go 工具反推 + 引擎修复 |
 | `workflows/absorb_right_flower.yaml` | Absorption process (v2.5, 14步, 引用治理框架) |

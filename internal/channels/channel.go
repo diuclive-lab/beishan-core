@@ -1,3 +1,6 @@
+// UNIMPLEMENTED: channels 包是余量设计，当前未被任何地方 import。
+// 创建日期: 2026-05-25 | 实现前提: 需要明确多通道接入的具体场景
+//
 // Package channels 定义多通道消息抽象层。
 //
 // 设计原则：
