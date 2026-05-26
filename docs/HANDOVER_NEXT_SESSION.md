@@ -1,46 +1,64 @@
 # 交接文档 — 下一会话接续指南
 
-## 当前状态
+> 生成时间：2026-05-26
+> 前序会话覆盖：2026-05-25 全天 + 2026-05-26 上午
 
-✅ Step 0-3 全部完成（含 P0 吸收验证）。
+---
 
-## P0 验证结论（2026-05-25）
+## 当前项目状态
 
-### model_providers → llm/config.go：**部分吸收，当前够用**
-- Hermes 有 30+ 声明式 ProviderProfile 插件；我们有 4 个硬编码 provider
-- 基本多 provider 切换（SetProvider/ChatCompletionWithProvider）已吸收
-- 缺失：声明式 profile 系统、插件式注册、per-provider hooks、自动 availability 降级
-- **决定**：当前需求满足，gap 已知，不扩展。等需要动态 provider 注册时再处理。
+```
+beishan-core v0.2.0
+  104 tools | 15 MCP skills | 3 right flowers | 38 workflows
+  hardening 8/8 | 23 plugins | kernel frozen
+```
 
-### process_registry → glue/glue.go：**范围偏差，非缺陷**
-- 两个系统解决不同问题：process_registry = 后台命令生命周期管理，glue.go = Python 插件 IPC
-- glue 的健康检查（30s 循环 + 右花 HTTP + observatory Pulse）**比 Hermes 更强**
-- 输出缓存、poll/wait/kill API、崩溃恢复等没吸收 → 因为定位不同，不是遗漏
-- **决定**：评估通过，无需改动。
+## 你能用的关键信息
 
-### 已知问题（待确认）
-- 知识库同步：Mac B 有 62 条知识，Mac A 还没有（export 文件在 Mac B 桌面）
-- knowledage_export.json 的 git 私人仓方案待决策（知识库里有记录）
+**项目根目录**: `/Users/dc/Desktop/0`
 
-### 已关闭 / 推迟
-- ~~preRoute 长度检测~~ — 2026-05-25 推演后关闭。收益太小（¥0.012/天），且绕过硬化层有架构风险。替代方案：给 Router 加 usage 埋点，等数据驱动决策。
+**CLAUDE.md 必须先读**。它包含了架构速查、6 条铁律、构建命令、关键文件清单、Guardrails、已完成/未完成、已知摩擦点。
 
-### 工具状态
-- 服务运行在 :8013
-- Python 右花包装器在 :9532（Hermes Agent）
-- OpenHuman 适配器在 :9529
-- **OpenClaw 右花在 :9533**（Gateway :18789）
-- 启动命令：`go run ./cmd/beishan/`
-- 自定义 Provider：`LLM_PROVIDERS_CONFIG=providers.json`
+## 用户最在意的事
 
-### 架构关键文档
-- `workflows/absorb_right_flower.yaml` — 7 步吸收工作流（含经验积累）
-- `workflows/project_analyze.yaml` — 源码级深度分析（L3 工具替代 terminal）
-- `docs/RIGHT_FLOWER_PROTOCOL.md` — 右花接入协议
-- `cmd/rightflower-python-wrapper/rightflower_adapter.py` — Python 右花模板
+1. **吸收工作流 v2** — `workflows/absorb_right_flower.yaml`。11 步流程（含隐式假设挖掘 + 无源码重实现测试）。
+2. **搜索源拆分** — 当前 web_search 不区分来源。需要：代码→GitHub、模型→魔塔社区。
+3. **YAML 引擎 parallel 变量传递** — ctxKey 已修复但未完整验证。
+4. **ECS 隧道** — SSH 反向隧道运行中，但 launchd 注册因 TCC 权限失败。
 
-### 重要架构原则
-- 吸收评估逐能力，不逐项目（Step 2 条件0）
-- 评估前必须读源码（Step 0）
-- compared ≠ skip，是取长补短
-- 硬化层不保证逻辑正确性（明确声明能力边界）
+## 不要做的事
+
+- ❌ 不要修改 kernel/（冻结）
+- ❌ 不要直接调 tools.Execute（必须用 ValidateAndExecute）
+- ❌ 不要加右花代码到底座（adapter 在 cmd/ 下）
+- ❌ 不要跳过缺口分析
+- ❌ 不要把右花 route_exposed 开 true
+
+## 待办（优先级排序）
+
+| P0 | 搜索源拆分 | web_search 按来源分类 |
+| P0 | YAML parallel 模板验证 | 修复模板变量传递 |
+| P1 | iOS 客户端重新编译 | 部署最新代码到 iPhone |
+| P1 | ECS relay launchd 修复 | TCC 权限问题 |
+| P2 | OpenHuman 桌面端编译 | vendored CEF 兼容性 |
+
+## 当前已知问题
+
+1. 上下文断裂已修复（`tools.MemoryDir`），需客户端重新编译
+2. 桌面路由已确定性地通过 preroute 走 desktop_actuator
+3. 硬化层绕过已修复（`tools.Execute` → `ValidateAndExecute`）
+4. 右花 route_exposed 已全部关闭
+
+## 最近变更
+
+```
+7b5b714 workflow: 隐式假设挖掘 + 无源码重实现测试
+8d8fd53 workflow: 吸收工作流 v2
+c90080f fix: 全量排查 — 硬化层绕过/右花暴露
+ea255a5 fix: 三个用户体验问题
+5931746 workflow: 吸收工作流深度强化
+```
+
+## 交接结束语
+
+用户对"吃透"要求很高。不要走流程过场。每次提交前问自己：**关上源码，我能重新实现吗？** 如果不确定，说明没吃透。
