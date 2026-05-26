@@ -1,19 +1,21 @@
-// Package tools provides tool registration, validation, and schema management.
-//
 // Port of FangLab internal/tools/filesystem/ tools (2026-05-26).
-// Provides: file_guess_type, file_preview, archive_extract.
+// Provides: file_guess_type, file_preview, archive_extract, csv_select_columns,
+// json_extract, file_stat, multi_file_compare, text_extract_fields.
 package tools
 
 import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -136,6 +138,282 @@ func registerFileSystemTools() {
 
 			result := fmt.Sprintf(`{"path":"%s","entries":%d,"destination":"%s"}`, path, len(entries), dest)
 			return SuccessResult(result)
+		},
+	)
+
+	Register("csv_select_columns", "Select specific columns from a CSV file and preview their values.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path":    map[string]interface{}{"type": "string", "description": "CSV file path."},
+				"columns": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Column names to select."},
+				"rows":    map[string]interface{}{"type": "integer", "description": "Max rows to return (default 10)."},
+			},
+			"required": []string{"path", "columns"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			path, _ := args["path"].(string)
+			if path == "" {
+				return ErrorResult("csv_select_columns requires a path")
+			}
+			columns := toStringSlice(args["columns"])
+			if len(columns) == 0 {
+				return ErrorResult("csv_select_columns requires at least one column")
+			}
+			maxRows := 10
+			if v, ok := asInt(args["rows"]); ok && v > 0 {
+				maxRows = v
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot open file: %v", err))
+			}
+			defer f.Close()
+			r := csv.NewReader(f)
+			records, err := r.ReadAll()
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot read CSV: %v", err))
+			}
+			if len(records) < 1 {
+				return ErrorResult("CSV file has no header row")
+			}
+			headers := records[0]
+			idxMap := make(map[string]int, len(headers))
+			for i, h := range headers {
+				idxMap[h] = i
+			}
+			var selected []int
+			var missing []string
+			for _, col := range columns {
+				if idx, ok := idxMap[col]; ok {
+					selected = append(selected, idx)
+				} else {
+					missing = append(missing, col)
+				}
+			}
+			if len(selected) == 0 {
+				return ErrorResult(fmt.Sprintf("no requested columns found in CSV headers: %v", headers))
+			}
+			var rows []map[string]string
+			for _, rec := range records[1:] {
+				row := make(map[string]string)
+				for _, idx := range selected {
+					if idx < len(rec) {
+						row[records[0][idx]] = rec[idx]
+					}
+				}
+				rows = append(rows, row)
+				if len(rows) >= maxRows {
+					break
+				}
+			}
+			out, _ := json.Marshal(map[string]interface{}{
+				"path":    path,
+				"columns": columns,
+				"missing": missing,
+				"rows":    rows,
+			})
+			return SuccessResult(string(out))
+		},
+	)
+
+	Register("json_extract", "Extract specific fields from a JSON file using dot-separated paths.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path":   map[string]interface{}{"type": "string", "description": "JSON file path."},
+				"fields": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Dot-separated field paths (e.g. 'user.name'). Empty = summarize root."},
+			},
+			"required": []string{"path"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			path, _ := args["path"].(string)
+			if path == "" {
+				return ErrorResult("json_extract requires a path")
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot read file: %v", err))
+			}
+			var payload interface{}
+			if err := json.Unmarshal(content, &payload); err != nil {
+				return ErrorResult(fmt.Sprintf("invalid JSON: %v", err))
+			}
+			fields := toStringSlice(args["fields"])
+			selection := make(map[string]interface{})
+			if len(fields) == 0 {
+				switch v := payload.(type) {
+				case map[string]interface{}:
+					keys := make([]string, 0, len(v))
+					for k := range v {
+						keys = append(keys, k)
+					}
+					selection["top_level_keys"] = keys
+				case []interface{}:
+					selection["array_length"] = len(v)
+				default:
+					selection["value"] = v
+				}
+			} else {
+				for _, field := range fields {
+					if val, ok := resolveJSONPath(payload, field); ok {
+						selection[field] = val
+					}
+				}
+			}
+			out, _ := json.Marshal(map[string]interface{}{
+				"path":      path,
+				"fields":    fields,
+				"selection": selection,
+			})
+			return SuccessResult(string(out))
+		},
+	)
+
+	Register("file_stat", "Inspect file or directory metadata (size, type, mod time, permissions).",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{"type": "string", "description": "File or directory path."},
+			},
+			"required": []string{"path"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			path, _ := args["path"].(string)
+			if path == "" {
+				return ErrorResult("file_stat requires a path")
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot stat path: %v", err))
+			}
+			kind := "file"
+			if info.IsDir() {
+				kind = "directory"
+			}
+			ext := ""
+			if !info.IsDir() {
+				ext = strings.ToLower(filepath.Ext(path))
+			}
+			textExts := map[string]bool{".txt": true, ".md": true, ".json": true, ".yaml": true, ".yml": true, ".csv": true, ".go": true, ".py": true, ".js": true, ".ts": true, ".rs": true, ".sh": true}
+			out, _ := json.Marshal(map[string]interface{}{
+				"path":                 path,
+				"name":                 info.Name(),
+				"kind":                 kind,
+				"size":                 info.Size(),
+				"extension":            ext,
+				"mod_time":             info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+				"is_dir":               info.IsDir(),
+				"likely_readable_text": textExts[ext],
+			})
+			return SuccessResult(string(out))
+		},
+	)
+
+	Register("multi_file_compare", "Compare two text files and show their relationship.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path_a":    map[string]interface{}{"type": "string", "description": "First file path."},
+				"path_b":    map[string]interface{}{"type": "string", "description": "Second file path."},
+				"max_bytes": map[string]interface{}{"type": "integer", "description": "Max bytes per file (default 4096)."},
+			},
+			"required": []string{"path_a", "path_b"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			pathA, _ := args["path_a"].(string)
+			pathB, _ := args["path_b"].(string)
+			if pathA == "" || pathB == "" {
+				return ErrorResult("multi_file_compare requires path_a and path_b")
+			}
+			maxBytes := 4096
+			if v, ok := asInt(args["max_bytes"]); ok && v > 0 {
+				maxBytes = v
+			}
+			contentA, err := os.ReadFile(pathA)
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot read path_a: %v", err))
+			}
+			contentB, err := os.ReadFile(pathB)
+			if err != nil {
+				return ErrorResult(fmt.Sprintf("cannot read path_b: %v", err))
+			}
+			truncA := false
+			if len(contentA) > maxBytes {
+				contentA = contentA[:maxBytes]
+				truncA = true
+			}
+			truncB := false
+			if len(contentB) > maxBytes {
+				contentB = contentB[:maxBytes]
+				truncB = true
+			}
+			same := string(contentA) == string(contentB)
+			rel := "different"
+			if same {
+				rel = "identical"
+			}
+			out, _ := json.Marshal(map[string]interface{}{
+				"path_a":    pathA,
+				"path_b":    pathB,
+				"same":      same,
+				"relation":  rel,
+				"bytes_a":   len(contentA),
+				"bytes_b":   len(contentB),
+				"truncated": truncA || truncB,
+			})
+			return SuccessResult(string(out))
+		},
+	)
+
+	Register("text_extract_fields", "Extract labeled fields from text content or a file.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"text":   map[string]interface{}{"type": "string", "description": "Inline text content (provide this or path)."},
+				"path":   map[string]interface{}{"type": "string", "description": "File path to read text from (provide this or text)."},
+				"fields": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Field labels to extract (e.g. 'name', 'version')."},
+			},
+			"required": []string{"fields"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			fields := toStringSlice(args["fields"])
+			if len(fields) == 0 {
+				return ErrorResult("text_extract_fields requires at least one field")
+			}
+			var text string
+			if t, ok := args["text"].(string); ok && strings.TrimSpace(t) != "" {
+				text = t
+			} else if p, ok := args["path"].(string); ok && strings.TrimSpace(p) != "" {
+				data, err := os.ReadFile(p)
+				if err != nil {
+					return ErrorResult(fmt.Sprintf("cannot read file: %v", err))
+				}
+				text = string(data)
+			} else {
+				return ErrorResult("text_extract_fields requires either text or path")
+			}
+			lines := strings.Split(text, "\n")
+			selections := make(map[string]string)
+			for _, field := range fields {
+				fieldLower := strings.ToLower(strings.TrimSpace(field))
+				for _, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					if strings.HasPrefix(strings.ToLower(trimmed), fieldLower+":") {
+						selections[field] = strings.TrimSpace(trimmed[len(fieldLower)+1:])
+						break
+					}
+					if strings.HasPrefix(strings.ToLower(trimmed), fieldLower+"=") {
+						selections[field] = strings.TrimSpace(trimmed[len(fieldLower)+1:])
+						break
+					}
+				}
+			}
+			out, _ := json.Marshal(map[string]interface{}{
+				"fields":    fields,
+				"selection": selections,
+			})
+			return SuccessResult(string(out))
 		},
 	)
 }
@@ -353,6 +631,46 @@ func extractTar(path, dest string) error {
 		out.Close()
 	}
 	return nil
+}
+
+// toStringSlice extracts a []string from a map value (supports []interface{} from JSON).
+func toStringSlice(v interface{}) []string {
+	raw, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// resolveJSONPath extracts a value from nested JSON using dot-separated paths (e.g. "user.address.city").
+func resolveJSONPath(data interface{}, path string) (interface{}, bool) {
+	parts := strings.Split(path, ".")
+	cur := data
+	var ok bool
+	for _, part := range parts {
+		switch node := cur.(type) {
+		case map[string]interface{}:
+			cur, ok = node[part]
+			if !ok {
+				return nil, false
+			}
+		case []interface{}:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		default:
+			return nil, false
+		}
+	}
+	return cur, true
 }
 
 // asInt extracts an int from a map value (supports float64 from JSON, int, and json.Number).
