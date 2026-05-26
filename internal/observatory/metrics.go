@@ -1,9 +1,12 @@
 package observatory
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -116,4 +119,111 @@ func (a AggregatedMetrics) Markdown() string {
 	}
 
 	return b.String()
+}
+
+// ── Last pulse storage ──────────────────────────────────────────────
+
+var (
+	lastPulse   Pulse
+	pulseMu     sync.RWMutex
+)
+
+// RecordPulse stores the most recent system health snapshot.
+func RecordPulse(p Pulse) {
+	pulseMu.Lock()
+	lastPulse = p
+	pulseMu.Unlock()
+}
+
+// LastPulse returns the most recently recorded health snapshot.
+func LastPulse() Pulse {
+	pulseMu.RLock()
+	defer pulseMu.RUnlock()
+	return lastPulse
+}
+
+// ── Metrics snapshot ────────────────────────────────────────────────
+
+// Snapshot is a point-in-time dump of system observability data.
+type Snapshot struct {
+	Timestamp     time.Time       `json:"timestamp"`
+	Traces        TracesSnapshot  `json:"traces"`
+	Events        EventsSnapshot  `json:"events"`
+	Health        Pulse           `json:"health"`
+	Plugins       int             `json:"plugins,omitempty"`
+	Tools         int             `json:"tools,omitempty"`
+	UptimeHours   float64         `json:"uptime_hours"`
+}
+
+// TracesSnapshot summarizes decision trace data.
+type TracesSnapshot struct {
+	Total   int              `json:"total"`
+	Summary Summary          `json:"summary"`
+	Recent  []Trace          `json:"recent,omitempty"`
+}
+
+// EventsSnapshot summarizes event data.
+type EventsSnapshot struct {
+	Total  int            `json:"total"`
+	ByType map[string]int `json:"by_type,omitempty"`
+}
+
+// CollectSnapshot builds a metrics snapshot from current state.
+func CollectSnapshot() Snapshot {
+	s := Snapshot{Timestamp: time.Now().UTC()}
+
+	// Traces
+	recorderMu.RLock()
+	if defaultRecorder != nil {
+		all := defaultRecorder.All()
+		s.Traces.Total = len(all)
+		s.Traces.Summary = Summarize(all)
+		if n := len(all); n > 10 {
+			s.Traces.Recent = all[n-10:]
+		} else {
+			s.Traces.Recent = all
+		}
+	}
+	recorderMu.RUnlock()
+
+	// Events: count from JSONL file
+	eventsMu.RLock()
+	eventsFileMu.Lock()
+	if eventsFile != nil {
+		// Count lines in the events file for today
+		fname := eventsFile.Name()
+		eventsFileMu.Unlock()
+		if data, err := os.ReadFile(fname); err == nil {
+			lines := strings.Split(string(data), "\n")
+			byType := map[string]int{}
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				var evt struct {
+					Type string `json:"type"`
+				}
+				if json.Unmarshal([]byte(line), &evt) == nil && evt.Type != "" {
+					byType[evt.Type]++
+				}
+			}
+			s.Events.Total = len(lines)
+			s.Events.ByType = byType
+		}
+	} else {
+		eventsFileMu.Unlock()
+	}
+	eventsMu.RUnlock()
+
+	// Health pulse
+	s.Health = LastPulse()
+
+	return s
+}
+
+// CollectSnapshotJSON returns the metrics snapshot as JSON bytes.
+func CollectSnapshotJSON() []byte {
+	data, _ := json.MarshalIndent(CollectSnapshot(), "", "  ")
+	return data
 }

@@ -52,6 +52,7 @@ type proc struct {
 	restarts  int           // 重启次数
 	lastRest  time.Time     // 上次重启时间
 	manifest  Manifest      // 用于重启
+	responseCh chan *ProtocolMessage // 响应消息通道，由 demuxLoop 写入
 }
 
 /* New 创建胶水层实例，还不启动子进程。 */
@@ -138,13 +139,14 @@ func (g *GlueLayer) spawn(m Manifest) error {
 	}
 
 	p := &proc{
-		name:     m.Name,
-		cmd:      cmd,
-		stdin:    bufio.NewWriter(stdin),
-		stdout:   bufio.NewScanner(stdout),
-		alive:    false,
-		manifest: m,
-		lastRest: time.Now(),
+		name:       m.Name,
+		cmd:        cmd,
+		stdin:      bufio.NewWriter(stdin),
+		stdout:     bufio.NewScanner(stdout),
+		alive:      false,
+		manifest:   m,
+		lastRest:   time.Now(),
+		responseCh: make(chan *ProtocolMessage, 16),
 	}
 
 	// 等待子进程发 register 确认（最长 5 秒）
@@ -164,6 +166,8 @@ func (g *GlueLayer) spawn(m Manifest) error {
 	if !alreadyRegistered {
 		g.kernel.Register(m.Name, g)
 	}
+	// 启动 stdout demultiplexer：事件 → observatory，响应 → responseCh
+	go g.demuxLoop(p)
 	log.Printf("[Glue] 插件 %s 已就绪 (PID %d)", m.Name, cmd.Process.Pid)
 	return nil
 }
@@ -288,22 +292,33 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	return kernel.Message{}, nil
 }
 
-// readEvents 持续读取子进程 stdout，识别 event 类型消息并处理。
-func (g *GlueLayer) readEvents(p *proc) {
+// demuxLoop 持续读取子进程 stdout，分流事件和响应。
+// 事件 → observatory.PublishEvent；响应 → proc.responseCh。
+func (g *GlueLayer) demuxLoop(p *proc) {
 	for p.stdout.Scan() {
 		var msg ProtocolMessage
 		if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
 			continue
 		}
-		if msg.Type == "event" {
-			log.Printf("[Glue] 事件: %s | %s", p.name, msg.Payload)
-			// event 消息不参与 dispatch-response 配对
-			continue
+		switch msg.Type {
+		case "event":
+			observatory.PublishEvent(observatory.Event{
+				ID:   newTraceID(),
+				Type: "subprocess." + p.name,
+				Data: map[string]interface{}{
+					"payload": string(msg.Payload),
+					"sender":  p.name,
+				},
+			})
+		default:
+			select {
+			case p.responseCh <- &msg:
+			default:
+				log.Printf("[Glue] 插件 %s 响应通道已满，丢弃消息", p.name)
+			}
 		}
-		// 非 event 消息（response）由 readResponse 处理
-		// 这里不做处理，避免竞争
-		_ = msg
 	}
+	p.alive = false
 }
 
 // healthCheckLoop periodically checks subprocess + right flower health.
@@ -335,12 +350,13 @@ func (g *GlueLayer) healthCheckLoop() {
 
 			// Unified health report to observatory Pulse
 			ok := len(names) == 0
-			observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
+			pulse := observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
 				"subprocess_alive":  float64(len(g.procs) - len(names)),
 				"subprocess_dead":   float64(len(names)),
 				"rightflower_alive": float64(rfAlive),
 				"rightflower_total": float64(len(rfStatus)),
 			})
+			observatory.RecordPulse(pulse)
 
 			for _, name := range names {
 				log.Printf("[Glue] subprocess %s dead, restarting", name)
@@ -412,35 +428,11 @@ func (g *GlueLayer) respawn(name string) error {
 	return g.spawn(m)
 }
 
+// readResponse 从 demuxLoop 的响应通道中等待响应。
 func (g *GlueLayer) readResponse(p *proc, timeout time.Duration) (*ProtocolMessage, error) {
-	done := make(chan *ProtocolMessage, 1)
-	errCh := make(chan error, 1)
-
-	go func() {
-		for {
-			if !p.stdout.Scan() {
-				errCh <- fmt.Errorf("子进程 stdout 关闭")
-				return
-			}
-			var msg ProtocolMessage
-			if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
-				errCh <- fmt.Errorf("解析 response 失败: %w", err)
-				return
-			}
-			if msg.Type == "event" {
-				log.Printf("[Glue] 事件 %s: %s", p.name, string(msg.Payload))
-				continue
-			}
-			done <- &msg
-			break
-		}
-	}()
-
 	select {
-	case msg := <-done:
+	case msg := <-p.responseCh:
 		return msg, nil
-	case err := <-errCh:
-		return nil, err
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("读取响应超时")
 	}

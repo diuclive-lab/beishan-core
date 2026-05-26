@@ -16,10 +16,24 @@ import json
 import os
 import sys
 import argparse
+import threading
 
-# 添加 Hermes Agent 路径
-HERMES_DIR = os.environ.get("HERMES_AGENT_DIR", "/path/to/hermes-agent")
-if HERMES_DIR not in sys.path:
+# 查找 Hermes Agent 路径
+def _resolve_hermes_dir() -> str:
+    d = os.environ.get("HERMES_AGENT_DIR", "")
+    if d:
+        return d
+    home = os.environ.get("HOME", "/tmp")
+    candidates = [
+        os.path.join(home, "Desktop", "1", "hermes-agent"),
+    ]
+    for c in candidates:
+        if os.path.isfile(os.path.join(c, "run_agent.py")):
+            return c
+    return d
+
+HERMES_DIR = _resolve_hermes_dir()
+if HERMES_DIR and HERMES_DIR not in sys.path:
     sys.path.insert(0, HERMES_DIR)
 
 from rightflower_adapter import RightFlowerAdapter, Finding, Result, run_adapter
@@ -31,6 +45,9 @@ class HermesAdapter(RightFlowerAdapter):
     def __init__(self):
         super().__init__(name="hermes_agent", source_label="hermes")
         self._hermes_ready = False
+        self._agent_class = None
+        self._agent_lock = threading.Lock()
+        self._cached_agent = None
         self._init_hermes()
 
         # 注册能力
@@ -43,6 +60,9 @@ class HermesAdapter(RightFlowerAdapter):
 
     def _init_hermes(self):
         """导入 Hermes 模块（失败不阻塞，降级运行）"""
+        if not HERMES_DIR or not os.path.isdir(HERMES_DIR):
+            print(f"[hermes] HERMES_DIR 不存在: {HERMES_DIR}")
+            return
         try:
             from hermes_state import get_state
             self._get_state = get_state
@@ -50,6 +70,11 @@ class HermesAdapter(RightFlowerAdapter):
             self._execute_tool = execute_tool
             from agent.tool_dispatch_helpers import get_tool_definitions
             self._get_tool_defs = lambda: get_tool_definitions(enabled_toolsets=["all"])
+
+            # AIAgent for agent.chat
+            from run_agent import AIAgent
+            self._agent_class = AIAgent
+
             self._hermes_ready = True
             print(f"[hermes] Hermes Agent 已加载（{HERMES_DIR}）")
         except ImportError as e:
@@ -58,6 +83,17 @@ class HermesAdapter(RightFlowerAdapter):
     def _ensure_hermes(self):
         if not self._hermes_ready:
             raise RuntimeError("Hermes Agent 未加载")
+
+    def _get_agent(self):
+        """获取 AIAgent 单例（懒加载 + 线程安全）"""
+        if self._cached_agent is not None:
+            return self._cached_agent
+        with self._agent_lock:
+            if self._cached_agent is not None:
+                return self._cached_agent
+            self._ensure_hermes()
+            self._cached_agent = self._agent_class()
+            return self._cached_agent
 
     # ── 能力实现 ─────────────────────────────────
 
@@ -126,11 +162,23 @@ class HermesAdapter(RightFlowerAdapter):
             return Result([Finding(f"tool.execute: {tool_name}", f"错误: {e}", "hermes")])
 
     def handle_agent_chat(self, params: dict) -> Result:
+        """转发到 Hermes AIAgent.chat()，返回 AI 助手的回复"""
         prompt = params.get("prompt", "")
         if not prompt:
             return Result([Finding("agent.chat", "prompt required")])
-        status = "hermes 可用" if self._hermes_ready else "hermes 未加载"
-        return Result([Finding("agent.chat", f"{status} | 消息({len(prompt)}字)", "hermes")])
+        if not self._hermes_ready:
+            return Result([Finding("agent.chat", "Hermes not loaded")])
+
+        try:
+            agent = self._get_agent()
+            response = agent.chat(prompt)
+            return Result([Finding(
+                title="agent.chat",
+                summary=response,
+                source="hermes",
+            )])
+        except Exception as e:
+            return Result([Finding("agent.chat", f"错误: {e}", "hermes")])
 
     def handle_conversations_list(self, params: dict) -> Result:
         if not self._hermes_ready:

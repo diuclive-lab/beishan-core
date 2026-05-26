@@ -67,66 +67,97 @@ kernel.Send(msg{Recipient: "openhuman"})
 
 ## 断路路径（❌ 已知问题）
 
-### 路径 E：session 异步回程（❌ 断路）
+### 路径 E：session 异步回程（✅ 已验证 2026-05-26）
 
 ```
-kernel.Send(msg{ReplyTo: "session:xxx"})
-  → kernel.deliverReply(response)
-    → case strings.HasPrefix(msg.ReplyTo, "session:"):
-      → k.SessionHandler(sessionID, msg)
-        → ❌ SessionHandler = nil（main.go 未注入）
-        → 消息在此静默丢失，打印 log 后丢弃
+HTTP POST /api/chat {async: true}
+  → msg.ReplyTo = "session:" + sessionID
+  → kernel.Send(msg) [goroutine]
+    → plugin.OnMessage(msg)
+    → kernel.Send 检查 msg.ReplyTo
+    → kernel.deliverReply(response)
+      → case strings.HasPrefix(msg.ReplyTo, "session:"):
+        → k.SessionHandler(sessionID, response)
+          → main.go: sessionResults.Store(sessionID, msg)
+  → HTTP 立即返回 {status:"pending", session_id}
+  → 客户端轮询 GET /api/result/{session_id}
+    → sessionResults.Load(sessionID) → HTTP 返回结果
 ```
 
-**影响：** 所有依赖 ReplyTo session: 的异步响应全部丢失。
-**修复位置：** `cmd/beishan/main.go` — 注入 SessionHandler
-**优先级：** 高
+**注入点：** `cmd/beishan/main.go` — SessionHandler 写入 `sessionResults` (sync.Map)
+**内核路由：** `kernel/kernel.go` — `deliverReply` + `ReplyTo` 字段支持
+**API 端点：** `GET /api/result/{session_id}` — 异步结果轮询
+**验证日期：** 2026-05-26
 
 ---
 
-### 路径 F：LLM 工具建议（❌ 断路）
+### 路径 F：LLM 工具建议（✅ 已验证 2026-05-26）
 
 ```
 think_plugin.handleChat
   → llm.ChatCompletionWithUsage → reply
-  → parseToolSuggestions(reply)  ← ❌ 函数存在但此处从未调用
-  → [工具建议被静默丢弃]
+  → [质量门禁: StockCodeVerify + DateVerify + NumberRangeVerify + URLVerify]
+  → parseToolSuggestions(reply)  ← 解析 LLM 回复中的 JSON 工具建议
+    → 匹配到 {"tool":"插件名","action":"类型","reason":"..."}
+    → p.Kernel.Call(Recipient:sug.Tool, Type:sug.Action, Payload)
+    → 工具结果追加到 reply 末尾
+  → [Suggest-to-Remember]
+  → [结构化 trace]
+  → kernel.Message{Type:"chat.response", Payload: reply}
 ```
 
-**影响：** LLM 无法主动请求工具调用，think_plugin 不是真正的 Agent。
-**修复位置：** `plugins/think_plugin.go` — handleChat 函数末段
-**优先级：** 中
+**调用点：** `plugins/think_plugin.go` — `handleChat` 在质量门禁后、Suggest-to-Remember 前插入
+**系统提示词已更新：** LLM 被告知可通过 JSON 块主动请求工具调用
+**支持的工具：** search_plugin/web_search, write_plugin/read_file, terminal_plugin/terminal_exec, browser_plugin/browser_navigate
+**验证日期：** 2026-05-26
 
 ---
 
-### 路径 G：observatory 指标（❌ 断路）
+### 路径 G：observatory 指标（✅ 已验证 2026-05-26）
 
 ```
 glue.healthCheckLoop
   → observatory.Check(ok, ...)  ← ✅ 数据写入
-  → [数据存在于内存，但无消费者]
-  → ❌ 无 /metrics 端点，无外部可见性
+  → observatory.RecordPulse(pulse)  ← 存储最新健康快照
+  → ...
+客户端请求 GET /metrics
+  → observatory.CollectSnapshotJSON()
+    → CollectSnapshot()
+      → 1. 默认 Recorder.All() → trace 数量 + Summarize() + 最近 10 条
+      → 2. events JSONL 文件 → 事件总数 + 按类型统计
+      → 3. LastPulse() → 最近一次健康快照
+  → HTTP 200 JSON
 ```
 
-**影响：** 系统运行数据不可观测，无法知道插件调用频率、token 消耗、健康状态。
-**修复位置：** `cmd/beishan/main.go` — 新增 /metrics 端点
+**新增端点：** `cmd/beishan/main.go` — `GET /metrics`
+**新增函数：** `internal/observatory/metrics.go` — `CollectSnapshot()` / `CollectSnapshotJSON()`
+**数据存储：** `glue/glue.go` — 健康检查返回的 Pulse 现在通过 `RecordPulse(pulse)` 持久化
+**返回内容：** 决策迹统计（汇总 + 最近 10 条）、事件统计（按类型）、系统健康快照
+**验证日期：** 2026-05-26
 **优先级：** 中
 
 ---
 
-### 路径 H：glue event 推送（❌ 设计断路）
+### 路径 H：glue event 推送（✅ 已验证 2026-05-26）
 
 ```
-子进程推送 event 消息
-  → glue.readResponse(p, 30s)
-    → msg.Type == "event" → log 后 continue  ← event 在此被消费
-  → glue.readEvents(p)  ← ❌ 此函数存在但永远不会被调到
-                           readResponse 已把 event 消费掉了
+子进程 stdout 输出 JSON 行
+  → glue.demuxLoop(p)  ← 每个进程有一个独立的 goroutine 持续读取
+    → json.Unmarshal → 识别 type 字段
+    → type == "event":
+      → observatory.PublishEvent(type:"subprocess.<name>", payload)
+      → continue （不进入响应通道）
+    → type != "event"（response/register 等）:
+      → p.responseCh ← msg （有缓冲, cap=16）
+  → glue.readResponse 从 p.responseCh 读取 ← 不再直接扫描 stdout
 ```
 
-**影响：** 子进程无法向系统其他部分推送异步事件。
-**修复位置：** `glue/glue.go` — 需要 demultiplexer 将 stdout 分流
-**优先级：** 低（有明确需求时再修复）
+**修复内容：**
+- `glue/glue.go` — `readEvents` 替换为 `demuxLoop`（goroutine），`readResponse` 改为从 channel 读取
+- `proc` 新增 `responseCh chan *ProtocolMessage`（缓冲区 16）
+- 子进程事件通过 `observatory.PublishEvent` 发布到事件总线
+- 子进程 stdout 关闭时自动标记 `p.alive = false`
+**验证日期：** 2026-05-26
 
 ---
 
