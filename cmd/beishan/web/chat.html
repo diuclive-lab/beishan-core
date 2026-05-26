@@ -51,7 +51,7 @@ async function send(){
   addMsg(text,'user');
   addMsg('...','bot','thinking');
   try{
-    const body=JSON.stringify({message:text});
+    let body=JSON.stringify({message:text});
     if(sessionId) body=JSON.stringify({session_id:sessionId,message:text});
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body});
     const d=await r.json();
