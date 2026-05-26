@@ -240,6 +240,16 @@ const API = window.location.origin;
 let lastSessionId = null;
 
 // ─── 标签切换 ───
+// ── 页面初始化 ──
+document.addEventListener('DOMContentLoaded', () => {
+  switchTab('chat');
+  checkHealth();
+  loadWorkflows();
+  loadKnowledgeList();
+  loadGraph();
+  document.getElementById('input').focus();
+});
+
 function switchTab(name) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.getElementById('nav-' + name).classList.add('active');
