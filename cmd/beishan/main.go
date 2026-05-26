@@ -22,7 +22,6 @@ import (
 	"beishan/internal/discovery"
 	"beishan/internal/llm"
 	"beishan/internal/agent"
-	"beishan/internal/mcp"
 	"beishan/internal/observatory"
 	"beishan/internal/tools"
 	"beishan/internal/rightflower"
@@ -290,15 +289,7 @@ func main() {
 		Tools:        []string{"read_file", "search_files", "grep"},
 		MaxIterations: 4,
 	})
-	// Register MCP skills
-	// Batch register MCP skills
-	tools.RegisterMCPSkills()
-	log.Printf("[main] mcp skills: %d registered", len(mcp.List()))
-	// Start MCP skills (in a real setup, connect on demand)
-	mcpSkillRunner := mcp.NewSkillRunner()
-	mcpSkillRunner.StartAll()
-	tools.SetMCPRunner(mcpSkillRunner)
-	defer mcpSkillRunner.CloseAll()
+	// MCP skills: 当前无外部 MCP server 接入，框架保留供后续使用
 
 	log.Printf("[main] agent registry: %d definitions", len(agent.List()))
 	// Register per-agent delegation tools (delegate_to_researcher, etc.)
