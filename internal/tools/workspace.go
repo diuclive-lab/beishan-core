@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"beishan/internal/retrieval"
 	"fmt"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func registerWorkspaceTools() {
 		func(args map[string]interface{}) *ToolResult {
 			project, _ := args["project"].(string)
 			results := SearchMemoryFull("[工作状态]", 50, nil)
-			var matches []string
+			var latest *retrieval.RetrievalResult
 			for _, r := range results {
 				if !hasTag(r.Tags, "workspace_state") {
 					continue
@@ -79,12 +80,14 @@ func registerWorkspaceTools() {
 				if project != "" && !hasTag(r.Tags, strings.ToLower(project)) {
 					continue
 				}
-				matches = append(matches, fmt.Sprintf("[%s] %s | %s", r.EntryID, r.Title, r.Summary))
+				if latest == nil || r.EntryID > latest.EntryID {
+					latest = &r
+				}
 			}
-			if len(matches) == 0 {
+			if latest == nil {
 				return ErrorResult("没有找到工作状态")
 			}
-			return SuccessResult(strings.Join(matches, "\n"))
+			return SuccessResult(fmt.Sprintf("[%s] %s | %s", latest.EntryID, latest.Title, latest.Summary))
 		},
 	)
 }
@@ -92,18 +95,21 @@ func registerWorkspaceTools() {
 // BuildWorkspaceContext 格式化工作状态为 LLM 上下文提示。
 // 返回空字符串表示没有活跃的工作状态。
 func BuildWorkspaceContext(project string) string {
-	results := SearchMemoryFull("[工作状态]", 50, nil)
-	if len(results) == 0 {
-		return ""
-	}
-	for _, r := range results {
+	all := SearchMemoryFull("[工作状态]", 50, nil)
+	var latest *retrieval.RetrievalResult
+	for _, r := range all {
 		if !hasTag(r.Tags, "workspace_state") {
 			continue
 		}
 		if project != "" && !hasTag(r.Tags, strings.ToLower(project)) {
 			continue
 		}
-		return "[上次工作状态] " + r.Title
+		if latest == nil || r.EntryID > latest.EntryID {
+			latest = &r
+		}
+	}
+	if latest != nil {
+		return "[上次工作状态] " + latest.Title
 	}
 	return ""
 }
