@@ -12,21 +12,24 @@
 | `cmd/repl/` | 实验性交互式 REPL，仅开发调试用 | — |
 | `kernel/` | 微内核：Plugin 接口、注册、消息路由、Router（DeepSeek 路由） | L1 |
 | `glue/` | IPC 通信：子进程管理、manifest 扫描、JSON 行协议 | L2 |
-| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（99 个工具） | L3 |
+| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（115 个工具） | L3 |
 | `internal/workflow/` | 双工作流引擎：YAML 引擎 + Go-DSL 引擎 | L3 |
 | `internal/observatory/` | 决策追踪 + 健康检查 + 因果证据图 | L3 |
 | `internal/bench/` | 通用评估框架（bench + runner + suites） | L3 |
 | `internal/discovery/` | 本地推理引擎扫描 + 策略状态机 + 故障切换 | L3 |
-| `internal/agent/` | 子智能体委派：AgentDefinition 注册表 + spawn_subagent/spawn_parallel | L3 |
-| `internal/mcp/` | MCP 协议客户端 + 技能运行器（15 个技能服务器）| L3 |
+| `internal/mcp/` | MCP 协议客户端框架（当前无外部 server 连接）| L3 |
 | `internal/clarify/` | 澄清契约数据结构（Request/Response/BuildQuestion） | L3 |
 | `internal/registry/` | 工具生命周期门控（PhaseInit→PhaseRunning）+ Profile 过滤 | L3 |
 | `internal/llm/` | LLM 配置管理：API key、端点、模型选择、Router 提示词模板 + 线程安全 provider 切换 | L3 |
 | `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、Query DSL 余量接口 | L3 |
 | `internal/rightflower/` | 右花协议：Manifest 加载、HTTP dispatch、审计日志 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
-| `internal/channels/` | 多通道消息抽象层：Channel 接口 + Manager 注册表（余量设计） | L3 |
-| `internal/memory/` | 记忆存储：MemoryStore 接口 + FileStore 实现（余量设计） | L3 |
+| `internal/tools/toolsets.go` | 12 工具组 + BuildToolsetSummary + ResolveToolset | L3 |
+| `internal/tools/evidence_router.go` | 证据路由：规则引擎 + EWMA 自适应权重 + radix tree | L3 |
+| `internal/tools/radixtree.go` + test | 压缩前缀树（高效前缀匹配） | L3 |
+| `internal/tools/workspace.go` | 跨会话工作状态（workspace_save/load + 自动注入） | L3 |
+| `internal/tools/filesystem_tools.go` | 8 个文件系统工具（guess_type/preview/archive/csv/json/stat/compare/extract） | L3 |
+| `plugins/session.go` | 会话状态机 SessionManager：Idle/RememberPending/ReviewPending 状态 | L4 |
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
 | `cmd/rightflower-python-wrapper/` | Python 右花接入模板 + Hermes Agent / OpenClaw 适配器 | 右花 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |

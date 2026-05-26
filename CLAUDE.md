@@ -7,9 +7,11 @@
 - **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 105 registered (after cleanup + merges) (including base_capability_inventory)
-- **plugins**: 23 L4 + 40 YAML workflows (all v2.5 standard)
+- **tools**: 115 registered (105 base + 8 filesystem + 2 workspace)
+- **plugins**: 25 L4 + 40 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
+- **MCP servers**: 0 (框架保留，模板脚本已删除)
+- **UNIMPLEMENTED**: 1 (internal/legacy — 右花方法名映射小工具)
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
 
 ## Architecture
@@ -241,14 +243,19 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | `cmd/beishan/main.go` | Entry point, plugin + agent registration |
 | `internal/tools/knowledge.go` | Knowledge search (L0+L1+L0.5 pipeline) |
 | `internal/tools/code_security.go` | Security check + code_ai_review |
-| `internal/agent/runner.go` | Sub-agent execution loop |
+| `internal/tools/toolsets.go` | 12 工具组 + BuildToolsetSummary |
+| `internal/tools/evidence_router.go` | 证据路由 + EWMA 自适应权重 |
+| `internal/tools/workspace.go` | 跨会话工作状态 (workspace_save/load) |
+| `internal/tools/radixtree.go` | 压缩前缀树 |
+| `internal/tools/filesystem_tools.go` | 8 个文件系统工具 |
+| `plugins/session.go` | 会话状态机 (SessionManager) |
 | `internal/observatory/events.go` | Event bus (PublishEvent + Subscribe) |
 | `internal/observatory/trace.go` | Decision traces + default recorder |
 | `internal/llm/config.go` | LLM provider config + SetProvider |
 | `kernel/router.go` | LLM router + parseDecision hardening |
 | `glue/glue.go` | IPC manager + right flower health monitoring |
 | `cmd/openhuman-flower-adapter/main.go` | OpenHuman bridge |
-| `cmd/mcp-servers/` | 15 MCP skill servers |
+| `cmd/mcp-servers/` | (已删除，15 个 Python 模板脚本) |
 | `internal/mcp/` | MCP protocol client framework |
 | `internal/tools/desktop.go` | Desktop operation L3 tool |
 | `internal/tools/csv.go` | CSV profile + sample (pure Go) |
