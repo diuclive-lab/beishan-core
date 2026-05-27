@@ -1650,7 +1650,7 @@ func KnowledgeReindex() *ToolResult {
 	return successResult(fmt.Sprintf(`{"message":"补全完成","count":%d}`, count))
 }
 
-func KnowledgeList(sourceType string, days int) *ToolResult {
+func KnowledgeList(sourceType string, days int, contentType string) *ToolResult {
 	initKnowledgeDir()
 	entries, _ := os.ReadDir(knowledgeDir)
 
@@ -1686,8 +1686,8 @@ func KnowledgeList(sourceType string, days int) *ToolResult {
 	for _, e := range kEntries {
 		created := time.Unix(e.CreatedAt, 0).Format("01-02 15:04")
 		tags := strings.Join(e.Tags, ", ")
-		sb.WriteString(fmt.Sprintf("%s [%s] %s — %s (tags: %s)\n",
-			e.ID, e.SourceType, e.Title, created, tags))
+		sb.WriteString(fmt.Sprintf("%s [%s][%s] %s — %s (tags: %s)\n",
+			e.ID, e.SourceType, e.ContentType, e.Title, created, tags))
 	}
 	return successResult(sb.String())
 }
@@ -2846,7 +2846,7 @@ func registerKnowledgeTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			days, _ := args["days"].(float64)
-			return KnowledgeList(strArg(args, "source_type"), int(days))
+			return KnowledgeList(strArg(args, "source_type"), int(days), strArg(args, "content_type"))
 		},
 	)
 

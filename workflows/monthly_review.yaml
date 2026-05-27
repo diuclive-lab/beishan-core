@@ -2,6 +2,7 @@
 #
 # 治理框架引用：
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - content_type 过滤：只聚合工作记录/决策/教训/事实，排除对话噪音
 
 id: monthly_review
 
@@ -12,7 +13,8 @@ steps:
     timeout: 15
     on_error: done
     inputs:
-      days: "${input}"
+      content_type: "work_record,decision,lesson,fact"
+      days: 30
     next: list_todos
 
   - id: list_todos
@@ -34,14 +36,15 @@ steps:
       message: >-
         基于以下数据生成月度复盘报告。
 
-        ## 月度知识概况
-        ## 项目进展
+        ## 月度工作记录汇总
+        ## 关键决策回顾
+        ## 经验教训总结
         ## 待办状态
         ## 趋势分析
         ## 差距与机会
         ## 下步建议
 
-        知识条目：
+        知识条目（含 content_type 标记）：
         ${steps.list_knowledge.output}
 
         待办事项：

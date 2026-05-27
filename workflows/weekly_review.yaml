@@ -2,6 +2,7 @@
 #
 # 治理框架引用：
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - content_type 过滤：只聚合工作记录/决策/教训/事实，排除对话噪音
 
 id: weekly_review
 
@@ -11,7 +12,29 @@ steps:
     type: knowledge_list
     timeout: 15
     on_error: done
-    inputs: {}
+    inputs:
+      content_type: "work_record"
+      days: 7
+    next: list_decisions
+
+  - id: list_decisions
+    plugin: memory_plugin
+    type: knowledge_list
+    timeout: 15
+    on_error: done
+    inputs:
+      content_type: "decision"
+      days: 7
+    next: list_lessons
+
+  - id: list_lessons
+    plugin: memory_plugin
+    type: knowledge_list
+    timeout: 15
+    on_error: done
+    inputs:
+      content_type: "lesson,fact"
+      days: 7
     next: list_todos
 
   - id: list_todos
@@ -33,14 +56,21 @@ steps:
       message: >-
         基于本周知识库和待办数据生成复盘报告。
 
-        ## 本周概况
-        ## 主题聚类
+        ## 本周工作记录
+        ## 关键决策
+        ## 经验教训
         ## 待办状态
         ## 差距与机会
         ## 下步建议
 
-        知识条目：
+        工作记录：
         ${steps.list_knowledge.output}
+
+        决策：
+        ${steps.list_decisions.output}
+
+        教训与事实：
+        ${steps.list_lessons.output}
 
         待办事项：
         ${steps.list_todos.output}
