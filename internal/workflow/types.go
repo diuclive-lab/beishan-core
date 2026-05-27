@@ -19,6 +19,44 @@ type WorkflowDef struct {
 	ID            string    `yaml:"id"`
 	Steps         []StepDef `yaml:"steps"`
 	MaxIterations int       `yaml:"max_iterations,omitempty"` // 全局循环上限，默认 200
+
+	// ── 输出路由 ────────────────────────────────────────────────
+	// OutputTarget 声明工作流最终输出的目标渠道，引擎执行完成后按此分发。
+	//
+	// 可选值：
+	//   chat        （默认）回复到当前对话窗口
+	//   dashboard   推送到 Web 仪表盘（TODO: 需要 WebSocket/SSE 实装后激活）
+	//   notify      通过 notify_plugin 发送通知（邮件/Slack/企业微信）
+	//   knowledge   将结果存入知识库（knowledge_remember）
+	//
+	// 扩展说明：未来可支持多目标，字段改为 []string，向后兼容。
+	OutputTarget string `yaml:"output_target,omitempty"`
+
+	// ── 触发机制 ────────────────────────────────────────────────
+	// Trigger 声明工作流的触发方式，不填默认为 manual（用户主动请求）。
+	// 设计目标是支持三种触发：手动 / 定时 / 事件驱动。
+	// 当前 event 类型预留接口，引擎加载时打印警告，不执行。
+	//
+	// TODO(event-trigger): 事件驱动触发依赖 observatory.Subscribe 接入。
+	//   计划：WorkflowDef.Trigger.EventType 注册为 observatory 订阅者，
+	//   收到匹配事件时自动 kernel.Call("workflow_plugin", "workflow_run")。
+	//   预计在事件总线有实际行为后实现，当前占位。
+	Trigger *TriggerDef `yaml:"trigger,omitempty"`
+}
+
+// TriggerDef 工作流触发方式。
+type TriggerDef struct {
+	// Type: manual（默认，用户主动请求）/ scheduled（定时，由 scheduler_plugin 管理）
+	//       event（事件驱动，当前预留，尚未实装）
+	Type string `yaml:"type"`
+
+	// EventType 仅 type=event 时有效。
+	// 格式与 observatory.Event.Type 一致，例如 "agent.failed" / "knowledge.added"。
+	// TODO(event-trigger): 当前引擎忽略此字段，仅打印日志。
+	EventType string `yaml:"event_type,omitempty"`
+
+	// Cron 仅 type=scheduled 时有效，标准 5 段 cron 表达式（由 scheduler_plugin 解析）。
+	Cron string `yaml:"cron,omitempty"`
 }
 
 /*
@@ -211,4 +249,21 @@ type WorkflowResult struct {
 	Error       string       `json:"Error"`
 	FinalOutput string       `json:"FinalOutput,omitempty"` // 最后一步的输出，用于嵌套工作流
 	TotalMs     int64        `json:"TotalMs,omitempty"`     // 总耗时（毫秒）
+
+	// ── 人工确认支持 ─────────────────────────────────────────────
+	// NeedsConfirm=true 时，工作流在 human_confirm 步骤处暂停。
+	// 引擎不等待，而是将"等待确认"状态返回给调用方，
+	// 由 think_plugin 将 ConfirmMessage 展示给用户。
+	//
+	// 轻量版设计（当前）：
+	//   工作流被拆成"确认前"和"确认后"两段。
+	//   用户回复"确认"后，think_plugin 触发 ConfirmWorkflow。
+	//   不保存执行状态，ConfirmWorkflow 重新接收用户输入从头跑。
+	//
+	// TODO(workflow-pause): 完整的"暂停/恢复"需要序列化 ctx 到持久化存储，
+	//   再由 think_plugin confirm 路径反序列化并继续执行。
+	//   当前先用拆两段的方式，够用，待需求明确后升级。
+	NeedsConfirm    bool   `json:"NeedsConfirm,omitempty"`
+	ConfirmMessage  string `json:"ConfirmMessage,omitempty"`  // 展示给用户的确认问题
+	ConfirmWorkflow string `json:"ConfirmWorkflow,omitempty"` // 用户确认后触发的工作流 ID
 }

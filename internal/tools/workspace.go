@@ -109,7 +109,11 @@ func BuildWorkspaceContext(project string) string {
 		}
 	}
 	if latest != nil {
-		return "[上次工作状态] " + latest.Title
+		ctx := "[上次工作状态] " + latest.Title
+		if latest.Summary != "" {
+			ctx += "\n" + latest.Summary
+		}
+		return ctx
 	}
 	return ""
 }

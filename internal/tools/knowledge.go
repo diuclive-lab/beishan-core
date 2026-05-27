@@ -285,6 +285,20 @@ func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
 }
 
 func KnowledgeSearch(keyword string) *ToolResult {
+	// 若关键词包含字段语法（tag: / type: / date:> 等），走结构化检索路径。
+	q := retrieval.ParseQuery(keyword)
+	if q.HasFieldFilters() {
+		scored := SearchWithQuery(q, 10)
+		if len(scored) == 0 {
+			return successResult("未找到匹配的知识条目。")
+		}
+		var lines []string
+		for _, r := range scored {
+			lines = append(lines, fmt.Sprintf("[%s] %s | %s", r.ID, r.Title, truncateStr(r.Summary, 120)))
+		}
+		return successResult(strings.Join(lines, "\n"))
+	}
+	// 普通关键词走全文检索路径
 	results := SearchMemoryFull(keyword, 5, nil)
 	if len(results) == 0 {
 		return successResult("未找到匹配的知识条目。")
@@ -451,6 +465,39 @@ func SearchWithQuery(q *retrieval.Query, limit int) []ScoredEntry {
 			}
 			results = filtered
 		}
+	}
+
+	// 按 DateBefore 过滤
+	if q.DateBefore != "" {
+		if cutoff := parseDateCutoff(q.DateBefore); cutoff > 0 {
+			var filtered []ScoredEntry
+			for _, r := range results {
+				entry := loadKnowledge(r.ID)
+				if entry != nil && entry.CreatedAt <= cutoff {
+					filtered = append(filtered, r)
+				}
+			}
+			results = filtered
+		}
+	}
+
+	// 按 Status 过滤（空 = 不过滤）
+	if q.Status != "" {
+		var filtered []ScoredEntry
+		for _, r := range results {
+			entry := loadKnowledge(r.ID)
+			if entry == nil {
+				continue
+			}
+			entryStatus := entry.Status
+			if entryStatus == "" {
+				entryStatus = "active"
+			}
+			if entryStatus == q.Status {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
 	}
 
 	if len(results) > limit {

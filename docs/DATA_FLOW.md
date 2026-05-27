@@ -44,7 +44,10 @@ handleChat:
              是 → rewriteQuery（LLM 改写）
            RunFullRetrieval(query, projectPath)  [L0+L1+L0.5，按 classifyIntent 分流]
   → tools.SessionGet(sessionID)  [加载最近 5 轮历史，有 sessionMu 锁保护]
-  → llm.ChatCompletionWithUsage(messages)
+  → llmguard.Chat(messages, Contract{AntiLazy:true})  [路径 B-LLM]
+      → buildBaseline + injectBaseline  [注入"防偷懒"基线 system prompt]
+      → llm.ChatCompletionWithUsage(messages)
+      → validateOutput  [Contract 违规则带反馈重试，AntiLazy 场景无重试]
   → StockCodeVerify + DateVerify + NumberRangeVerify + URLVerify  [质量门禁]
   → parseToolSuggestions → 工具调用结果写入 session history
   → shouldSuggestRemember?  [知识建议入库]
@@ -181,6 +184,43 @@ glue.healthCheckLoop
 - 子进程事件通过 `observatory.PublishEvent` 发布到事件总线
 - 子进程 stdout 关闭时自动标记 `p.alive = false`
 **验证日期：** 2026-05-26
+
+---
+
+### 路径 M：llmguard 行为契约层（✅ 已验证 2026-05-27）
+
+```
+任意调用方 → llmguard.Chat(messages, Contract{...}, timeout)
+  → buildBaseline(Contract)
+      → AntiLazy        → "防偷懒"基线（禁止"将会做"语态、禁止编造、引用须有源）
+      → RequireEvidence → "证据等级"基线（E1/E2/E3/E4 标注强制）
+      → OutputFormat="json" → "JSON 输出"基线（拒绝 markdown 包裹）
+      → JSONSchema     → 字段名清单注入
+  → injectBaseline(messages, baseline)  [追加到现有 system 或前插新 system]
+  → chatFunc → llm.ChatCompletionWithUsage(messages, timeout)
+  → validateOutput(output, Contract)
+      → 合法 JSON / JSONSchema 字段 / 证据标注 三层校验
+      → 违规 → 拼接反馈到下一轮 messages，重试（最多 MaxRetries 次）
+  → Contract.Critique==true:
+      → critiqueRevise: LLM 自审 + LLM 重写（仅在第一次成功后触发）
+  → return output, accumulatedUsage, err
+```
+
+**注入点：** `plugins/think_plugin.go` — handleChat 默认 provider 路径调 `llmguard.Chat`（Contract{AntiLazy:true}）
+**新增包：** `internal/llmguard/` — Contract / Chat / validate / critique 共 4 文件 + 1 测试文件
+**测试覆盖：** 17 个用例，含桩函数注入，无需真实 LLM
+**支持契约维度：**
+  - 层1 提示词基线（AntiLazy / RequireEvidence）
+  - 层2 输出校验+重试（OutputFormat / JSONSchema / MaxRetries）
+  - 层3 Critique-Revise（Critique，约翻倍成本）
+**已对接调用方：** 4 (think_plugin handleChat 默认路径 + skill_factory 三处：classifyOutputType/fillTemplate/generateWorkflow)
+**待迁移调用方：** 5 (think_plugin 其他 5 处 `llm.ChatCompletionWithUsage`：query rewrite/synthesize 等辅助调用)
+**契约使用模式：**
+  - think_plugin.handleChat → `Contract{AntiLazy:true}` (自然语言聊天)
+  - skill_factory.classifyOutputType → `Contract{AntiLazy:true}` (单词分类)
+  - skill_factory.fillTemplate → `Contract{OutputFormat:"json", JSONSchema:"name", AntiLazy:true, MaxRetries:1}` (结构化填充)
+  - skill_factory.generateWorkflow → `Contract{AntiLazy:true}` (YAML 全量生成，无 YAML 校验暂用 AntiLazy)
+**验证日期：** 2026-05-27 (skill_factory 迁移)
 
 ---
 

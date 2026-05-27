@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,6 +30,14 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 	def, err := e.load(workflowID)
 	if err != nil {
 		return nil, err
+	}
+
+	// ── 触发机制检查 ──────────────────────────────────────────────
+	// event 类型触发当前未实装，打印警告让运维人员知道。
+	// TODO(event-trigger): 实装后删除此警告，改为注册 observatory 订阅者。
+	if def.Trigger != nil && def.Trigger.Type == "event" {
+		log.Printf("[workflow] %s: trigger.type=event 尚未实装（event_type=%s），当前作为 manual 执行",
+			workflowID, def.Trigger.EventType)
 	}
 
 	// Unquote input JSON string: JSON `"abc"` → Go `abc`
@@ -61,6 +70,38 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 				currentStep = resolveNext(step, ctx)
 				continue
 			}
+		}
+
+		// ── human_confirm 步骤（轻量版人工确认）────────────────────
+		// 遇到 plugin=human_confirm 时，工作流在此暂停并返回给用户。
+		//
+		// 设计：工作流被拆成"确认前"和"确认后"两段，不保存执行状态。
+		//   - inputs.message : 展示给用户的确认问题
+		//   - inputs.confirm_workflow : 用户确认后触发的下一段工作流 ID
+		//
+		// 用户看到问题 → 回复"确认" → think_plugin 识别 → 触发 confirm_workflow。
+		//
+		// TODO(workflow-pause): 完整暂停/恢复需要将 ctx 序列化到持久化存储，
+		//   再由 confirm 路径反序列化继续执行。当前先用拆两段方式，够用。
+		if step.Plugin == "human_confirm" {
+			payload := buildPayload(step.Inputs, ctx)
+			var inp map[string]interface{}
+			json.Unmarshal(payload, &inp)
+
+			msg, _ := inp["message"].(string)
+			if msg == "" {
+				msg = "请确认是否继续执行后续操作？"
+			}
+			confirmWF, _ := inp["confirm_workflow"].(string)
+
+			result := StepResult{ID: step.ID, Output: msg}
+			results = append(results, result)
+
+			r := buildResult(workflowID, results, step.ID, true, "", time.Since(tStart).Milliseconds(), msg)
+			r.NeedsConfirm = true
+			r.ConfirmMessage = msg
+			r.ConfirmWorkflow = confirmWF
+			return r, nil
 		}
 
 		payload := buildPayload(step.Inputs, ctx)
@@ -169,7 +210,66 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 			break
 		}
 	}
-	return buildResult(workflowID, results, currentStep, true, "", time.Since(tStart).Milliseconds(), finalOutput), nil
+	result := buildResult(workflowID, results, currentStep, true, "", time.Since(tStart).Milliseconds(), finalOutput)
+
+	// ── 输出路由 ──────────────────────────────────────────────────
+	// 工作流执行完成后，按 output_target 分发结果。
+	// chat（默认）：直接返回给调用方，由 workflow_plugin 返回给用户。
+	// 其他渠道：异步分发，不阻塞主返回。
+	if def.OutputTarget != "" && def.OutputTarget != "chat" {
+		go e.routeOutput(def, result)
+	}
+
+	return result, nil
+}
+
+// routeOutput 按 WorkflowDef.OutputTarget 将工作流结果分发到目标渠道。
+// 在 goroutine 中异步执行，不阻塞工作流主响应。
+func (e *Engine) routeOutput(def *WorkflowDef, result *WorkflowResult) {
+	switch def.OutputTarget {
+	case "notify":
+		// 通过 notify_plugin 发送通知（邮件/Slack/企业微信）。
+		// notify_plugin 的具体渠道由环境变量配置，工作流层不感知。
+		payload, _ := json.Marshal(map[string]interface{}{
+			"subject": fmt.Sprintf("工作流完成: %s", def.ID),
+			"body":    result.FinalOutput,
+		})
+		_, err := e.Kernel.Call(kernel.Message{
+			Recipient: "notify_plugin",
+			Type:      "notify_send",
+			Payload:   payload,
+		}, 30*time.Second)
+		if err != nil {
+			log.Printf("[workflow] %s: output_target=notify 发送失败: %v", def.ID, err)
+		}
+
+	case "knowledge":
+		// 将工作流结果存入知识库，供后续检索引用。
+		// title 格式化为"工作流结果: {id}"，方便用 knowledge_search 找回。
+		payload, _ := json.Marshal(map[string]interface{}{
+			"title":   fmt.Sprintf("工作流结果: %s", def.ID),
+			"summary": result.FinalOutput,
+			"tags":    []string{"workflow_result", def.ID},
+		})
+		_, err := e.Kernel.Call(kernel.Message{
+			Recipient: "memory_plugin",
+			Type:      "knowledge_remember",
+			Payload:   payload,
+		}, 30*time.Second)
+		if err != nil {
+			log.Printf("[workflow] %s: output_target=knowledge 存储失败: %v", def.ID, err)
+		}
+
+	case "dashboard":
+		// TODO(output-routing/dashboard): Dashboard 推送需要 WebSocket 或 SSE 实装。
+		// 当前只记录日志。实装后在此处调用 dashboard 推送接口。
+		// 参考：web/dashboard.html 的前端轮询改为订阅模式后激活。
+		log.Printf("[workflow] %s: output_target=dashboard（预留，尚未实装）结果长度=%d字符",
+			def.ID, len(result.FinalOutput))
+
+	default:
+		log.Printf("[workflow] %s: 未知 output_target=%q，忽略路由", def.ID, def.OutputTarget)
+	}
 }
 
 func buildResult(workflowID string, steps []StepResult, finalStep string, success bool, err string, totalMs int64, finalOutput ...string) *WorkflowResult {

@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"beishan/internal/llm"
+	"beishan/internal/llmguard"
 	"beishan/internal/retrieval"
 	"beishan/internal/tools"
 	"beishan/kernel"
@@ -400,9 +401,17 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 		llmTimeout = 300 * time.Second
 	}
 	if provider != "" {
+		// per-step provider override 路径：保持原行为（暂未接 llmguard，
+		// 因为 llmguard 当前只走默认 provider；后续可加 ChatWithProvider 入口）
 		reply, usage, err = llm.ChatCompletionWithProvider(provider, messages, llmTimeout)
 	} else {
-		reply, usage, err = llm.ChatCompletionWithUsage(messages, llmTimeout)
+		// 默认路径：经 llmguard.Chat 注入 AntiLazy 基线，
+		// 防止 LLM 用"我会做"等未完成语态、防止编造、强制引用来源。
+		// 这是路径 B（think_plugin 对话分发）唯一的 LLM 主调用，
+		// 改这里相当于给所有自然语言聊天加一层框架级行为契约。
+		reply, usage, err = llmguard.Chat(messages, llmguard.Contract{
+			AntiLazy: true,
+		}, llmTimeout)
 	}
 	llm.RecordUsage("think", usage)
 	if err != nil {
@@ -431,17 +440,18 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 				jsonMarker := fmt.Sprintf(`"tool":"%s"`, sug.Tool)
 				if idx := strings.Index(reply, jsonMarker); idx >= 0 {
 					braceStart := strings.LastIndex(reply[:idx], "{")
+					// braceEnd 指向 } 的下一个位置
 					braceEnd := strings.Index(reply[idx:], "}") + idx + 1
 					if braceStart >= 0 && braceEnd > braceStart {
 						prefix := strings.TrimRight(reply[:braceStart], " \n\r")
-						suffix := reply[braceEnd+1:]
-						reply = prefix + suffix
+						suffix := strings.TrimLeft(reply[braceEnd:], " \n\r")
+						reply = prefix + "\n" + suffix
 					}
 				}
 				fmt.Printf("[思考] LLM 建议调工具: %s.%s \u2014 %s\n", sug.Tool, sug.Action, sug.Reason)
 			}
-			// 尝试执行工具建议，结果同时追加到当前回复和写入 session 历史
-			var toolResults []string
+			// 执行工具建议，收集结果后经 LLM 合成为自然语言
+			var toolContents []string
 			for _, sug := range suggestions {
 				resp, err := p.Kernel.Call(kernel.Message{
 					Recipient: sug.Tool,
@@ -449,13 +459,12 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 					Payload:   payload,
 				}, 60*time.Second)
 				if err != nil {
-					errMsg := fmt.Sprintf("工具 %s 执行失败: %v", sug.Action, err)
-					toolResults = append(toolResults, errMsg)
+					toolContents = append(toolContents, fmt.Sprintf("[%s 执行失败]: %v", sug.Action, err))
 				} else {
 					resultStr := string(resp.Payload)
-					summary := truncate(resultStr, 200)
-					toolResults = append(toolResults, fmt.Sprintf("工具 %s 返回: %s", sug.Action, summary))
-					// 工具调用结果写入 session，供下一轮 LLM 引用
+					content := extractToolContent(resultStr)
+					toolContents = append(toolContents, fmt.Sprintf("[%s]\n%s", sug.Action, content))
+					// 原始结果写入 session，供下一轮 LLM 引用
 					if sessionID != "" {
 						toolResultPayload := fmt.Sprintf(`{"tool":"%s","action":"%s","result":%s}`, sug.Tool, sug.Action, resultStr)
 						p.Kernel.Send(kernel.Message{
@@ -466,8 +475,21 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 					}
 				}
 			}
-			if len(toolResults) > 0 {
-				reply += "\n\n---\n" + strings.Join(toolResults, "\n")
+			if len(toolContents) > 0 {
+				// LLM 合成：将工具结果整合为自然语言，避免原始 JSON 透出
+				synthesisPrompt := fmt.Sprintf("用户的问题：%s\n\n工具执行结果：\n%s\n\n请根据以上结果用清晰自然的语言回答用户，不要展示 JSON 或技术细节。",
+					userText, strings.Join(toolContents, "\n\n"))
+				synthesized, synthUsage, synthErr := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+					{Role: "system", Content: systemPrompt},
+					{Role: "user", Content: synthesisPrompt},
+				}, 60*time.Second)
+				llm.RecordUsage("tool_synthesis", synthUsage)
+				if synthErr == nil && strings.TrimSpace(synthesized) != "" {
+					reply = strings.TrimSpace(synthesized)
+				} else {
+					// 降级：直接拼接清理后的内容
+					reply += "\n\n---\n" + strings.Join(toolContents, "\n")
+				}
 			}
 		}
 
@@ -553,24 +575,122 @@ type toolSuggestion struct {
 	Reason  string `json:"reason"`
 }
 
-// parseToolSuggestions extracts tool suggestions from LLM response.
-// LLM can output JSON block with tool_suggestion to request tool execution.
+// parseToolSuggestions 从 LLM 回复末尾提取工具建议 JSON。
+// 系统 prompt 要求 LLM 在回复末尾追加：
+//   {"tool":"插件名","action":"消息类型","reason":"工具用途"}
+// 从最后一个 { 开始向后扫描，找到完整的 JSON 对象并校验 tool 字段非空。
 func parseToolSuggestions(text string) []toolSuggestion {
-	var suggestions []toolSuggestion
-	// Look for JSON tool_suggestion blocks in the response
-	start := strings.Index(text, "tool_suggestion")
-	if start < 0 { return nil }
-	// Find the enclosing object
-	braceStart := strings.LastIndex(text[:start], "{")
-	if braceStart < 0 { return nil }
+	// 从末尾往前找最后一个 {，避免误匹配正文中的 JSON
+	braceStart := strings.LastIndex(text, `{"tool":`)
+	if braceStart < 0 {
+		return nil
+	}
+	// 找对应的闭合 }
 	braceEnd := strings.Index(text[braceStart:], "}")
-	if braceEnd < 0 { return nil }
+	if braceEnd < 0 {
+		return nil
+	}
 	sugText := text[braceStart : braceStart+braceEnd+1]
 	var sug toolSuggestion
-	if json.Unmarshal([]byte(sugText), &sug) == nil && sug.Tool != "" {
-		suggestions = append(suggestions, sug)
+	if json.Unmarshal([]byte(sugText), &sug) == nil && sug.Tool != "" && sug.Action != "" {
+		return []toolSuggestion{sug}
 	}
-	return suggestions
+	return nil
+}
+
+// extractToolContent 从工具响应 JSON 中提取可读内容，剥掉协议外壳。
+// 支持：glue payload 包装、data 数组、results 数组、HTML 页面内容。
+func extractToolContent(raw string) string {
+	var obj map[string]interface{}
+	if json.Unmarshal([]byte(raw), &obj) != nil {
+		return truncate(raw, 400)
+	}
+
+	// 剥 glue 协议外壳：{"payload": {...}}
+	if inner, ok := obj["payload"]; ok {
+		if m, ok := inner.(map[string]interface{}); ok {
+			obj = m
+		}
+	}
+
+	// 剥 data 数组（浏览器插件格式：{"success":true,"data":[{...}]}）
+	if arr, ok := obj["data"].([]interface{}); ok && len(arr) > 0 {
+		if m, ok := arr[0].(map[string]interface{}); ok {
+			obj = m
+		}
+	}
+
+	// 优先提取 content/text/output/answer 字段
+	for _, key := range []string{"content", "text", "output", "answer", "summary"} {
+		if v, ok := obj[key].(string); ok && strings.TrimSpace(v) != "" {
+			s := strings.TrimSpace(v)
+			// HTML 页面：剥掉标签，只保留文字
+			if strings.Contains(s[:min(len(s), 200)], "<html") ||
+				strings.Contains(s[:min(len(s), 200)], "<!DOCTYPE") {
+				s = stripHTML(s)
+			}
+			return truncate(s, 1500)
+		}
+	}
+
+	// results 数组（搜索结果）格式化为列表
+	if arr, ok := obj["results"].([]interface{}); ok && len(arr) > 0 {
+		var lines []string
+		for i, item := range arr {
+			if i >= 8 {
+				break
+			}
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			title, _ := m["title"].(string)
+			snippet, _ := m["snippet"].(string)
+			url, _ := m["url"].(string)
+			if title != "" {
+				line := fmt.Sprintf("• %s", title)
+				if snippet != "" {
+					line += "\n  " + truncate(snippet, 120)
+				}
+				if url != "" {
+					line += "\n  " + url
+				}
+				lines = append(lines, line)
+			}
+		}
+		if len(lines) > 0 {
+			return strings.Join(lines, "\n")
+		}
+	}
+
+	// 兜底：找第一个较长的字符串字段
+	for _, v := range obj {
+		if s, ok := v.(string); ok && len([]rune(s)) > 30 {
+			return truncate(s, 400)
+		}
+	}
+	return truncate(raw, 400)
+}
+
+// stripHTML 粗糙地剥掉 HTML 标签，提取可读文字。
+// 不依赖任何外部库，够用即可。
+func stripHTML(s string) string {
+	var b strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+			b.WriteRune(' ')
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	// 压缩连续空白
+	result := strings.Join(strings.Fields(b.String()), " ")
+	return result
 }
 
 func callDeepSeek(prompt string, background string) (string, error) {

@@ -295,16 +295,19 @@ func classifyForKnowledge(userText, reply string) (contentType, title, summary s
 对话内容：
 ` + combined + `
 
-判断标准（满足其一才入库）：
-- 明确的决策或选型结论 → decision
-- 踩坑/经验教训 → lesson
-- 值得复用的事实或数据 → fact
-- 工作进展记录（含完成的任务/下一步）→ work_record
+判断标准（必须满足才入库，阈值要高）：
+- 明确的决策或选型结论（有明确结果，不是分析过程）→ decision
+- 踩坑/经验教训（有具体教训，不是描述问题）→ lesson
+- 值得长期复用的事实或数据 → fact
+- 完成的工作里程碑（不是"正在做"，是"已完成+结论"）→ work_record
 - 值得保存的链接或网址 → link
 - 开源社区内容（GitHub/HN/论坛讨论等）→ open_source_community
 - 图片或图表资源引用 → image
 
-日常闲聊、提问、纯解释性内容不入库。
+以下情况不入库：
+- 正在进行的操作（读文件、搜索、查看、准备测试）
+- 分析过程（尚未得出结论）
+- 日常闲聊、提问、解释
 
 输出 JSON，不要解释：
 {"archive":true,"type":"decision","title":"标题10字内","summary":"摘要50字内","confidence":0.8}
@@ -337,7 +340,7 @@ type 只能是：work_record / decision / lesson / fact / link / open_source_com
 	if err := json.Unmarshal([]byte(s), &result); err != nil {
 		return
 	}
-	if !result.Archive || result.Type == "" || result.Confidence < 0.5 {
+	if !result.Archive || result.Type == "" || result.Confidence < 0.65 {
 		return
 	}
 	return result.Type, result.Title, result.Summary, result.Confidence

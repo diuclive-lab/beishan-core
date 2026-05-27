@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"beishan/internal/llm"
 )
 
 /* ─── UserProfile 用户画像 ──────────────────────
@@ -173,6 +176,135 @@ func ProfileUpdateHandler(args map[string]interface{}) *ToolResult {
 
 	b, _ := json.MarshalIndent(p, "", "  ")
 	return successResult(string(b))
+}
+
+// ─── 习惯学习 (Habit Inference) ──────────────────────────────
+
+// loadRecentSummariesForInference 读取最近 n 条会话摘要，按 UpdatedAt 倒序。
+func loadRecentSummariesForInference(n int) []SessionSummary {
+	sessionDir := filepath.Join(MemoryDir, "sessions")
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return nil
+	}
+
+	var sums []SessionSummary
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".summary.json") {
+			continue
+		}
+		sid := strings.TrimSuffix(e.Name(), ".summary.json")
+		s := LoadSessionSummary(sid)
+		if s != nil {
+			sums = append(sums, *s)
+		}
+	}
+
+	sort.Slice(sums, func(i, j int) bool {
+		return sums[i].UpdatedAt > sums[j].UpdatedAt
+	})
+	if len(sums) > n {
+		sums = sums[:n]
+	}
+	return sums
+}
+
+// topHitKnowledgeSummary 按命中次数排序，返回 top-n 知识条目的简要描述。
+func topHitKnowledgeSummary(n int) string {
+	all := loadAllKnowledge()
+	if len(all) == 0 {
+		return ""
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].HitCount > all[j].HitCount
+	})
+	if len(all) > n {
+		all = all[:n]
+	}
+	var lines []string
+	for _, e := range all {
+		if e.HitCount == 0 {
+			break
+		}
+		lines = append(lines, fmt.Sprintf("- [%s] %s (命中%d次)", e.ContentType, e.Title, e.HitCount))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// InferAndUpdateProfile 根据近期会话摘要和高频知识，通过 LLM 推断并更新用户画像。
+// 最少需要 3 条摘要才触发推断；只更新有信号支撑的字段，不覆盖 Name。
+func InferAndUpdateProfile() {
+	sums := loadRecentSummariesForInference(20)
+	if len(sums) < 3 {
+		return
+	}
+
+	var ctx strings.Builder
+	ctx.WriteString("最近会话摘要：\n")
+	for _, s := range sums {
+		ctx.WriteString(fmt.Sprintf("- %s（主题: %s）\n", s.Summary, strings.Join(s.Topics, ", ")))
+	}
+	if top := topHitKnowledgeSummary(10); top != "" {
+		ctx.WriteString("\n高频访问知识：\n")
+		ctx.WriteString(top)
+	}
+
+	system := `你是用户画像分析助手。根据用户的近期对话和高频访问知识，推断其偏好。
+只输出一个 JSON 对象，不加任何解释：
+{"preferred_lang":"zh或en","expertise":"beginner/intermediate/expert","interests":["领域1"],"response_style":"concise/detailed/code_first"}
+规则：interests 最多 5 项，每项不超过 8 个字；无法判断的字段仍然输出原值；不推断 name 字段。`
+
+	reply, err := llm.ChatCompletion(system, ctx.String(), 15*time.Second)
+	if err != nil || reply == "" {
+		return
+	}
+
+	start := strings.Index(reply, "{")
+	end := strings.LastIndex(reply, "}")
+	if start < 0 || end <= start {
+		return
+	}
+
+	var inferred struct {
+		PreferredLang string   `json:"preferred_lang"`
+		Expertise     string   `json:"expertise"`
+		Interests     []string `json:"interests"`
+		ResponseStyle string   `json:"response_style"`
+	}
+	if err := json.Unmarshal([]byte(reply[start:end+1]), &inferred); err != nil {
+		return
+	}
+
+	p := LoadProfile()
+	updated := false
+
+	if inferred.PreferredLang == "zh" || inferred.PreferredLang == "en" {
+		if p.PreferredLang != inferred.PreferredLang {
+			p.PreferredLang = inferred.PreferredLang
+			updated = true
+		}
+	}
+	if inferred.Expertise == "beginner" || inferred.Expertise == "intermediate" || inferred.Expertise == "expert" {
+		if p.Expertise != inferred.Expertise {
+			p.Expertise = inferred.Expertise
+			updated = true
+		}
+	}
+	if len(inferred.Interests) > 0 {
+		p.Interests = inferred.Interests
+		updated = true
+	}
+	if inferred.ResponseStyle == "concise" || inferred.ResponseStyle == "detailed" || inferred.ResponseStyle == "code_first" {
+		if p.ResponseStyle != inferred.ResponseStyle {
+			p.ResponseStyle = inferred.ResponseStyle
+			updated = true
+		}
+	}
+
+	if updated {
+		p.UpdatedAt = time.Now().Unix()
+		SaveProfile(p) //nolint — profile.go 内部方法，profileMu 已在 SaveProfile 内加锁
+	}
 }
 
 func registerProfileTools() {

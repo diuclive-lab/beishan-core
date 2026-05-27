@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,6 +73,9 @@ func jsonEscape(s string) string {
 }
 
 var startTime = time.Now()
+
+// chatCounter 统计对话轮次，每 10 轮触发一次习惯推断
+var chatCounter int64
 
 func main() {
 	apiKey := os.Getenv("LLM_API_KEY")
@@ -358,6 +362,15 @@ func main() {
 	observatory.Subscribe("agent.failed", func(evt observatory.Event) {
 		if data, ok := evt.Data.(observatory.AgentFailedData); ok {
 			log.Printf("[events] agent %s failed: %s", data.AgentID, data.Error)
+			// 写告警 trace，让 /metrics 和 eval/run/traces 可观测到失败事件
+			observatory.RecordTrace(observatory.Trace{
+				ID:          newSessionID(),
+				Mode:        "agent",
+				Route:       "agent.failed",
+				Plugin:      data.AgentID,
+				Status:      "failed",
+				RouteReason: data.Error,
+			})
 		}
 	})
 
@@ -580,6 +593,10 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(500 * time.Millisecond)
 			if sum := tools.GenerateSessionSummary(sid); sum != nil {
 				tools.SaveSessionSummary(sum)
+			}
+			// 每 10 轮对话推断一次用户习惯，异步更新画像
+			if n := atomic.AddInt64(&chatCounter, 1); n%10 == 0 {
+				go tools.InferAndUpdateProfile()
 			}
 		}(sessionID)
 
