@@ -9,13 +9,13 @@ import (
 	"beishan/internal/llm"
 )
 
-// withStubChatFunc 临时替换 chatFunc 为桩函数，测试结束自动恢复。
+// withStubChatFunc 临时替换 defaultChatFunc 为桩函数，测试结束自动恢复。
 // 所有 Chat 路径测试都用这个工具函数，避免污染全局状态。
 func withStubChatFunc(t *testing.T, stub func(messages []llm.ChatMessage, timeout time.Duration) (string, *llm.Usage, error)) {
 	t.Helper()
-	original := chatFunc
-	chatFunc = stub
-	t.Cleanup(func() { chatFunc = original })
+	original := defaultChatFunc
+	defaultChatFunc = stub
+	t.Cleanup(func() { defaultChatFunc = original })
 }
 
 // ─── baseline 注入测试 ─────────────────────────────────────────
@@ -267,6 +267,101 @@ func TestChat_Critique_NoIssues_ReturnsOriginal(t *testing.T) {
 	}
 	if usage.TotalTokens != 15 {
 		t.Errorf("usage 应累加主+critique = 15, 实际 %d", usage.TotalTokens)
+	}
+}
+
+// ─── 维度化 preset API 测试 ─────────────────────────────────
+
+func TestForStructure(t *testing.T) {
+	c := ForStructure("json", "findings,risk_register", 1)
+	if c.OutputFormat != "json" {
+		t.Errorf("OutputFormat want json, got %q", c.OutputFormat)
+	}
+	if c.JSONSchema != "findings,risk_register" {
+		t.Errorf("JSONSchema mismatch: %q", c.JSONSchema)
+	}
+	if c.MaxRetries != 1 {
+		t.Errorf("MaxRetries want 1, got %d", c.MaxRetries)
+	}
+	// 结构维度不应启用 AntiLazy / Critique
+	if c.AntiLazy || c.Critique || c.RequireEvidence {
+		t.Errorf("纯 ForStructure 不应启用其他维度: %+v", c)
+	}
+}
+
+func TestForContent(t *testing.T) {
+	c := ForContent()
+	if !c.AntiLazy {
+		t.Errorf("ForContent 应启用 AntiLazy")
+	}
+	// 内容维度不应启用结构/事实
+	if c.OutputFormat != "" || c.Critique || c.RequireEvidence {
+		t.Errorf("纯 ForContent 不应启用其他维度: %+v", c)
+	}
+}
+
+func TestForFacts(t *testing.T) {
+	c := ForFacts()
+	if !c.RequireEvidence || !c.AntiLazy || !c.Critique {
+		t.Errorf("ForFacts 应启用 RequireEvidence + AntiLazy + Critique: %+v", c)
+	}
+}
+
+func TestFluentComposition(t *testing.T) {
+	// 三维度全开（V25 全合规场景）
+	c := ForStructure("json", "findings", 1).WithContent().WithFacts()
+	if c.OutputFormat != "json" || c.JSONSchema != "findings" || c.MaxRetries < 1 {
+		t.Errorf("结构维度丢失: %+v", c)
+	}
+	if !c.AntiLazy || !c.RequireEvidence || !c.Critique {
+		t.Errorf("内容+事实维度丢失: %+v", c)
+	}
+}
+
+func TestWithStructure_PreservesRetries(t *testing.T) {
+	// 先设置 3 次重试，再叠加 WithStructure(1)，应保留 3（取大）
+	c := Contract{MaxRetries: 3}.WithStructure("json", "x", 1)
+	if c.MaxRetries != 3 {
+		t.Errorf("WithStructure 不应降低 MaxRetries, 实际 %d", c.MaxRetries)
+	}
+}
+
+func TestWithEvidence_NoCritique(t *testing.T) {
+	// WithEvidence 应只启用 evidence 标注，不启用 critique（避免成本翻倍）
+	c := ForContent().WithEvidence()
+	if !c.RequireEvidence {
+		t.Errorf("WithEvidence 应启用 RequireEvidence")
+	}
+	if c.Critique {
+		t.Errorf("WithEvidence 不应启用 Critique（区别于 WithFacts）")
+	}
+}
+
+func TestWithRetries_Overrides(t *testing.T) {
+	c := ForStructure("json", "x", 1).WithRetries(5)
+	if c.MaxRetries != 5 {
+		t.Errorf("WithRetries 应直接覆盖, 实际 %d", c.MaxRetries)
+	}
+}
+
+func TestChat_WithProvider_ClosureRouted(t *testing.T) {
+	// 验证 ChatWithProvider 不会走 defaultChatFunc，
+	// 而是用闭包里的 llm.ChatCompletionWithProvider。
+	// 这里我们不能拦截 llm 包内部函数，但可以测 defaultChatFunc 不被调用。
+	defaultCalled := false
+	withStubChatFunc(t, func(messages []llm.ChatMessage, timeout time.Duration) (string, *llm.Usage, error) {
+		defaultCalled = true
+		return "should not be used", nil, nil
+	})
+
+	// ChatWithProvider 会尝试调 llm.ChatCompletionWithProvider，
+	// 无配置 provider 时会返回 API_KEY 未设置错误。
+	// 我们关心的是：defaultChatFunc 不被调用。
+	_, _, _ = ChatWithProvider("nonexistent_provider", []llm.ChatMessage{{Role: "user", Content: "x"}},
+		Contract{}, 1*time.Second)
+
+	if defaultCalled {
+		t.Errorf("ChatWithProvider 不应触达 defaultChatFunc（应走闭包）")
 	}
 }
 

@@ -254,16 +254,17 @@ func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte, provider string) (kernel
 	if provider == "local" {
 		llmTimeout = 600 * time.Second
 	}
+	// 维度：仅内容（ForContent）。
+	// 这是"无检索直答"路径，输出是自然语言回复，无结构、无事实可校验。
+	// AntiLazy 基线兜底 → 防止"我会做"、防编造、引用须有源。
+	msgs := []llm.ChatMessage{
+		{Role: "system", Content: sysPrompt},
+		{Role: "user", Content: req.Message},
+	}
 	if provider != "" {
-		reply, usage, err = llm.ChatCompletionWithProvider(provider, []llm.ChatMessage{
-			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: req.Message},
-		}, llmTimeout)
+		reply, usage, err = llmguard.ChatWithProvider(provider, msgs, llmguard.ForContent(), llmTimeout)
 	} else {
-		reply, usage, err = llm.ChatCompletionWithUsage([]llm.ChatMessage{
-			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: req.Message},
-		}, llmTimeout)
+		reply, usage, err = llmguard.Chat(msgs, llmguard.ForContent(), llmTimeout)
 	}
 	llm.RecordUsage("think_no_retrieval", usage)
 	if err != nil {
@@ -400,18 +401,15 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 	if provider == "local" {
 		llmTimeout = 300 * time.Second
 	}
+	// 维度：仅内容（ForContent）。
+	// 这是路径 B（think_plugin 对话分发）唯一的 LLM 主调用 — 自然语言聊天，
+	// 输出是非结构化文本。AntiLazy 基线兜底 → 防"我会做"、防编造、引用须有源。
+	// provider 路径走 ChatWithProvider，共享同一契约；
+	// 默认路径走 Chat，两者共享 chatCore 的校验+重试+critique 逻辑。
 	if provider != "" {
-		// per-step provider override 路径：保持原行为（暂未接 llmguard，
-		// 因为 llmguard 当前只走默认 provider；后续可加 ChatWithProvider 入口）
-		reply, usage, err = llm.ChatCompletionWithProvider(provider, messages, llmTimeout)
+		reply, usage, err = llmguard.ChatWithProvider(provider, messages, llmguard.ForContent(), llmTimeout)
 	} else {
-		// 默认路径：经 llmguard.Chat 注入 AntiLazy 基线，
-		// 防止 LLM 用"我会做"等未完成语态、防止编造、强制引用来源。
-		// 这是路径 B（think_plugin 对话分发）唯一的 LLM 主调用，
-		// 改这里相当于给所有自然语言聊天加一层框架级行为契约。
-		reply, usage, err = llmguard.Chat(messages, llmguard.Contract{
-			AntiLazy: true,
-		}, llmTimeout)
+		reply, usage, err = llmguard.Chat(messages, llmguard.ForContent(), llmTimeout)
 	}
 	llm.RecordUsage("think", usage)
 	if err != nil {
@@ -476,13 +474,15 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 				}
 			}
 			if len(toolContents) > 0 {
-				// LLM 合成：将工具结果整合为自然语言，避免原始 JSON 透出
+				// 维度：仅内容（ForContent）。
+				// LLM 合成：把工具的 JSON 结果改写为自然语言。输出无结构、无事实可校验，
+				// AntiLazy 基线防止 LLM 偷懒拼接原始 JSON 或编造工具没返回的内容。
 				synthesisPrompt := fmt.Sprintf("用户的问题：%s\n\n工具执行结果：\n%s\n\n请根据以上结果用清晰自然的语言回答用户，不要展示 JSON 或技术细节。",
 					userText, strings.Join(toolContents, "\n\n"))
-				synthesized, synthUsage, synthErr := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+				synthesized, synthUsage, synthErr := llmguard.Chat([]llm.ChatMessage{
 					{Role: "system", Content: systemPrompt},
 					{Role: "user", Content: synthesisPrompt},
-				}, 60*time.Second)
+				}, llmguard.ForContent(), 60*time.Second)
 				llm.RecordUsage("tool_synthesis", synthUsage)
 				if synthErr == nil && strings.TrimSpace(synthesized) != "" {
 					reply = strings.TrimSpace(synthesized)
@@ -856,10 +856,14 @@ func rewriteQuery(query string, sessionID string) string {
 
 用户查询：%s%s`, query, contextBlock)
 
-	reply, usage, err := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+	// 维度：零契约（Contract{}）。
+	// 这是机械变换 — "口语化查询 → 检索关键词"，没有内容质量的发挥空间，
+	// 也没有事实/结构可校验。降级路径已存在（err 或空串 → 返回原查询），
+	// 走零契约能省去基线注入的 token 开销。
+	reply, usage, err := llmguard.Chat([]llm.ChatMessage{
 		{Role: "system", Content: "你是查询改写器。只输出检索关键词，不要解释。"},
 		{Role: "user", Content: prompt},
-	}, 10*time.Second)
+	}, llmguard.Contract{}, 10*time.Second)
 	llm.RecordUsage("query_rewrite", usage)
 
 	if err != nil || strings.TrimSpace(reply) == "" {

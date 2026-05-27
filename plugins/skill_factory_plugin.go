@@ -690,14 +690,15 @@ func (p *SkillFactoryPlugin) classifyOutputType(description string) (string, err
 
 只输出类型 ID（如 report / stats / alert），不要其他文字。`, strings.Join(typeDescs, "\n\n"), description)
 
-	// 经 llmguard：AntiLazy 基线防止 LLM 加解释或编造分类。
-	// 分类输出是单个词，不强制 JSON / 不需要重试（重试也只会再吐一次解释）。
+	// 维度：仅内容（ForContent）。
+	// 分类输出是单个词，没有结构维度可言；也没有事实可校验。
+	// AntiLazy 基线防止 LLM 加"我认为是..."解释。
 	content, usage, err := llmguard.Chat(
 		[]llm.ChatMessage{
 			{Role: "system", Content: "你是工作流输出类型分类器。只输出一个类型 ID，不要解释。"},
 			{Role: "user", Content: prompt},
 		},
-		llmguard.Contract{AntiLazy: true},
+		llmguard.ForContent(),
 		20*time.Second,
 	)
 	llm.RecordUsage("skill_factory_classify", usage)
@@ -764,23 +765,18 @@ func (p *SkillFactoryPlugin) fillTemplate(outputType WorkflowOutputType, descrip
 		`{"name":"工作流ID","`+strings.Join(placeholders, `":"填充值","`)+`":"填充值"}`,
 		p.buildPluginListCompact())
 
-	// 经 llmguard：
-	//   - OutputFormat=json + JSONSchema=name → 强制 JSON 且必含 name 字段
-	//   - AntiLazy → 防止 LLM 加解释或包 markdown
-	//   - MaxRetries=1 → JSON 偶尔会被 markdown 包裹，给一次重试机会
-	// llmguard 内部的 stripMarkdownFences 会自动处理 ```json 包裹，
+	// 维度：结构 + 内容。
+	//   ForStructure("json", "name", 1) → 强制合法 JSON 且必含 name 字段，1 次重试
+	//   .WithContent()                  → 叠加 AntiLazy 基线（防止 LLM 加解释）
+	// 不启用事实维度 — 这是模板填充任务，没有事实可校验。
+	// llmguard 内部的 stripMarkdownFences 自动处理 ```json 包裹，
 	// 此处保留 cleanJSON 兼容旧错误模式。
 	content, usage, err := llmguard.Chat(
 		[]llm.ChatMessage{
 			{Role: "system", Content: "你是工作流变量填充器。只输出 JSON，不要解释。"},
 			{Role: "user", Content: prompt},
 		},
-		llmguard.Contract{
-			OutputFormat: "json",
-			JSONSchema:   "name",
-			AntiLazy:     true,
-			MaxRetries:   1,
-		},
+		llmguard.ForStructure("json", "name", 1).WithContent(),
 		40*time.Second,
 	)
 	llm.RecordUsage("skill_factory_fill", usage)
@@ -896,15 +892,16 @@ V25 强制规则（违反则验证失败）：
 可用插件：
 %s`, description, nameHint, pluginList)
 
-	// 经 llmguard：YAML 不是 JSON，OutputFormat 不适用，
-	// 但 AntiLazy 基线仍有价值（防止 LLM 加解释或在 YAML 里编造插件名）。
-	// 未来若 llmguard 支持 OutputFormat="yaml"，再升级此处的校验强度。
+	// 维度：仅内容（ForContent）。
+	// YAML 不在 llmguard 当前结构维度支持范围内，OutputFormat 不适用。
+	// AntiLazy 基线防止 LLM 在 YAML 里编造插件名、加 markdown 包裹。
+	// 后续若 llmguard 支持 OutputFormat="yaml"，此处升级到 ForStructure("yaml",...)。
 	content, usage, err := llmguard.Chat(
 		[]llm.ChatMessage{
 			{Role: "system", Content: "你生成 beishan-core 工作流 YAML。只输出纯 YAML，不加 markdown 代码块或解释。"},
 			{Role: "user", Content: prompt},
 		},
-		llmguard.Contract{AntiLazy: true},
+		llmguard.ForContent(),
 		90*time.Second,
 	)
 	llm.RecordUsage("skill_factory_generate", usage)

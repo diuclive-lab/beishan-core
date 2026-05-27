@@ -28,7 +28,11 @@ import (
 // 失败语义：
 //   critique 自身出错（网络/解析）不会失败整个 Chat，
 //   只是回退到原输出。这避免 critique 成为新的失败点。
-func critiqueRevise(origMessages []llm.ChatMessage, firstOutput string, c Contract, timeout time.Duration) (string, *llm.Usage, error) {
+//
+// fn 参数：
+//   传入的 chatFunction 与 chatCore 使用同一闭包，
+//   保证 critique 走相同的 provider（不会一半 DeepSeek 一半 Local）。
+func critiqueRevise(origMessages []llm.ChatMessage, firstOutput string, c Contract, timeout time.Duration, fn chatFunction) (string, *llm.Usage, error) {
 	// ── 第1步：critique ─────────────────────────────────────
 	critiquePrompt := buildCritiquePrompt(c, firstOutput)
 	critMessages := []llm.ChatMessage{
@@ -36,7 +40,7 @@ func critiqueRevise(origMessages []llm.ChatMessage, firstOutput string, c Contra
 		{Role: "user", Content: critiquePrompt},
 	}
 
-	critOutput, critUsage, err := chatFunc(critMessages, timeout)
+	critOutput, critUsage, err := fn(critMessages, timeout)
 	if err != nil {
 		// critique 自身失败：返回原输出，附带说明
 		return firstOutput, critUsage, fmt.Errorf("critique 调用失败: %w", err)
@@ -72,7 +76,7 @@ func critiqueRevise(origMessages []llm.ChatMessage, firstOutput string, c Contra
 		llm.ChatMessage{Role: "assistant", Content: firstOutput},
 		llm.ChatMessage{Role: "user", Content: reviseMsg})
 
-	revised, reviseUsage, err := chatFunc(reviseMessages, timeout)
+	revised, reviseUsage, err := fn(reviseMessages, timeout)
 	totalUsage := critUsage
 	if reviseUsage != nil {
 		if totalUsage == nil {

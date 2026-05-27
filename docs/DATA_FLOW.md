@@ -213,23 +213,128 @@ glue.healthCheckLoop
   - 层1 提示词基线（AntiLazy / RequireEvidence）
   - 层2 输出校验+重试（OutputFormat / JSONSchema / MaxRetries）
   - 层3 Critique-Revise（Critique，约翻倍成本）
-**已对接调用方：** 4 (think_plugin handleChat 默认路径 + skill_factory 三处：classifyOutputType/fillTemplate/generateWorkflow)
-**待迁移调用方：** 5 (think_plugin 其他 5 处 `llm.ChatCompletionWithUsage`：query rewrite/synthesize 等辅助调用)
+**已对接调用方：** 8（think_plugin 4 处 + skill_factory 3 处 + tool_synthesis 1 处）
+**待迁移调用方：** 0（think_plugin / skill_factory 的所有 LLM 调用都已进 llmguard 漏斗）
+**维度化 API（Contract 构造器）：**
+  - `ForStructure(format, fields, retries)` — 结构维度（层 2 强制：OutputFormat + JSONSchema + retry）
+  - `ForContent()` — 内容维度（层 1 半强制：AntiLazy 基线）
+  - `ForFacts()` — 事实维度（层 1+4 强制：RequireEvidence + AntiLazy + Critique）
+  - 组合：`.WithStructure() / .WithContent() / .WithFacts() / .WithCritique() / .WithEvidence() / .WithRetries()`
 **契约使用模式：**
-  - think_plugin.handleChat → `Contract{AntiLazy:true}` (自然语言聊天)
-  - skill_factory.classifyOutputType → `Contract{AntiLazy:true}` (单词分类)
-  - skill_factory.fillTemplate → `Contract{OutputFormat:"json", JSONSchema:"name", AntiLazy:true, MaxRetries:1}` (结构化填充)
-  - skill_factory.generateWorkflow → `Contract{AntiLazy:true}` (YAML 全量生成，无 YAML 校验暂用 AntiLazy)
-**验证日期：** 2026-05-27 (skill_factory 迁移)
+  - think_plugin.handleChat (默认+provider) → `ForContent()` (自然语言对话)
+  - think_plugin.handleChatNoRetrieval (默认+provider) → `ForContent()` (无检索直答)
+  - think_plugin.tool_synthesis → `ForContent()` (工具结果合成自然语言)
+  - think_plugin.query_rewrite → `Contract{}` (机械变换，零契约省 token)
+  - skill_factory.classifyOutputType → `ForContent()` (单词分类)
+  - skill_factory.fillTemplate → `ForStructure("json", "name", 1).WithContent()` (结构化模板填充)
+  - skill_factory.generateWorkflow → `ForContent()` (YAML 全量生成)
+**ChatWithProvider 入口：** 用于 workflow per-step provider override，与 Chat 共享 chatCore 逻辑
+**验证日期：** 2026-05-27 (维度化 API + 5 处新增接入)
+
+---
+
+### 路径 I：L4 → L3 工具调用（✅ 已验证 2026-05-27）
+
+```
+plugin.OnMessage(msg)
+  → tools.ValidateAndExecute(msg.Type, msg.Payload)  [硬化层入口]
+    → registry.Get(msg.Type)  [按 msg.Type 查 tool 定义]
+    → schema 校验 args（JSONSchema 字段+类型）
+    → ToolFunc(args) 执行（zero-IO 约定，超时由调用方控制）
+    → 返回 ToolResult{Success, Output, Error}
+  → plugin 包装为 kernel.Message{Type:"<原 type>.result", Payload}
+```
+
+**注入点（举例）：** 11 处主调用，含 `todo_plugin.OnMessage:16` / `search_plugin.OnMessage:212` / `claude_plugin.OnMessage:22` / `tts_plugin.OnMessage:19` 等
+**硬化保证：** 所有工具入参经 schema 校验，越界/缺字段直接拒绝；NEVER 调 `tools.Execute` 跳过校验
+**验证日期：** 2026-05-27
+
+---
+
+### 路径 J：YAML workflow 引擎执行（✅ 已验证 2026-05-27）
+
+```
+kernel.Send(msg{Type:"workflow_run", Payload:{workflow:"name"}})
+  → workflow_plugin.OnMessage(msg)
+    → workflow.Engine.Run(workflowID, input)
+      → 加载 workflows/<name>.yaml → 解析 WorkflowDef
+      → 检查 def.Trigger.Type:
+          "event" → log 警告并跳过（占位 TODO）
+          "scheduled" → 跳过（由 scheduler_plugin 管理）
+          其他 → 正常执行
+      → 顺序执行 def.Steps:
+          step.Plugin == "human_confirm" → 立即返回
+            WorkflowResult{NeedsConfirm:true, ConfirmMessage, ConfirmWorkflow}
+          否则 → kernel.Call(plugin, type, input)
+            ↑ 步骤间通过 ${steps.X.output} 引用上一步输出
+          求值 step.Next 条件路由（NextList 支持 if/default）
+      → if def.OutputTarget != "chat":
+          go routeOutput(def, result)  [异步：notify/knowledge/dashboard]
+    → 返回 WorkflowResult JSON
+  → kernel.Message{Type:"workflow.result", Payload}
+```
+
+**入口：** `plugins/workflow_plugin.go` → `internal/workflow/engine.go:Engine.Run`
+**支持类型：** `WorkflowDef.OutputTarget`（chat/dashboard/notify/knowledge）+ `Trigger`（manual/scheduled/event 占位）+ `human_confirm` 伪步骤
+**已注册 YAML：** 40 个工作流（workflows/*.yaml）
+**验证日期：** 2026-05-27
+
+---
+
+### 路径 K：Go-DSL workflow 引擎执行（✅ 已验证 2026-05-27）
+
+```
+kernel.Send(msg{Type:"legal_review", Recipient:"legal_review_v2_plugin"})
+  → GoWorkflowPlugin.OnMessage(msg)
+    → GoExecutor.Run(GoWorkflow{Name, Steps}, rawInput)
+      → 顺序执行 GoStep:
+          GoStepTool      → kernel.Call(toolHost[step.Tool], ...)
+          GoStepPlugin    → kernel.Call(step.Recipient, step.MsgType, ...)
+          GoStepTransform → step.TransformFn(ctx, input)  [纯 Go 函数]
+          GoStepChain     → 顺序执行 step.SubSteps
+          GoStepParallel  → 并发执行 step.SubSteps
+      → BeforeExecute/AfterExecute 中间件钩子
+      → MaxRetries + RetryDelay + Fallback + OnError 策略
+      → step.OutputVar → 注册到 ctx 供后续步骤引用
+    → 返回 WorkflowResult（与 YAML 引擎结构兼容）
+  → kernel.Message{Type:"workflow.result", Payload}
+```
+
+**入口：** `cmd/beishan/legal_review_go_dsl.go` → `internal/workflow/gods_executor.go:GoExecutor.Run`
+**已注册 Go-DSL：** 1 个（`legal_review`，编译时硬化链）
+**与 YAML 引擎差异：** 编译时类型安全；不可热更；ToolHost 映射零校验（与 agent runner 不一致，docs/KNOWN_LIMITATIONS.md 已登记）
+**验证日期：** 2026-05-27
+
+---
+
+### 路径 L：sub-agent 委派（✅ 已验证 2026-05-27）
+
+```
+HTTP /api/agents/run 或 think_plugin tool 调用
+  → agent.RunSubagent(ctx, taskID, prompt, Definition, timeout)
+    → 加载 Definition{AllowedTools, MaxSteps, SystemPrompt}
+    → 多轮对话循环:
+        LLM 生成回复（受 system + 历史约束）
+        解析工具调用 JSON
+        kernel.Call(tool, args)  [受 AllowedTools 白名单约束]
+        工具结果追加到对话
+    → 终止条件：完成 / 超过 MaxSteps / 超时 / 工具拒绝
+  → 返回 SubagentResult{Output, Steps, TokensUsed}
+
+并行版本：
+  → agent.RunParallel(ctx, tasks, timeout)
+    → 每个任务独立 goroutine + RunSubagent
+    → 汇总所有结果
+```
+
+**入口：** `cmd/beishan/main.go:324/382/393`（HTTP 处理器）+ `internal/tools/tools.go:93/97`（工具入口 spawn_subagent / spawn_parallel）
+**安全保证：** Definition.AllowedTools 白名单 + MaxSteps 步数上限 + 超时
+**已定义 agents：** Definition 在 internal/agent/definition.go 注册
+**验证日期：** 2026-05-27
 
 ---
 
 ## 待验证路径（需要补充）
-
-- 路径 I：L4 → L3 tool 调用（`kernel.Call` → `ValidateAndExecute`）
-- 路径 J：YAML workflow 引擎执行
-- 路径 K：Go-DSL 引擎执行
-- 路径 L：sub-agent 委派（`internal/agent/runner.go`）
 
 ---
 
