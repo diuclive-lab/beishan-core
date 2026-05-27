@@ -666,6 +666,56 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(data)
 	})
 
+		// ── 知识入库 API（多渠道采集）──
+		mux.HandleFunc("/api/ingest", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+				return
+			}
+
+			var req struct {
+				SourceType string   `json:"source_type"`
+				Title      string   `json:"title"`
+				Summary    string   `json:"summary"`
+				URL        string   `json:"url"`
+				Content    string   `json:"content"`
+				Tags       []string `json:"tags"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: " + err.Error()})
+				return
+			}
+
+			if req.SourceType == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "source_type is required (link / open_source_community / image / article / note)"})
+				return
+			}
+			if req.Title == "" && req.Summary == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "title or summary is required"})
+				return
+			}
+
+			rawRef := req.URL
+			summary := req.Summary
+			if req.URL != "" && summary != "" {
+				summary = summary + "\n来源: " + req.URL
+			} else if req.URL != "" {
+				summary = "来源: " + req.URL
+			}
+
+			result := tools.KnowledgeAdd(req.SourceType, req.Title, summary, req.Tags, nil, nil, nil, rawRef, req.Content, "")
+			w.Header().Set("Content-Type", "application/json")
+			if !result.Success {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			w.Write([]byte(result.Output))
+		})
+
 	addr := ":8013"
 	if p := os.Getenv("PORT"); p != "" {
 		addr = ":" + p
