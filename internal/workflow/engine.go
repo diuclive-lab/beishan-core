@@ -33,14 +33,6 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		return nil, err
 	}
 
-	// ── 触发机制检查 ──────────────────────────────────────────────
-	// event 类型触发当前未实装，打印警告让运维人员知道。
-	// TODO(event-trigger): 实装后删除此警告，改为注册 observatory 订阅者。
-	if def.Trigger != nil && def.Trigger.Type == "event" {
-		log.Printf("[workflow] %s: trigger.type=event 尚未实装（event_type=%s），当前作为 manual 执行",
-			workflowID, def.Trigger.EventType)
-	}
-
 	// Unquote input JSON string: JSON `"abc"` → Go `abc`
 	inputStr := string(input)
 	var unquoted string
