@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -437,6 +438,31 @@ func main() {
 	k.SessionHandler = func(sessionID string, msg kernel.Message) {
 		sessionResults.Store(sessionID, msg)
 		log.Printf("[main] session 结果已存储: %s", sessionID)
+	}
+
+	// ─── Embedding sidecar ──────────────────────────
+	// 启动 nomic-embed-text-v1.5 作为 embedding 推理服务
+	embeddingModel := "/Users/dc/.lmstudio/.internal/bundled-models/nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q4_K_M.gguf"
+	embeddingPort := 8092
+	if err := gl.StartSidecar("nomic-embed", "llama-server", []string{
+		"--embeddings", "--pooling", "mean",
+		"--model", embeddingModel,
+		"--port", fmt.Sprintf("%d", embeddingPort),
+		"--api-key", "local-dev",
+	}, embeddingPort); err != nil {
+		log.Printf("[main] embedding sidecar 启动失败: %v（语义搜索不可用）", err)
+	} else {
+		// 等待 sidecar 就绪
+		for i := 0; i < 15; i++ {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", embeddingPort), 1*time.Second)
+			if err == nil {
+				conn.Close()
+				tools.SetEmbeddingEndpoint(fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", embeddingPort))
+				log.Printf("[main] embedding sidecar 就绪，语义搜索已启用")
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
 	// ─── HTTP API ──────────────────────────────────

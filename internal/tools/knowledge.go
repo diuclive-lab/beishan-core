@@ -650,7 +650,18 @@ func FormatForPrompt(entries []ScoredEntry) string {
 
 /* ─── embedding 引擎 ────────────────────────── */
 
+var forcedEmbeddingEndpoint string
+
+// SetEmbeddingEndpoint 程序化设置 embedding API 端点，覆盖环境变量。
+// 由 main.go 在启动 embedding sidecar 后调用，使语义搜索可用。
+func SetEmbeddingEndpoint(url string) {
+	forcedEmbeddingEndpoint = url
+}
+
 func embeddingEndpoint() string {
+	if forcedEmbeddingEndpoint != "" {
+		return forcedEmbeddingEndpoint
+	}
 	return os.Getenv("EMBEDDING_ENDPOINT")
 }
 func embeddingModel() string {

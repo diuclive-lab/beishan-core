@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"net"
 
 	"beishan/internal/observatory"
 	"syscall"
@@ -34,13 +35,25 @@ const (
    内核不直接感知 Python 插件的存在，只看到 GlueLayer 实现了 Plugin 接口。
 */
 type GlueLayer struct {
-	kernel   *kernel.Kernel
-	dir      string          // 插件目录路径
-	procs    map[string]*proc // 插件名 → 子进程
-	mu       sync.RWMutex
-	manifests []Manifest     // 存 manifest 用于重启
-	stopHealth chan struct{}
+	kernel       *kernel.Kernel
+	dir          string            // 插件目录路径
+	procs        map[string]*proc  // 插件名 → 子进程
+	mu           sync.RWMutex
+	manifests    []Manifest        // 存 manifest 用于重启
+	stopHealth   chan struct{}
 	rightFlowers map[string]string // name → health endpoint, registered by main.go
+	sidecars     map[string]*sidecar // name → sidecar 进程
+}
+
+// sidecar 是一个由 glue 管理生命周期的辅助进程（HTTP 服务，非 IPC 插件）。
+// 典型用途：embedding 模型服务器、本地推理引擎等。
+type sidecar struct {
+	name      string
+	cmd       *exec.Cmd
+	port      int           // 服务端口，0=不暴露 HTTP
+	alive     bool
+	restarts  int
+	lastRest  time.Time
 }
 
 /* proc 代表一个 Python 插件子进程。 */
@@ -63,6 +76,7 @@ func New(k *kernel.Kernel, pluginDir string) *GlueLayer {
 		dir:          pluginDir,
 		procs:        make(map[string]*proc),
 		rightFlowers: make(map[string]string),
+		sidecars:     make(map[string]*sidecar),
 	}
 }
 
@@ -340,6 +354,26 @@ func (g *GlueLayer) healthCheckLoop() {
 			}
 			g.mu.RUnlock()
 
+			// Check sidecar health (TCP dial to port if alive flag is true)
+			g.mu.RLock()
+			sidecarDead := make([]string, 0)
+			for name, s := range g.sidecars {
+				if !s.alive {
+					sidecarDead = append(sidecarDead, name)
+					continue
+				}
+				if s.port > 0 {
+					conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.port), 2*time.Second)
+					if err != nil {
+						s.alive = false
+						sidecarDead = append(sidecarDead, name)
+					} else {
+						conn.Close()
+					}
+				}
+			}
+			g.mu.RUnlock()
+
 			// Check right flower health
 			rfStatus := g.RightFlowerStatus()
 			rfAlive := 0
@@ -350,7 +384,7 @@ func (g *GlueLayer) healthCheckLoop() {
 			}
 
 			// Unified health report to observatory Pulse
-			ok := len(names) == 0
+			ok := len(names) == 0 && len(sidecarDead) == 0
 			pulse := observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
 				"subprocess_alive":  float64(len(g.procs) - len(names)),
 				"subprocess_dead":   float64(len(names)),
@@ -363,6 +397,13 @@ func (g *GlueLayer) healthCheckLoop() {
 				log.Printf("[Glue] subprocess %s dead, restarting", name)
 				if err := g.respawn(name); err != nil {
 					log.Printf("[Glue] subprocess %s restart failed: %v", name, err)
+				}
+			}
+
+			for _, name := range sidecarDead {
+				log.Printf("[Glue] sidecar %s dead, restarting", name)
+				if err := g.restartSidecar(name); err != nil {
+					log.Printf("[Glue] sidecar %s restart failed: %v", name, err)
 				}
 			}
 
@@ -473,11 +514,11 @@ type ProcInfo struct {
 	Restarts int    `json:"restarts"`
 }
 
-// ProcStatus 返回所有子进程的状态快照。
+// ProcStatus 返回所有子进程和 sidecar 的状态快照。
 func (g *GlueLayer) ProcStatus() []ProcInfo {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	procs := make([]ProcInfo, 0, len(g.procs))
+	procs := make([]ProcInfo, 0, len(g.procs)+len(g.sidecars))
 	for name, p := range g.procs {
 		procs = append(procs, ProcInfo{
 			Name:     name,
@@ -485,9 +526,81 @@ func (g *GlueLayer) ProcStatus() []ProcInfo {
 			Restarts: p.restarts,
 		})
 	}
+	for name, s := range g.sidecars {
+		procs = append(procs, ProcInfo{
+			Name:     "S:" + name,
+			Alive:    s.alive,
+			Restarts: s.restarts,
+		})
+	}
 	sort.Slice(procs, func(i, j int) bool { return procs[i].Name < procs[j].Name })
 	return procs
 }
+
+/* StartSidecar 启动一个辅助进程（HTTP 服务，非 IPC 插件）。
+   sidecar 由 glue 的健康检查循环管理：进程死掉自动重启。
+   port=0 表示不提供 HTTP 服务（仅进程存活检查）。 */
+func (g *GlueLayer) StartSidecar(name, command string, args []string, port int) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if _, exists := g.sidecars[name]; exists {
+		return fmt.Errorf("sidecar %s already exists", name)
+	}
+
+	cmd := exec.Command(command, args...)
+	cmd.Stdout = log.Writer()
+	cmd.Stderr = log.Writer()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("sidecar %s start failed: %w", name, err)
+	}
+
+	sc := &sidecar{
+		name:     name,
+		cmd:      cmd,
+		port:     port,
+		alive:    true,
+		restarts: 0,
+		lastRest: time.Now(),
+	}
+	g.sidecars[name] = sc
+
+	log.Printf("[Glue] sidecar %s 已启动 (PID %d, port %d)", name, cmd.Process.Pid, port)
+
+	// 监控 goroutine：进程退出时标记 alive=false
+	go func() {
+		cmd.Wait()
+		g.mu.Lock()
+		if s, ok := g.sidecars[name]; ok {
+			s.alive = false
+		}
+		g.mu.Unlock()
+		log.Printf("[Glue] sidecar %s 已退出", name)
+	}()
+
+	return nil
+}
+
+/* restartSidecar 重启指定名称的 sidecar。 */
+func (g *GlueLayer) restartSidecar(name string) error {
+	g.mu.Lock()
+	s, ok := g.sidecars[name]
+	if !ok {
+		g.mu.Unlock()
+		return fmt.Errorf("sidecar %s not found", name)
+	}
+	cmd := s.cmd
+	args := cmd.Args[1:]
+	command := cmd.Args[0]
+	g.mu.Unlock()
+
+	if cmd.Process != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
+	}
+	return g.StartSidecar(name, command, args, s.port)
+}
+
 
 /* Shutdown 关闭所有子进程。
 
@@ -523,7 +636,15 @@ func (g *GlueLayer) Shutdown() {
 			log.Printf("[Glue] 插件 %s 强制终止（进程树）", name)
 		}
 	}
+
+	for name, s := range g.sidecars {
+		if s.cmd != nil && s.cmd.Process != nil {
+			killProcessTree(s.cmd)
+			log.Printf("[Glue] sidecar %s 已终止", name)
+		}
+	}
 }
+
 
 /* newTraceID 生成 8 字节随机全链路追踪 ID。
 
