@@ -9,17 +9,21 @@
 
 ## 已验证路径
 
-### 路径 A：普通聊天（✅ 已验证）
+### 路径 A：普通聊天 + 三级路由（✅ 已验证）
 
 ```
 HTTP POST /api/chat
   → cmd/beishan/main.go: mux.HandleFunc("/api/chat")
-  → kernel.Call(msg, 120s)
+  → 一级: preRoute  → highFreqRoute (精确白名单)
+    → 匹配 → 直接设 Recipient + Type + Payload → kernel.Call
+  → 二级: evidence_router (规则引擎 + EWMA 权重)
+    → 匹配 → 设 Recipient + Type + Payload → kernel.Call
+  → 三级: Router.Route(msg)  [Recipient 仍为空时触发]
+    → callDeepSeek(prompt)
+    → parseDecision(raw)  [三层校验: JSON + confidence≥0.4 + recipient白名单]
+  → kernel.Call(msg, timeout)
     → kernel.Send(msg)
-      → Router.Route(msg)  [Recipient 为空时触发]
-        → callDeepSeek(prompt)
-        → parseDecision(raw)  [三层校验: JSON + confidence≥0.4 + recipient白名单]
-      → plugin.OnMessage(msg)  [路由到对应插件]
+    → plugin.OnMessage(msg)  [路由到对应插件]
   → kernel.deliverResponse  [通过 CorrelationID channel 返回]
   → HTTP response: json.NewEncoder(w).Encode(resp)
 ```

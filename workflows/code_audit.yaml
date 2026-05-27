@@ -1,0 +1,191 @@
+# 代码审计工作流 v2.5 — 审计-诊断-验证三阶段闭环
+#
+# 遵循 docs/CODING_RHYTHM.md 方法论
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"code_audit","input":"internal/tools/"}}
+
+id: code_audit
+
+steps:
+
+  # ════════════════════════════════════════════════════════
+  # 阶段一：审计（L3 Go 工具优先，零 LLM）
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 1: 扫描源码文件树 ──
+  - id: scan_tree
+    plugin: memory_plugin
+    type: code_tree
+    timeout: 20
+    on_error: scan_tree_fallback
+    inputs:
+      root: "${input}"
+      list_files: true
+      lang: "go"
+    next: scan_metrics
+
+  # 降级：终端命令扫描
+  - id: scan_tree_fallback
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 30
+    on_error: scan_todos
+    inputs:
+      command: >-
+        echo "=== FILES ===" && find ${input} -name '*.go' -not -path '*/.git/*' | sort | head -80
+    next: scan_metrics
+
+  # ── Step 2: 静态度量（并行） ──
+  - id: scan_metrics
+    type: parallel
+    timeout: 30
+    steps:
+      - id: func_size
+        plugin: memory_plugin
+        type: go_struct_scan
+        inputs:
+          root: "${input}"
+      - id: file_stats
+        plugin: memory_plugin
+        type: code_stats
+        inputs:
+          root: "${input}"
+          list_files: true
+          limit: 30
+    next: scan_todos
+
+  # ── Step 3: 扫描 TODO/UNIMPLEMENTED ──
+  - id: scan_todos
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 15
+    on_error: scan_dispersion
+    inputs:
+      command: >-
+        echo "=== TODO/FIXME ===" &&
+        grep -rn 'TODO\|FIXME\|HACK\|XXX' ${input} --include='*.go' | grep -v '_test.go' | grep -v vendor | head -30 &&
+        echo "=== UNIMPLEMENTED ===" &&
+        grep -rn 'UNIMPLEMENTED' ${input} --include='*.go' | grep -v '_test.go' | head -10
+    next: scan_dispersion
+
+  # ── Step 4: 扫描概念分散 + 硬化层绕过 ──
+  - id: scan_dispersion
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 15
+    on_error: test_baseline
+    inputs:
+      command: >-
+        echo "=== CORE CONCEPT DISPERSION ===" &&
+        for word in "Register(" "ValidateAndExecute" "Recipient" "MsgType"; do
+          files=$(grep -rln "$word" ${input} --include='*.go' | grep -v '_test.go' | grep -v vendor | wc -l | tr -d ' ')
+          echo "  $word: $files 个文件"
+        done &&
+        echo "=== DIRECT FS CALLS ===" &&
+        grep -rn 'os\.\(ReadFile\|WriteFile\|Open\|Create\|Remove\|MkdirAll\)' ${input} --include='*.go' | grep -v '_test.go' | grep -v vendor | head -15
+    next: test_baseline
+
+  # ── Step 5: 运行测试基线 ──
+  - id: test_baseline
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 120
+    on_error: done
+    inputs:
+      command: >-
+        cd /Users/dc/Desktop/0 && go test ./${input}... 2>&1 | tail -10
+    next: diagnose
+
+  # ════════════════════════════════════════════════════════
+  # 阶段二：LLM 诊断
+  # ════════════════════════════════════════════════════════
+
+  # ── Step 6: LLM 诊断 ──
+  - id: diagnose
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 300
+    retry: 1
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        你是代码审计专家。根据以下扫描数据，对 ${input} 目录做诊断分析。
+
+        按五类模式归类问题：
+        1. 割裂：同一概念在多个位置独立定义
+        2. 混杂：一个函数承担多个不相关职责
+        3. 断路：功能已实现但未接入主流程
+        4. 不一致：同类操作执行标准不同
+        5. 死代码：完整实现但零调用
+
+        每项必须标注证据等级：E1=扫描直接证据 E2=测试推断 E3=历史推断 E4=推测
+
+        输出严格 JSON（不要 markdown 包裹）：
+        {
+          "summary": {"total_issues": N, "by_category": {"fragmentation": N, "mixing": N, "disconnected": N, "inconsistent": N, "deadcode": N}},
+          "issues": [
+            {"category": "", "location": "", "phenomenon": "", "evidence": "E1", "source": "", "impact": "", "fix": ""}
+          ],
+          "gap_analysis": {"skipped_areas": [], "coverage_pct": 0.0},
+          "recommended_first": ""
+        }
+
+        ${steps.scan_tree.output}
+        ${steps.scan_metrics.output}
+        ${steps.scan_todos.output}
+        ${steps.scan_dispersion.output}
+        ${steps.test_baseline.output}
+    next: gap_analysis
+
+  # ── Step 7: 缺口分析 ──
+  - id: gap_analysis
+    provider: deepseek
+    plugin: think_plugin
+    type: chat
+    timeout: 60
+    on_error: save
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        基于诊断结果补充缺口分析。输出严格 JSON：
+        {"skipped_areas": [], "partial_failure": false, "coverage_pct": 0.0, "next_audit_suggestion": ""}
+
+        诊断: ${steps.diagnose.output}
+    next: save
+
+  # ════════════════════════════════════════════════════════
+  # 阶段三：知识入库
+  # ════════════════════════════════════════════════════════
+
+  - id: save
+    plugin: memory_plugin
+    type: knowledge_add
+    timeout: 15
+    on_error: done
+    inputs:
+      source_type: "code"
+      title: "代码审计: ${input}"
+      summary: "审计 ${input} | ${steps.diagnose.output.summary.total_issues} 项问题"
+      tags: ["code_audit", "${input}"]
+      content: "${steps.diagnose.output}"
+    next: done
+
+  - id: done
+    plugin: think_plugin
+    type: chat
+    timeout: 30
+    inputs:
+      mode: "no_retrieval"
+      message: >-
+        审计完成: ${input} | ${steps.diagnose.output.summary.total_issues} 项问题
+        优先修复: ${steps.diagnose.output.recommended_first}
+        覆盖率: ${steps.gap_analysis.output.coverage_pct}
+        已入库。
