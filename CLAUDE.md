@@ -68,6 +68,21 @@ kernel.Kernel  ─── 按 recipient 转发
 5. **Gap analysis required** — every absorption must document what was NOT absorbed and why.
 6. **Design decision vs omission** — if 3 lines can fix it, it was an omission, not a decision.
 
+## 知识检索架构（两套向量，勿混淆）
+
+主搜索管道 `searchMemoryFull` 三层：
+- **L0 关键词**：`SearchWithScore`（支持中文滑动窗口 `stringContainsAny`）
+- **L0.5 图扩展**：TypedLink 链式跟踪（supersedes/contradicts/evolves_from）
+- **L1 API 语义**：`searchByEmbedding` → 使用 `entry.Embedding` 字段
+  需配置 `EMBEDDING_ENDPOINT`，通过 `knowledge_reindex` 批量填充
+
+独立于主管道的 BOW 词袋系统：
+- **存储**：`{id}.embed.json`（512 维本地哈希向量）
+- **工具**：`knowledge_embed` / `knowledge_embed_all` / `knowledge_semantic_search` / `knowledge_heal`
+- **不参与主搜索管道**，仅用于手动语义搜索和重复检测
+
+**勿将 `.embed.json`（BOW 512 维）与 `entry.Embedding`（API 向量）混淆。** 两者独立，修一个不影响另一个。
+
 ## Right Flower Protocol (concrete example)
 
 ```json
@@ -272,7 +287,7 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 |-----|----------|---------|-------|
 | DEEPSEEK_API_KEY | ✅ Yes | — | At least one API key needed |
 | LLM_API_KEY | No | same as DEEPSEEK | Fallback if DEEPSEEK not set |
-| EMBEDDING_ENDPOINT | No | — | Enables semantic search (not configured yet) |
+| EMBEDDING_ENDPOINT | No | — | 由 glue 自动启动 nomic-embed sidecar 并设置，通常不需手动配 |
 | RIGHTFLOWER_ENDPOINT | No | localhost:9529/dispatch | Right flower dispatch |
 | LLM_PROVIDER | No | deepseek | deepseek / openai / xiaomi / local |
 | LLM_PROVIDERS_CONFIG | No | — | Path to extra providers JSON config file |
@@ -299,7 +314,7 @@ fa63a5a fix: terminal_plugin Payload JSON 编码 + preRoute 全面审查修复
 - 全测试：21 个包全绿 ✅
 
 **Unfinished** (ask user before implementing):
-- Embedding endpoint (was Qwen 27B — too heavy, use gemma-4-E4B next)
+- Embedding endpoint (已启用: nomic-embed-text-v1.5 via glue sidecar, 768 维)
 - LLM function calling API (currently text-mode JSON parsing)
 - Cross-platform deploy (launchd is macOS-only, needs systemd/Docker)
 - Event subscribers (log-only, no automated reactions)
@@ -325,7 +340,7 @@ tail -f eval/run/events/events_$(date +%Y%m%d).jsonl
 # Agent conversations:
 ls eval/run/conversations/
 
-# Embedding model (llama.cpp on port 8090):
+# Embedding model (nomic-embed via glue sidecar, port 8092):
 curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-dev" ...
 ```
 
