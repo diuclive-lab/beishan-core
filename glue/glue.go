@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"beishan/internal/observatory"
@@ -463,6 +464,29 @@ func (g *GlueLayer) RightFlowerStatus() map[string]bool {
 		}
 	}
 	return status
+}
+
+// ProcInfo 子进程状态快照。
+type ProcInfo struct {
+	Name     string `json:"name"`
+	Alive    bool   `json:"alive"`
+	Restarts int    `json:"restarts"`
+}
+
+// ProcStatus 返回所有子进程的状态快照。
+func (g *GlueLayer) ProcStatus() []ProcInfo {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	procs := make([]ProcInfo, 0, len(g.procs))
+	for name, p := range g.procs {
+		procs = append(procs, ProcInfo{
+			Name:     name,
+			Alive:    p.alive,
+			Restarts: p.restarts,
+		})
+	}
+	sort.Slice(procs, func(i, j int) bool { return procs[i].Name < procs[j].Name })
+	return procs
 }
 
 /* Shutdown 关闭所有子进程。

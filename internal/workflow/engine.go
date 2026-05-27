@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"beishan/internal/observatory"
 	"beishan/kernel"
 	"gopkg.in/yaml.v3"
 )
@@ -465,6 +466,45 @@ func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int
 	ctx["steps."+step.ID+".count"] = len(filled)
 	ctx["steps."+step.ID+".errors"] = len(errs)
 	return result
+}
+
+// InitEventSubscriptions 扫描所有工作流 YAML，为 type=event 的触发器注册 observatory 订阅者。
+// 订阅者收到匹配事件时，在独立 goroutine 中自动执行对应工作流。
+// 必须在工作流引擎初始化完成后调用一次。
+func (e *Engine) InitEventSubscriptions() {
+	entries, err := os.ReadDir(e.Dir)
+	if err != nil {
+		log.Printf("[workflow] 无法读取工作流目录: %v", err)
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".yaml")
+		def, err := e.load(id)
+		if err != nil {
+			continue
+		}
+		if def.Trigger != nil && def.Trigger.Type == "event" && def.Trigger.EventType != "" {
+			eventType := def.Trigger.EventType
+			wfID := id
+			observatory.Subscribe(eventType, func(evt observatory.Event) {
+				// 必须在 goroutine 中执行 — observatory 要求 handler 快速返回
+				go func() {
+					payload, _ := json.Marshal(map[string]string{"workflow": wfID})
+					if err := e.Kernel.Send(kernel.Message{
+						Recipient: "workflow_plugin",
+						Type:      "workflow_run",
+						Payload:   payload,
+					}); err != nil {
+						log.Printf("[workflow] event-trigger 执行失败 %s: %v", wfID, err)
+					}
+				}()
+			})
+			log.Printf("[workflow] event-trigger 注册: %q → 自动执行 %s", eventType, wfID)
+		}
+	}
 }
 
 func (e *Engine) load(id string) (*WorkflowDef, error) {

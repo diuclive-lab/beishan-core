@@ -8,6 +8,10 @@
 
 id: kb_hygiene
 
+trigger:
+  type: event
+  event_type: "agent.complete"
+
 steps:
   - id: audit
     plugin: memory_plugin

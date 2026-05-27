@@ -338,11 +338,33 @@ HTTP /api/agents/run 或 think_plugin tool 调用
 
 ---
 
-## 待验证路径（需要补充）
+### 路径 N：统一系统状态端点（✅ 已完成 2026-05-27）
+
+```
+GET /status
+  → 聚合以下数据源：
+    1. 运行时间: time.Since(startTime).Seconds()
+    2. 工具数: len(tools.Registry)
+    3. 插件列表: k.KnownPlugins()
+    4. observatory 快照: CollectSnapshotJSON()
+       └── trace 统计 + 事件统计(按类型) + 健康 Pulse
+    5. 子进程状态: gl.ProcStatus()
+       └── 名称 + 存活 + 重启次数
+    6. 右花健康: gl.RightFlowerStatus()
+       └── 名称 → 是否可达
+    7. 校准状态: CalibStatus()
+       └── 每内容类型：精度、样本数、阈值、自动模式标志
+  → HTTP 200 JSON 统一响应
+```
+
+**入口：** `cmd/beishan/main.go` — `GET /status`
+**新增方法：** `glue/glue.go` — `ProcStatus()` 暴露子进程状态
+**数据源整合：** observatory metrics + glue subprocess/rightflower + tools registry + calibration
+**关联端点：** `GET /metrics` 保留原 observatory 快照（向后兼容）
+**验证日期：** 2026-05-27
+**验证方式：** `curl http://localhost:8013/status | python3 -m json.tool` — 输出包含全部 7 个字段
 
 ---
-
-## 维护规则
 
 1. 每次新增功能，在本文件增加对应路径
 2. 修复一个断路，将 ❌ 改为 ✅，并注明验证日期

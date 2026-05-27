@@ -264,6 +264,7 @@ func main() {
 		Types:       []string{"workflow_run"},
 	})
 
+		wfEngine.InitEventSubscriptions()
 
 	// 扫描 workflows/ 目录，注入 Router workflow 摘要
 	workflowDir := "./workflows"
@@ -458,6 +459,21 @@ func main() {
 		}
 		snapshot["knowledge_calibration"] = plugins.CalibStatus()
 		data, _ := json.MarshalIndent(snapshot, "", "  ")
+		w.Write(data)
+	})
+
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		status := map[string]interface{}{
+			"uptime_seconds": time.Since(startTime).Seconds(),
+			"tools":          len(tools.Registry),
+			"plugins":        k.KnownPlugins(),
+			"observatory":    json.RawMessage(observatory.CollectSnapshotJSON()),
+			"subprocesses":   gl.ProcStatus(),
+			"right_flowers":  gl.RightFlowerStatus(),
+			"calibration":    plugins.CalibStatus(),
+		}
+		data, _ := json.MarshalIndent(status, "", "  ")
 		w.Write(data)
 	})
 

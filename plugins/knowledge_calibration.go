@@ -34,7 +34,7 @@ var autoThresholds = map[string]float64{
 }
 
 const (
-	calibMinSamples = 10 // 最小样本量（低于此值不开启自动模式）
+	calibMinSamples = 5 // 最小样本量（低于此值不开启自动模式。设 5 让开发者在冷启动期能验证机制工作，5 条确认/拒绝即可看到精度趋势）
 	calibWindow     = 20 // 滑动窗口大小（只看最近 N 条）
 )
 
