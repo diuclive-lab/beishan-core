@@ -17,7 +17,7 @@ beishan-core-launch.sh
 generated/
 
 # 编译产物
-beishan
+/beishan
 beishan-core
 beishan-core-dev
 repl
