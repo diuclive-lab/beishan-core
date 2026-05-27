@@ -68,21 +68,23 @@ func FormatForPromptFull(results []RetrievalResult) string {
 		// 来源标注
 		prefix := ""
 		switch r.Source {
+		case KindDirect:
+			prefix = "【知识库】"
 		case KindLinked:
 			switch r.LinkType {
 			case "contradicts":
-				prefix = "⚠️ "
+				prefix = "【知识库⚠️矛盾】"
 			case "supersedes":
-				prefix = "📎 "
+				prefix = "【知识库📎演进】"
 			default:
-				prefix = "🔗 "
+				prefix = "【知识库🔗关联】"
 			}
 		case KindSemantic:
-			prefix = "🔍 "
+			prefix = "【知识库🔍语义】"
 		case KindCode:
-			prefix = "📁 "
+			prefix = "【代码库】"
 		case KindEpisodic:
-			prefix = "🕐 "
+			prefix = "【对话记忆】"
 		}
 		// 代码结果用文件路径作为标题
 		if r.Source == KindCode && r.FilePath != "" {

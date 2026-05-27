@@ -180,6 +180,26 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 - 新特性先在开发环境验证
 
 
+## 15. Go-DSL 执行器不走硬化层（设计决策）
+
+`internal/workflow/gods_executor.go` 的 `callStep` 直接调 `kernel.Call`，不经 `ValidateAndExecute`。
+
+**不是遗漏**：`ValidateAndExecute` 的防护目标是用户输入（路径穿越、命令注入）。Go-DSL 步骤由开发者定义在 Go 代码中，不含用户输入，该层防护在此无意义。
+
+**边界**：若未来允许用户通过 UI 动态定义 Go-DSL 步骤，须重新评估此决策。
+
+---
+
+## 16. deleteReviewFile 不走 delete_file 工具（设计决策）
+
+`plugins/review_handler.go` 的 `deleteReviewFile` 直接调 `os.Remove`，与 `saveReviewToFile` 走 `write_file` 工具不一致。
+
+**不是安全问题**：删除路径由系统构造（`getReviewDir() + reviewID + ".json"`），`reviewID` 只来自系统生成的 ID，从不含用户输入，无路径穿越风险。
+
+**何时替换**：等项目新增 `delete_file` 工具（处理用户发起的文件删除需求）时，顺手替换此处即可。
+
+---
+
 ## 14. L2 胶水层对右花无感知（已缓解）
 
 L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC 生命周期。

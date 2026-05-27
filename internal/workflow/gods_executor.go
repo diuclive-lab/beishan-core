@@ -374,6 +374,9 @@ func (ex *GoExecutor) runGoStepWithRetry(step GoStep, input map[string]interface
 }
 
 // callStep executes a Tool or Plugin step once, without retry.
+// 设计决策：此处直接调 kernel.Call，不经 ValidateAndExecute。
+// ValidateAndExecute 的防护目标是用户输入（路径穿越、命令注入等）。
+// Go-DSL 步骤由开发者定义在代码中，不含用户输入，无需该层防护。
 func (ex *GoExecutor) callStep(step GoStep, input map[string]interface{}) (kernel.Message, error) {
 	switch step.Type {
 	case GoStepTool:

@@ -53,7 +53,7 @@ func registerWorkspaceTools() {
 
 			tags := []string{"workspace_state", strings.ToLower(project)}
 
-			result := KnowledgeRemember(fmt.Sprintf("[工作状态] %s / %s", project, task), summary, tags, 14)
+			result := KnowledgeRemember(fmt.Sprintf("[工作状态] %s / %s", project, task), summary, "work_record", tags, 14)
 
 			SuccessResult(fmt.Sprintf(`{"project":"%s","task":"%s","status":"%s","id":"%s"}`,
 				project, task, status, extractID(result.Output)))

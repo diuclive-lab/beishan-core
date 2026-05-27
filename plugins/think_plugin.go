@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"beishan/internal/llm"
 	"beishan/internal/retrieval"
@@ -43,12 +43,10 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 	userText := extractPrompt(msg.Payload)
 	sessionID := msg.SessionID
 	if sessionID == "" {
-		sessionID = extractSessionID(msg.Payload) // 兼容旧 payload 格式
+		sessionID = extractSessionID(msg.Payload)
 	}
 	mode := extractMode(msg.Payload)
 
-	// Mode dispatch 优先（L4 语义，不污染 L1）
-	// no_retrieval 模式跳过所有自然语言检测，直接调 LLM
 	switch mode {
 	case ModeReviewExtract:
 		return p.handleReviewExtract(userText, sessionID)
@@ -56,103 +54,135 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		return p.handleChatNoRetrieval(msg.Payload, msg.Provider)
 	}
 
-	// 清理过期的 pending remember（懒清理 review）
 	cleanupExpiredPending()
 
-	// 批量确认检测（L4 语义）
+	if isSystemCommand(userText, sessionID) {
+		return p.handleSystemCommand(userText, sessionID)
+	}
+	return p.handleChat(userText, sessionID, mode == ModeTrace, msg.Provider, msg.Payload)
+}
+
+// isSystemCommand 判断是否为确定性系统指令（状态机操作，不做检索）。
+func isSystemCommand(text, sessionID string) bool {
+	return isBatchConfirm(text) ||
+		isConfirmReply(sessionID, text) ||
+		isForceSaveReply(sessionID, text) ||
+		isMergeReply(sessionID, text) ||
+		isRejectRemember(sessionID, text) ||
+		isCorrectType(sessionID, text) ||
+		isReviewTrigger(text) ||
+		isListReviews(text) ||
+		isConfirmAll(text) ||
+		isSkipAll(text)
+}
+
+// handleSystemCommand 执行系统指令状态机。
+// 不做检索，不调 LLM，纯状态机操作。
+func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Message, error) {
+	chatReply := func(s string) (kernel.Message, error) {
+		b, _ := json.Marshal(s)
+		return kernel.Message{Type: "chat.response", Payload: b}, nil
+	}
+
+	// 批量确认（"确认 1,2" 或 "确认 reviewID 1,2"）
 	if isBatchConfirm(userText) {
 		reviewID, indices, err := parseBatchConfirmWithID(userText)
 		if err != nil {
-			reply := fmt.Sprintf("格式错误，请使用：确认 1,2 或 确认 reviewID 1,2")
-			replyJSON, _ := json.Marshal(reply)
-			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			return chatReply("格式错误，请使用：确认 1,2 或 确认 reviewID 1,2")
 		}
-
-		// 获取审查报告（优先从内存缓存，其次从文件）
 		var candidates []KnowledgeCandidate
 		if reviewID != "" {
-			// 从文件加载
 			rf, loadErr := loadReviewFromFile(reviewID)
 			if loadErr != nil {
-				reply := fmt.Sprintf("找不到审查报告 %s", reviewID)
-				replyJSON, _ := json.Marshal(reply)
-				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+				return chatReply(fmt.Sprintf("找不到审查报告 %s", reviewID))
 			}
 			candidates = rf.Candidates
 		} else {
-			// 从内存缓存加载（兼容旧格式）
 			pr := getPendingReview(sessionID)
 			if pr == nil {
-				reply := fmt.Sprintf("没有待确认的审查报告，请先运行知识审查工作流")
-				replyJSON, _ := json.Marshal(reply)
-				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+				return chatReply("没有待确认的审查报告，请先运行知识审查工作流")
 			}
 			candidates = pr.Candidates
 			reviewID = sessionID
 		}
-
-		// 执行入库
 		var recorded []string
 		for _, idx := range indices {
 			if idx > 0 && idx <= len(candidates) {
-				candidate := candidates[idx-1]
-				result := tools.KnowledgeRemember(candidate.Title, candidate.Summary, nil, 0)
-				recorded = append(recorded, fmt.Sprintf("%d. %s: %s", idx, candidate.Title, result.Output))
+				c := candidates[idx-1]
+				res := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0)
+				recorded = append(recorded, fmt.Sprintf("%d. %s: %s", idx, c.Title, res.Output))
 			}
 		}
-
-		// 清理（内存缓存 + 文件）
 		clearPendingReview(reviewID)
 		deleteReviewFile(reviewID)
-
-		reply := fmt.Sprintf("已记录 %d 条知识：\n%s", len(recorded), strings.Join(recorded, "\n"))
-		replyJSON, _ := json.Marshal(reply)
-		return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+		return chatReply(fmt.Sprintf("已记录 %d 条知识：\n%s", len(recorded), strings.Join(recorded, "\n")))
 	}
 
-	// 单条确认检测（Stage 2）
+	// 单条确认（"确认"/"是"/"yes"，有 pending 时）
 	if isConfirmReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
-			// 事实核查：检测可验证的客观事实
 			var fcResult *tools.FactCheckResult
 			if tools.ContainsVerifiableClaim(pr.Summary) {
 				r := tools.FactCheck(pr.Summary)
 				fcResult = &r
 				if r.Status == "contradicted" {
-					reply := fmt.Sprintf("⚠️ 事实核查不通过：%s\n\n实际值：%s\n\n仍需记录？回复「是的，强制记录」", r.Reason, r.Actual)
-					replyJSON, _ := json.Marshal(reply)
-					return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+					return chatReply(fmt.Sprintf("⚠️ 事实核查不通过：%s\n\n实际值：%s\n\n仍需记录？回复「是的，强制记录」", r.Reason, r.Actual))
 				}
 			}
-
-			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			if pr.ContentType != "" {
+				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "confirmed", SessionID: sessionID})
+			}
 			label := ""
 			if fcResult != nil && fcResult.Status == "verified" {
 				label = " ✅ 已核查"
 			}
-			reply := fmt.Sprintf("已记录%s：%s\n%s", label, pr.Title, result.Output)
-			replyJSON, _ := json.Marshal(reply)
-			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			return chatReply(fmt.Sprintf("已记录%s：%s\n%s", label, pr.Title, result.Output))
 		}
 	}
 
-	// 强制记录检测（Stage 2b）：跳过事实核查直接写入
+	// 强制记录（跳过事实核查）
 	if isForceSaveReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
-			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
-			reply := fmt.Sprintf("已强制记录（跳过核查）：%s\n%s", pr.Title, result.Output)
-			replyJSON, _ := json.Marshal(reply)
-			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			if pr.ContentType != "" {
+				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "confirmed", SessionID: sessionID})
+			}
+			return chatReply(fmt.Sprintf("已强制记录（跳过核查）：%s\n%s", pr.Title, result.Output))
 		}
 	}
 
-	// 合并检测（Stage 2c）：将新条目与已有条目合并
+	// 显式拒绝入库
+	if isRejectRemember(sessionID, userText) {
+		pr := sessionManager.ClearPending(sessionID)
+		if pr != nil && pr.ContentType != "" {
+			AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "rejected", SessionID: sessionID})
+		}
+		return chatReply("已取消，不会入库。")
+	}
+
+	// 改正分类后入库
+	if isCorrectType(sessionID, userText) {
+		pr := sessionManager.ClearPending(sessionID)
+		if pr != nil {
+			newType := parseCorrectType(userText)
+			if newType == "" {
+				newType = pr.ContentType
+			}
+			if pr.ContentType != "" {
+				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "corrected", SessionID: sessionID})
+			}
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, newType, pr.Tags, 0)
+			return chatReply(fmt.Sprintf("已修正分类为【%s】并入库：%s\n%s", contentTypeLabel(newType), pr.Title, result.Output))
+		}
+	}
+
+	// 合并到已有条目
 	if isMergeReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
-			// 先用新条目的标题搜索已有条目
 			searchResult := tools.KnowledgeSearch(pr.Title)
 			var searchOut struct {
 				Results []struct {
@@ -161,58 +191,38 @@ func (p *ThinkPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 				} `json:"results"`
 			}
 			json.Unmarshal([]byte(searchResult.Output), &searchOut)
-
 			if len(searchOut.Results) == 0 {
-				// 没找到相似条目，直接新建
-				result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
-				reply := fmt.Sprintf("未找到相似条目，已新建：%s\n%s", pr.Title, result.Output)
-				replyJSON, _ := json.Marshal(reply)
-				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+				result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+				return chatReply(fmt.Sprintf("未找到相似条目，已新建：%s\n%s", pr.Title, result.Output))
 			}
-
-			// 先新建条目获取 ID，再合并到最相似的已有条目
-			newResult := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.Tags, 0)
-			// 从输出中提取新条目 ID
-			var newEntry struct {
-				ID string `json:"id"`
-			}
+			newResult := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			var newEntry struct{ ID string `json:"id"` }
 			json.Unmarshal([]byte(newResult.Output), &newEntry)
-
 			targetID := searchOut.Results[0].ID
 			if newEntry.ID != "" && newEntry.ID != targetID {
 				mergeResult := tools.KnowledgeMerge(newEntry.ID, targetID)
-				reply := fmt.Sprintf("已合并到「%s」：%s", searchOut.Results[0].Title, mergeResult.Output)
-				replyJSON, _ := json.Marshal(reply)
-				return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+				return chatReply(fmt.Sprintf("已合并到「%s」：%s", searchOut.Results[0].Title, mergeResult.Output))
 			}
-
-			reply := fmt.Sprintf("已记录：%s\n%s", pr.Title, newResult.Output)
-			replyJSON, _ := json.Marshal(reply)
-			return kernel.Message{Type: "chat.response", Payload: replyJSON}, nil
+			return chatReply(fmt.Sprintf("已记录：%s\n%s", pr.Title, newResult.Output))
 		}
 	}
 
-	// 自然语言入口：知识审查触发
+	// 知识审查 / 查看报告 / 全部确认 / 跳过
 	if isReviewTrigger(userText) {
 		return p.triggerReviewWorkflow()
 	}
-
-	// 自然语言入口：查看审查报告
 	if isListReviews(userText) {
 		return p.handleListReviews()
 	}
-
-	// 自然语言入口：全部确认
 	if isConfirmAll(userText) {
 		return p.handleConfirmAll()
 	}
-
-	// 自然语言入口：跳过/清理
 	if isSkipAll(userText) {
 		return p.handleSkipAll()
 	}
 
-	return p.handleChat(userText, sessionID, mode == ModeTrace, msg.Provider, msg.Payload)
+	// 理论上不可达（isSystemCommand 已过滤），保底返回
+	return p.handleChat(userText, "", false, "", nil)
 }
 
 // handleChatNoRetrieval 处理 workflow 步骤：跳过检索，直接调 LLM。
@@ -275,59 +285,82 @@ func (p *ThinkPlugin) handleChatNoRetrieval(raw []byte, provider string) (kernel
 func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, provider string, payload json.RawMessage) (kernel.Message, error) {
 	background := ""
 
+	// 无效输入过滤：纯符号、过短无语义的内容不进检索管道
+	if isNonsenseInput(userText) {
+		return kernel.Message{
+			Type:    "chat.response",
+			Payload: json.RawMessage(`"抱歉，我没理解你的意思，能再说清楚一些吗？"`),
+		}, nil
+	}
+
 	// 项目路径（从环境变量或固定配置）
 	projectPath := os.Getenv("BEISHAN_PROJECT_PATH")
 	if projectPath == "" {
 		projectPath = "."
 	}
 
-	// 短时记忆优先：先判断用户是否在问近期对话
-	recencyWords := []string{"刚才", "之前", "上次", "刚刚", "上一句", "刚刚说", "我们聊", "你刚才", "你没"}
-	asksAboutRecent := false
-	for _, w := range recencyWords {
-		if strings.Contains(userText, w) {
-			asksAboutRecent = true
-			break
-		}
-	}
-
-	// 加载最近对话历史
-	history := loadRecentSessionMessages(sessionID, 5)
-
-	var (
-		results []retrieval.RetrievalResult
-		trace  *tools.RetrievalTrace
-	)
-
-	if asksAboutRecent && len(history) > 0 {
-		fmt.Printf("[思考] 近期上下文查询，跳过知识库检索\n")
-	} else {
-		searchQuery := userText
-		if needsQueryRewrite(userText) {
-			searchQuery = rewriteQuery(userText, sessionID)
-		}
-		results, trace = RunFullRetrieval(searchQuery, projectPath)
-		if len(results) > 0 {
-			background = retrieval.FormatForPromptFull(results)
-			fmt.Printf("[思考] 检索到 %d 条相关记忆\n", len(results))
-		}
-		if trace != nil {
-			trace.Log()
-		}
-		if len(history) == 0 {
-			if wc := tools.BuildWorkspaceContext(""); wc != "" {
-				if background != "" {
-					background += "\n\n"
-				}
-				background += wc
+		// 上下文意图分层：见 intent_keywords.go
+		// ctxCurrentSession → 当前 session 刚发生的事（不检索）
+		// ctxCrossSession   → 历史 session（episodic 检索）
+		isCurrentSessionQ := false
+		for _, w := range ctxCurrentSession {
+			if strings.Contains(userText, w) {
+				isCurrentSessionQ = true
+				break
 			}
 		}
-	}
+
+		// 加载最近对话历史（始终加载，不受检索策略影响）
+		history := loadRecentSessionMessages(sessionID, 5)
+
+		var (
+			results []retrieval.RetrievalResult
+			trace   *tools.RetrievalTrace
+		)
+
+		// 检索策略分层：
+		//   当前 session 查询 → 跳过知识库检索，只跑轻量情景检索
+		//   其他（含跨 session 查询）→ 跑完整三柱检索
+		if isCurrentSessionQ && len(history) > 0 {
+				fmt.Printf("[思考] 当前上下文查询，跳过知识库检索，轻量情景检索\n")
+
+			// 只跑 EpisodicRetrieval（跨 session 情景仍然需要）
+			episodic := RunEpisodicRetrieval(userText, 1, nil)
+			if len(episodic) > 0 {
+				results = episodic
+				background = retrieval.FormatForPromptFull(results)
+			}
+		} else {
+			searchQuery := userText
+			if needsQueryRewrite(userText) {
+				searchQuery = rewriteQuery(userText, sessionID)
+			}
+			results, trace = RunFullRetrieval(searchQuery, projectPath)
+			if len(results) > 0 {
+				background = retrieval.FormatForPromptFull(results)
+				fmt.Printf("[思考] 检索到 %d 条相关记忆\n", len(results))
+			}
+			if trace != nil {
+				trace.Log()
+			}
+			if len(history) == 0 {
+				if wc := tools.BuildWorkspaceContext(""); wc != "" {
+					if background != "" {
+						background += "\n\n"
+					}
+					background += wc
+				}
+			}
+		}
+
 
 	// 构建多轮对话 messages
 	userMsg := userText
 	if background != "" {
 		userMsg = "请参考以下背景知识回答：\n" + background + "\n\n用户问题：\n" + userText
+	} else {
+		// 无背景知识时，提示 LLM 在回复末尾附加免责说明
+		userMsg = userText + "\n\n（注：本次无背景资料可参考，如有不确定请在回复末尾注明「此回复依赖训练知识，建议核实」）"
 	}
 
 	// 注入用户画像到 system prompt
@@ -405,9 +438,9 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 						reply = prefix + suffix
 					}
 				}
-				fmt.Printf("[思考] LLM 建议调工具: %s.%s — %s\n", sug.Tool, sug.Action, sug.Reason)
+				fmt.Printf("[思考] LLM 建议调工具: %s.%s \u2014 %s\n", sug.Tool, sug.Action, sug.Reason)
 			}
-			// 尝试执行工具建议
+			// 尝试执行工具建议，结果同时追加到当前回复和写入 session 历史
 			var toolResults []string
 			for _, sug := range suggestions {
 				resp, err := p.Kernel.Call(kernel.Message{
@@ -416,10 +449,21 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 					Payload:   payload,
 				}, 60*time.Second)
 				if err != nil {
-					toolResults = append(toolResults, fmt.Sprintf("工具 %s 执行失败: %v", sug.Action, err))
+					errMsg := fmt.Sprintf("工具 %s 执行失败: %v", sug.Action, err)
+					toolResults = append(toolResults, errMsg)
 				} else {
-					summary := truncate(string(resp.Payload), 200)
+					resultStr := string(resp.Payload)
+					summary := truncate(resultStr, 200)
 					toolResults = append(toolResults, fmt.Sprintf("工具 %s 返回: %s", sug.Action, summary))
+					// 工具调用结果写入 session，供下一轮 LLM 引用
+					if sessionID != "" {
+						toolResultPayload := fmt.Sprintf(`{"tool":"%s","action":"%s","result":%s}`, sug.Tool, sug.Action, resultStr)
+						p.Kernel.Send(kernel.Message{
+							Recipient: "memory_plugin",
+							Type:      "session_add",
+							Payload:   json.RawMessage(fmt.Sprintf(`{"session_id":"%s","role":"system","type":"tool_result","payload":%s}`, sessionID, toolResultPayload)),
+						})
+					}
 				}
 			}
 			if len(toolResults) > 0 {
@@ -427,13 +471,27 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 			}
 		}
 
-	// Suggest-to-Remember
-	if shouldSuggestRemember(userText, reply) {
-		title, summary := extractRememberCandidate(userText, reply)
-		if title != "" {
+	// Suggest-to-Remember（LLM 分类器 + 自动化门槛）
+	if ct, title, summary, confidence := classifyForKnowledge(userText, reply); ct != "" {
+		if title == "" {
+			title = truncate(userText, 20)
+		}
+		if summary == "" {
+			summary = truncate(reply, 80)
+		}
+		label := contentTypeLabel(ct)
+		if IsAutoMode(ct) {
+			// 精度已达阈值：直接入库，不打扰用户
+			tools.KnowledgeRemember(title, summary, ct, nil, 0)
+			AppendCalibEvent(CalibrationEvent{ContentType: ct, Confidence: confidence, Title: title, Action: "auto_confirmed", SessionID: sessionID})
+			reply += fmt.Sprintf("\n\n---\n✓ 已自动入库【%s】：%s", label, title)
+			fmt.Printf("[思考] 自动入库: type=%s title=%s\n", ct, title)
+		} else {
 			pr := createPendingRemember(sessionID, title, summary)
-			reply += fmt.Sprintf("\n\n---\n是否将此结论加入知识库？回复「确认」即可。")
-			fmt.Printf("[思考] 检测到值得记住的结论: %s (session=%s, pending=%s)\n", title, sessionID, pr.ID)
+			pr.ContentType = ct
+			pr.Confidence = confidence
+			reply += fmt.Sprintf("\n\n---\n发现一条【%s】记录，是否入库？\n> %s\n\n回复「确认」/「不用了」/「改成工作记录/决策/教训/事实」（置信度 %.0f%%）", label, title, confidence*100)
+			fmt.Printf("[思考] 知识分类: type=%s title=%s confidence=%.2f session=%s\n", ct, title, confidence, sessionID)
 		}
 	}
 
@@ -447,13 +505,8 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 		return kernel.Message{Type: "chat.response", Payload: tracePayload}, nil
 	}
 
-	// 检索过程可视化（仅非纯 JSON 回答，如 workflow 步骤不追加）
-	isJSON := len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply))
-	if !isJSON {
-		traceText := tools.FormatTrace(trace)
-		reply += traceText
-	}
 
+	isJSON := len(reply) > 0 && reply[0] == '{' && json.Valid([]byte(reply))
 	reply = strings.TrimSpace(reply)
 	var respPayload json.RawMessage
 	if isJSON {
@@ -588,10 +641,7 @@ func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 	if sessionID == "" || limit <= 0 {
 		return nil
 	}
-	// 通过 L3 read_file 工具读取会话文件
-	res := tools.ValidateAndExecute("read_file", rawMsg(map[string]interface{}{
-		"path": filepath.Join(tools.MemoryDir, "sessions", sessionID+".json"),
-	}))
+	res := tools.SessionGet(sessionID)
 	if !res.Success || res.Output == "" {
 		return nil
 	}
@@ -645,17 +695,15 @@ func loadRecentSessionMessages(sessionID string, limit int) []llm.ChatMessage {
 
 // ─── Query 改写（口语化 → 精确检索词）───────────────────
 
-// vaguePatterns 需要改写的口语化模式
-var vaguePatterns = []string{
-	"昨天", "上次", "之前", "刚才", "前两天", "最近",
-	"那个", "这个", "那篇", "这篇", "那个改动", "那个问题",
-	"怎么说的", "怎么搞的", "什么情况", "怎么样了",
-	"聊过", "讨论过", "说过", "提到过",
-}
-
 // needsQueryRewrite 判断查询是否需要改写（确定性检测）。
+// 口语指代词（ctxVagueRef）或跨 session 引用词（ctxCrossSession）时改写。
 func needsQueryRewrite(query string) bool {
-	for _, p := range vaguePatterns {
+	for _, p := range ctxVagueRef {
+		if strings.Contains(query, p) {
+			return true
+		}
+	}
+	for _, p := range ctxCrossSession {
 		if strings.Contains(query, p) {
 			return true
 		}
@@ -706,4 +754,41 @@ func rewriteQuery(query string, sessionID string) string {
 
 	fmt.Printf("[query_rewrite] %q → %q\n", query, rewritten)
 	return rewritten
+}
+
+// isNonsenseInput 判断用户输入是否为无意义内容（纯符号、过短无语义）
+func isNonsenseInput(s string) bool {
+	s = strings.TrimSpace(s)
+	// 常见确认词允许通过
+	allowList := []string{"ok", "okay", "好的", "是的", "对", "是", "好", "嗯", "确认", "继续", "知道了"}
+	for _, w := range allowList {
+		if strings.EqualFold(s, w) {
+			return false
+		}
+	}
+	// 过短且不含中文
+	if len([]rune(s)) <= 3 {
+		hasChinese := false
+		for _, r := range s {
+			if unicode.Is(unicode.Han, r) {
+				hasChinese = true
+				break
+			}
+		}
+		if !hasChinese {
+			return true
+		}
+	}
+	// 纯标点符号
+	hasLetter := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			hasLetter = true
+			break
+		}
+	}
+	if !hasLetter {
+		return true
+	}
+	return false
 }

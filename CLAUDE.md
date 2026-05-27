@@ -11,7 +11,7 @@
 - **plugins**: 25 L4 + 40 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **MCP servers**: 0 (框架保留，模板脚本已删除)
-- **UNIMPLEMENTED**: 1 (internal/legacy — 右花方法名映射小工具)
+- **UNIMPLEMENTED**: 0
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
 
 ## Architecture
@@ -248,6 +248,10 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | `internal/tools/workspace.go` | 跨会话工作状态 (workspace_save/load) |
 | `internal/tools/radixtree.go` | 压缩前缀树 |
 | `internal/tools/filesystem_tools.go` | 8 个文件系统工具 |
+| `plugins/intent_keywords.go` | **唯一关键词源** — 所有意图判断词表，其他文件只引用 |
+| `plugins/think_plugin.go` | OnMessage 纯分发 + handleChat + handleSystemCommand |
+| `plugins/retrieval_pipe.go` | 检索管道（RunFullRetrieval / RunEpisodic / classifyIntent）|
+| `plugins/review_handler.go` | 知识审查状态机（候选提取 + 确认流程）|
 | `plugins/session.go` | 会话状态机 (SessionManager) |
 | `internal/observatory/events.go` | Event bus (PublishEvent + Subscribe) |
 | `internal/observatory/trace.go` | Decision traces + default recorder |
@@ -276,30 +280,31 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 
 ## Recent State
 
-**Last 5 commits** (2026-05-26):
+**Last 5 commits** (2026-05-27):
 ```
-b9e3f8c docs: 会话交接文档更新
-7b5b714 workflow: 隐式假设挖掘 + 无源码重实现测试
-8d8fd53 workflow: 吸收工作流 v2 — 从流程正确到吃透为止
-5931746 workflow: 吸收工作流深度强化 — 源码研读 + 设计哲学 + 上游追踪
-c90080f fix: 全量排查 — 硬化层绕过/右花暴露/股票路由
+（本次会话改动尚未 commit）
+afdea75 docs: 更新开发日志 — 全面审查 + 6 bug 修复
+fa63a5a fix: terminal_plugin Payload JSON 编码 + preRoute 全面审查修复
+98e118b fix: RouteResult 缺 MsgType 导致搜索不工作
+4dca4bf refactor: 用 evidence_router 替代 preRoute 关键词匹配
 ```
 
-**Key milestones (May 26)**:
-- 治理框架搭建（docs/ABSORPTION_GOVERNANCE.md）✅
-- 40/40 YAML 升级至 v2.5 标准 ✅
-- v2.5 参考标准文档（docs/V25_WORKFLOW_STANDARD.md）✅
-- Go 工具反推：code_tree/code_stats/go_struct_scan/code_read_external 增强 + base_capability_inventory 新建 ✅
-- Agent 系统 7 个缺口修复（并发安全、错误分类、截断通知、输出校验、LLM 重试、异步写盘、空 prompt）✅
-- Workflow engine 栈溢出 bug 修复 ✅
-- 本地模型：Qwen3.6-27B → gemma-4-E4B (4B) + failover gemma-4-31B ✅
-- 17/18 工作流 API 测试通过，evidence/risk_register 实际输出验证 ✅
+**Key milestones (May 27 — 代码梳理轮)**:
+- 新建 `plugins/intent_keywords.go`，统一所有意图判断词表（删除 13 个重复变量）✅
+- `think_plugin.OnMessage` 178 行 → 26 行纯分发器，引入 `isSystemCommand / handleSystemCommand` ✅
+- `loadRecentSessionMessages` 改用 `tools.SessionGet`（有 sessionMu 锁保护）✅
+- `GenerateSessionSummary` 接通：main.go 对话结束后异步触发，跨 session 检索不再空过 ✅
+- `review_handler.saveReviewToFile` 改用 `write_file` 工具，删除错误的 patch 调用 ✅
+- 删除 `internal/legacy/`（功能已内联到 adapter，整包无调用点）✅
+- 全测试：21 个包全绿 ✅
 
 **Unfinished** (ask user before implementing):
 - Embedding endpoint (was Qwen 27B — too heavy, use gemma-4-E4B next)
 - LLM function calling API (currently text-mode JSON parsing)
 - Cross-platform deploy (launchd is macOS-only, needs systemd/Docker)
 - Event subscribers (log-only, no automated reactions)
+- `knowledge.go` 查询参数（q.Tags/q.Types/q.DateAfter）有 TODO 未实现
+- `workflow/gods_executor` 使用 kernel.Call 零校验（与 agent runner 不一致）
 
 **Known friction** (future improvements):
 - **Learning curve**: "hardening layer", "dual flower", "right flower protocol" — too many concepts. Needs a 5-min walkthrough.

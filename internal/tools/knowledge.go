@@ -60,6 +60,7 @@ type KnowledgeEntry struct {
 	VerifiedAt    int64     `json:"verified_at,omitempty"`     // 核查时间
 	HitCount      int64     `json:"hit_count,omitempty"`       // 被检索命中次数，用于排序加权
 	UtilityScore  float64   `json:"utility_score,omitempty"`   // 用户反馈评分: +1/-1/0，越用越准
+	ContentType   string    `json:"content_type,omitempty"`    // work_record | decision | lesson | fact
 }
 
 /* ─── Retrieval Trace ──────────────────────────── */
@@ -242,18 +243,20 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 
 // KnowledgeRemember 轻量记忆写入：包装 KnowledgeAdd，固定 source_type="memory"。
 // Agent 主动调用时用此工具记录关键事实、用户偏好、决策结果。
-func KnowledgeRemember(title, summary string, tags []string, expiresInDays int) *ToolResult {
+// contentType: work_record | decision | lesson | fact | ""（空=未分类）
+func KnowledgeRemember(title, summary, contentType string, tags []string, expiresInDays int) *ToolResult {
 	if title == "" && summary == "" {
 		return errorResult("title 和 summary 不能同时为空")
 	}
 	now := time.Now().Unix()
 	entry := &KnowledgeEntry{
-		ID:         newKnowledgeID(),
-		SourceType: "memory",
-		Title:      title,
-		Summary:    summary,
-		Tags:       tags,
-		CreatedAt:  now,
+		ID:          newKnowledgeID(),
+		SourceType:  "memory",
+		ContentType: contentType,
+		Title:       title,
+		Summary:     summary,
+		Tags:        tags,
+		CreatedAt:   now,
 	}
 	if expiresInDays > 0 {
 		entry.Ephemeral = true
@@ -387,9 +390,7 @@ func SearchWithScore(query string, limit int, namespace string) []ScoredEntry {
 	return scored
 }
 
-/* SearchWithQuery 使用 Query DSL 结构进行检索。
-   ParseQuery 当前不解析结构化字段，退化为关键词搜索。
-   后续解析器激活后，调用方无需修改代码即获得字段筛选能力。*/
+/* SearchWithQuery 使用 Query DSL 结构进行检索。*/
 func SearchWithQuery(q *retrieval.Query, limit int) []ScoredEntry {
 	if q == nil || q.IsEmpty() {
 		return nil
@@ -398,8 +399,75 @@ func SearchWithQuery(q *retrieval.Query, limit int) []ScoredEntry {
 	if len(q.Keywords) > 0 {
 		keyword = q.Keywords[0]
 	}
-	// TODO: 解析器激活后，q.Tags/q.Types/q.DateAfter 等字段在此处应用
-	return SearchWithScore(keyword, limit, q.Namespace)
+	results := SearchWithScore(keyword, limit*3, q.Namespace)
+
+	// 按 content_type 过滤
+	if len(q.Types) > 0 {
+		typeSet := make(map[string]bool)
+		for _, t := range q.Types {
+			typeSet[t] = true
+		}
+		var filtered []ScoredEntry
+		for _, r := range results {
+			entry := loadKnowledge(r.ID)
+			if entry != nil && typeSet[entry.ContentType] {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
+
+	// 按 tags 过滤（条目须包含 q.Tags 中至少一个标签）
+	if len(q.Tags) > 0 {
+		tagSet := make(map[string]bool)
+		for _, t := range q.Tags {
+			tagSet[strings.ToLower(t)] = true
+		}
+		var filtered []ScoredEntry
+		for _, r := range results {
+			entry := loadKnowledge(r.ID)
+			if entry == nil {
+				continue
+			}
+			for _, tag := range entry.Tags {
+				if tagSet[strings.ToLower(tag)] {
+					filtered = append(filtered, r)
+					break
+				}
+			}
+		}
+		results = filtered
+	}
+
+	// 按 DateAfter 过滤（格式 YYYY-MM-DD 或 YYYY-MM）
+	if q.DateAfter != "" {
+		if cutoff := parseDateCutoff(q.DateAfter); cutoff > 0 {
+			var filtered []ScoredEntry
+			for _, r := range results {
+				entry := loadKnowledge(r.ID)
+				if entry != nil && entry.CreatedAt >= cutoff {
+					filtered = append(filtered, r)
+				}
+			}
+			results = filtered
+		}
+	}
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results
+}
+
+// parseDateCutoff 将日期字符串解析为 Unix 时间戳（支持 YYYY-MM-DD 和 YYYY-MM）
+func parseDateCutoff(s string) int64 {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.Unix()
+	}
+	if t, err := time.Parse("2006-01", s); err == nil {
+		return t.Unix()
+	}
+	return 0
 }
 
 
@@ -2760,6 +2828,7 @@ func registerKnowledgeTools() {
 				return KnowledgeRemember(
 					strArg(args, "title"),
 					strArg(args, "summary"),
+					strArg(args, "content_type"),
 					strSliceArg(args, "tags"),
 					int(expDays),
 				)

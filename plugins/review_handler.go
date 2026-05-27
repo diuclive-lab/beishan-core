@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"beishan/internal/llm"
 	"beishan/internal/tools"
 	"beishan/kernel"
 )
@@ -174,11 +175,13 @@ func renderReviewReport(result ReviewResult) string {
 
 // PendingRemember 待确认的记忆建议
 type PendingRemember struct {
-	ID        string
-	Title     string
-	Summary   string
-	Tags      []string
-	ExpiresAt int64
+	ID          string
+	Title       string
+	Summary     string
+	Tags        []string
+	ContentType string  // work_record | decision | lesson | fact
+	Confidence  float64 // LLM 分类置信度
+	ExpiresAt   int64
 }
 
 // PendingReview 待确认的批量审查候选（Stage 3: Knowledge Review）
@@ -209,31 +212,25 @@ func getReviewDir() string {
 	return filepath.Join(home, ".hermes", "reviews")
 }
 
-// saveReviewToFile 将审查报告写入文件
+// saveReviewToFile 将审查报告写入文件（通过 write_file 工具，含路径安全检查）
 func saveReviewToFile(reviewID string, candidates []KnowledgeCandidate) error {
-	dir := getReviewDir()
-	// 改用 L3 工具创建工作目录
-	if err := os.MkdirAll(dir, 0755); err != nil {
-	// TODO: replace with tools.ValidateAndExecute when mkdir tool available
-		return fmt.Errorf("创建审查目录失败: %w", err)
-	}
-
 	rf := ReviewFile{
 		ID:         reviewID,
 		CreatedAt:  time.Now().Unix(),
 		Candidates: candidates,
 	}
-
 	data, err := json.MarshalIndent(rf, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化审查报告失败: %w", err)
 	}
-
-	path := filepath.Join(dir, reviewID+".json")
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("写入审查报告失败: %w", err)
+	path := filepath.Join(getReviewDir(), reviewID+".json")
+	res := tools.ValidateAndExecute("write_file", rawMsg(map[string]interface{}{
+		"path":    path,
+		"content": string(data),
+	}))
+	if !res.Success {
+		return fmt.Errorf("写入审查报告失败: %s", res.Output)
 	}
-
 	fmt.Printf("[review] 报告已保存: %s\n", path)
 	return nil
 }
@@ -255,10 +252,10 @@ func loadReviewFromFile(reviewID string) (*ReviewFile, error) {
 }
 
 // deleteReviewFile 删除审查报告文件
+// 无 delete_file 工具，直接调 os.Remove（内部路径，非用户输入）
 func deleteReviewFile(reviewID string) error {
 	path := filepath.Join(getReviewDir(), reviewID+".json")
-	tools.ValidateAndExecute("patch", rawMsg(map[string]interface{}{"path": path, "old_string": "", "new_string": ""}))
-	return os.Remove(path)  // D02 TODO: use ValidateAndExecute when delete_file exists
+	return os.Remove(path)
 }
 
 // listReviewFiles 列出所有待确认的审查报告
@@ -288,44 +285,84 @@ func listReviewFiles() ([]ReviewFile, error) {
 	return reviews, nil
 }
 
-// rememberTriggers 保守的触发关键词
-var rememberTriggers = []string{
-	"已放弃", "最终方案", "确认结论", "架构决定",
-	"经验教训", "踩坑记录", "最终决定",
-}
+// classifyForKnowledge 用 LLM 判断对话是否值得入库并分类。
+// 返回 contentType (work_record/decision/lesson/fact/empty), title, summary, confidence。
+// 空 contentType 表示不值得入库。失败时静默降级返回全空。
+func classifyForKnowledge(userText, reply string) (contentType, title, summary string, confidence float64) {
+	combined := truncate(userText, 200) + "\n" + truncate(reply, 400)
+	prompt := `你是对话内容分类器。判断以下对话是否包含值得长期记录的内容。
 
-// shouldSuggestRemember 检测是否值得记住
-func shouldSuggestRemember(userText, reply string) bool {
-	combined := userText + " " + reply
-	for _, trigger := range rememberTriggers {
-		if strings.Contains(combined, trigger) {
-			return true
+对话内容：
+` + combined + `
+
+判断标准（满足其一才入库）：
+- 明确的决策或选型结论 → decision
+- 踩坑/经验教训 → lesson
+- 值得复用的事实或数据 → fact
+- 工作进展记录（含完成的任务/下一步）→ work_record
+- 值得保存的链接或网址 → link
+- 开源社区内容（GitHub/HN/论坛讨论等）→ open_source_community
+- 图片或图表资源引用 → image
+
+日常闲聊、提问、纯解释性内容不入库。
+
+输出 JSON，不要解释：
+{"archive":true,"type":"decision","title":"标题10字内","summary":"摘要50字内","confidence":0.8}
+
+type 只能是：work_record / decision / lesson / fact / link / open_source_community / image
+不值得入库时：{"archive":false}`
+
+	raw, usage, err := llm.ChatCompletionWithUsage([]llm.ChatMessage{
+		{Role: "system", Content: "你是对话内容分类器，只输出 JSON，不要任何解释。"},
+		{Role: "user", Content: prompt},
+	}, 15*time.Second)
+	llm.RecordUsage("knowledge_classify", usage)
+	if err != nil {
+		return
+	}
+
+	s := strings.TrimSpace(raw)
+	if idx := strings.Index(s, "{"); idx >= 0 {
+		if end := strings.LastIndex(s, "}"); end > idx {
+			s = s[idx : end+1]
 		}
 	}
-	return false
+	var result struct {
+		Archive    bool    `json:"archive"`
+		Type       string  `json:"type"`
+		Title      string  `json:"title"`
+		Summary    string  `json:"summary"`
+		Confidence float64 `json:"confidence"`
+	}
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
+		return
+	}
+	if !result.Archive || result.Type == "" || result.Confidence < 0.5 {
+		return
+	}
+	return result.Type, result.Title, result.Summary, result.Confidence
 }
 
-// extractRememberCandidate 从对话中提取记忆候选
-func extractRememberCandidate(userText, reply string) (title, summary string) {
-	// 简单提取：用触发词所在句子作为摘要
-	combined := userText + " " + reply
-	for _, trigger := range rememberTriggers {
-		if idx := strings.Index(combined, trigger); idx >= 0 {
-			// 提取触发词前后各 50 字符
-			start := idx - 50
-			if start < 0 {
-				start = 0
-			}
-			end := idx + len(trigger) + 50
-			if end > len(combined) {
-				end = len(combined)
-			}
-			summary = combined[start:end]
-			title = trigger
-			return
-		}
+// contentTypeLabel 返回内容类型的中文标签。
+func contentTypeLabel(t string) string {
+	switch t {
+	case "work_record":
+		return "工作记录"
+	case "decision":
+		return "决策"
+	case "lesson":
+		return "经验教训"
+	case "fact":
+		return "事实"
+	case "link":
+		return "链接"
+	case "open_source_community":
+		return "开源社区"
+	case "image":
+		return "图片"
+	default:
+		return t
 	}
-	return
 }
 
 // createPendingRemember 创建待确认记忆（session-scoped，single-active）
@@ -348,8 +385,10 @@ func confirmPendingRemember(sessionID string) *PendingRemember {
 // isForceSaveReply 检测是否是强制记录回复（跳过事实核查）
 func isForceSaveReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
-	if t == "强制记录" || t == "是的，强制记录" || t == "强制入库" {
-		return sessionManager.HasValidPending(sessionID)
+	for _, w := range cmdForceSaveWords {
+		if t == w {
+			return sessionManager.HasValidPending(sessionID)
+		}
 	}
 	return false
 }
@@ -357,8 +396,10 @@ func isForceSaveReply(sessionID, text string) bool {
 // isMergeReply 检测是否是合并回复（与已有条目合并）
 func isMergeReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
-	if t == "确认合并" || t == "合并" {
-		return sessionManager.HasValidPending(sessionID)
+	for _, w := range cmdMergeWords {
+		if t == w {
+			return sessionManager.HasValidPending(sessionID)
+		}
 	}
 	return false
 }
@@ -366,21 +407,81 @@ func isMergeReply(sessionID, text string) bool {
 // isConfirmReply 检测是否是确认回复
 func isConfirmReply(sessionID, text string) bool {
 	t := strings.TrimSpace(text)
-	if t == "确认" || t == "是" || t == "yes" {
-		return sessionManager.HasValidPending(sessionID)
+	for _, w := range cmdConfirmWords {
+		if t == w {
+			return sessionManager.HasValidPending(sessionID)
+		}
 	}
 	return false
 }
 
-// cleanupExpiredPending 清理过期的 pending remember
+// cleanupExpiredPending 清理过期的 pending remember，并为有 ContentType 的条目写 expired 事件。
 func cleanupExpiredPending() {
-	sessionManager.Cleanup()
+	for _, pr := range sessionManager.CollectExpiredPendings() {
+		if pr.ContentType != "" {
+			AppendCalibEvent(CalibrationEvent{
+				ContentType: pr.ContentType,
+				Confidence:  pr.Confidence,
+				Title:       pr.Title,
+				Action:      "expired",
+			})
+		}
+	}
+}
+
+// isRejectRemember 检测是否是显式拒绝入库（有 pending 时生效）
+func isRejectRemember(sessionID, text string) bool {
+	t := strings.TrimSpace(text)
+	for _, w := range cmdRejectRemember {
+		if strings.EqualFold(t, w) {
+			return sessionManager.HasValidPending(sessionID)
+		}
+	}
+	return false
+}
+
+// isCorrectType 检测是否是改正分类（"改成xxx"，有 pending 时生效）
+func isCorrectType(sessionID, text string) bool {
+	t := strings.TrimSpace(text)
+	for _, prefix := range cmdCorrectTypePrefix {
+		if strings.HasPrefix(t, prefix) {
+			return sessionManager.HasValidPending(sessionID)
+		}
+	}
+	return false
+}
+
+// parseCorrectType 从改正指令中提取目标 content_type。
+// 无法识别时返回空字符串。
+func parseCorrectType(text string) string {
+	t := strings.TrimSpace(text)
+	typeMap := map[string]string{
+		"工作记录": "work_record",
+		"工作":   "work_record",
+		"决策":   "decision",
+		"经验教训": "lesson",
+		"教训":   "lesson",
+		"踩坑":   "lesson",
+		"事实":   "fact",
+		"数据":   "fact",
+	}
+	for _, prefix := range cmdCorrectTypePrefix {
+		if strings.HasPrefix(t, prefix) {
+			rest := strings.TrimSpace(strings.TrimPrefix(t, prefix))
+			for label, ct := range typeMap {
+				if strings.Contains(rest, label) {
+					return ct
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // isBatchConfirm 检测是否是批量确认回复（如 "确认 1,2" 或 "确认 reviewID 1,2"）
 func isBatchConfirm(text string) bool {
 	t := strings.TrimSpace(text)
-	return strings.HasPrefix(t, "确认 ") && len(t) > len("确认 ")
+	return strings.HasPrefix(t, cmdBatchPrefix) && len(t) > len(cmdBatchPrefix)
 }
 
 // parseBatchConfirmWithID 解析批量确认回复，返回 reviewID 和选中的候选索引
@@ -464,33 +565,11 @@ func clearPendingReview(sessionID string) {
 	delete(pendingReviews, sessionID)
 }
 
-// ─── 自然语言入口（Stage 3）────────────────────────
+// ─── 自然语言入口（Stage 3，触发词见 intent_keywords.go）──────────────────
 
-// reviewTriggers 审查触发关键词
-var reviewTriggers = []string{
-	"审查一下", "知识审查", "审查对话", "审查最近",
-	"knowledge review",
-}
-
-// listReviewTriggers 查看报告触发关键词
-var listReviewTriggers = []string{
-	"待审查报告", "审查队列", "review queue",
-}
-
-// confirmAllTriggers 全部确认触发关键词
-var confirmAllTriggers = []string{
-	"确认全部", "全部入库", "confirm all",
-}
-
-// skipTriggers 跳过/清理触发关键词
-var skipTriggers = []string{
-	"跳过", "清理审查", "skip",
-}
-
-// isReviewTrigger 检测是否触发知识审查
 func isReviewTrigger(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
-	for _, trigger := range reviewTriggers {
+	for _, trigger := range cmdReviewTriggers {
 		if strings.Contains(lower, trigger) {
 			return true
 		}
@@ -498,10 +577,9 @@ func isReviewTrigger(text string) bool {
 	return false
 }
 
-// isListReviews 检测是否查看审查报告
 func isListReviews(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
-	for _, trigger := range listReviewTriggers {
+	for _, trigger := range cmdListReviews {
 		if strings.Contains(lower, trigger) {
 			return true
 		}
@@ -509,10 +587,9 @@ func isListReviews(text string) bool {
 	return false
 }
 
-// isConfirmAll 检测是否全部确认
 func isConfirmAll(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
-	for _, trigger := range confirmAllTriggers {
+	for _, trigger := range cmdConfirmAll {
 		if strings.Contains(lower, trigger) {
 			return true
 		}
@@ -520,10 +597,9 @@ func isConfirmAll(text string) bool {
 	return false
 }
 
-// isSkipAll 检测是否跳过/清理
 func isSkipAll(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
-	for _, trigger := range skipTriggers {
+	for _, trigger := range cmdSkipAll {
 		if strings.Contains(lower, trigger) {
 			return true
 		}
@@ -599,7 +675,7 @@ func (p *ThinkPlugin) handleConfirmAll() (kernel.Message, error) {
 	latest := reviews[len(reviews)-1]
 	var recorded []string
 	for i, c := range latest.Candidates {
-		result := tools.KnowledgeRemember(c.Title, c.Summary, nil, 0)
+		result := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0)
 		recorded = append(recorded, fmt.Sprintf("%d. %s: %s", i+1, c.Title, result.Output))
 	}
 

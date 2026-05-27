@@ -438,7 +438,14 @@ func main() {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(observatory.CollectSnapshotJSON())
+		var snapshot map[string]interface{}
+		json.Unmarshal(observatory.CollectSnapshotJSON(), &snapshot)
+		if snapshot == nil {
+			snapshot = make(map[string]interface{})
+		}
+		snapshot["knowledge_calibration"] = plugins.CalibStatus()
+		data, _ := json.MarshalIndent(snapshot, "", "  ")
+		w.Write(data)
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +573,15 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		}
 
 		saveToSession(sessionID, msg.Recipient, resp.Type, resp.Payload)
+
+		// 异步更新 session 摘要：等待 session_add 消息落盘后生成
+		// 摘要供跨 session 历史检索（SessionSearchStructured Phase 1）使用
+		go func(sid string) {
+			time.Sleep(500 * time.Millisecond)
+			if sum := tools.GenerateSessionSummary(sid); sum != nil {
+				tools.SaveSessionSummary(sum)
+			}
+		}(sessionID)
 
 		// 包装响应，附加 session_id 供客户端后续请求使用
 		wrapped := map[string]interface{}{

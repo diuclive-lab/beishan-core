@@ -24,20 +24,43 @@ HTTP POST /api/chat
   → HTTP response: json.NewEncoder(w).Encode(resp)
 ```
 
-### 路径 B：think_plugin 普通聊天（✅ 已验证）
+### 路径 B：think_plugin 对话分发（✅ 已验证）
 
 ```
 think_plugin.OnMessage(msg{Type:"chat"})
-  → extractPrompt(msg.Payload)
-  → needsQueryRewrite?  [确定性关键词检测]
-    → rewriteQuery  [LLM 改写口语查询]
-  → RunFullRetrieval(query, projectPath)  [L0+L1+L0.5 检索管道]
-  → loadRecentSessionMessages(sessionID, 5)  [多轮历史，含 token 截断]
+  → extractPrompt / extractSessionID / extractMode
+  → mode switch: ModeReviewExtract → handleReviewExtract
+                 ModeNoRetrieval  → handleChatNoRetrieval（直接调 LLM，无检索）
+  → cleanupExpiredPending
+  → isSystemCommand(text, sessionID)?
+      true  → handleSystemCommand  [纯状态机：确认/审查/跳过，无 LLM]
+      false → handleChat           [自然语言对话]
+
+handleChat:
+  → isNonsenseInput?  [纯符号/过短 → 直接返回]
+  → ctxCurrentSession 匹配?
+      是 → 只跑 RunEpisodicRetrieval（轻量，跳过知识库）
+      否 → needsQueryRewrite(ctxVagueRef + ctxCrossSession)?
+             是 → rewriteQuery（LLM 改写）
+           RunFullRetrieval(query, projectPath)  [L0+L1+L0.5，按 classifyIntent 分流]
+  → tools.SessionGet(sessionID)  [加载最近 5 轮历史，有 sessionMu 锁保护]
   → llm.ChatCompletionWithUsage(messages)
-  → StockCodeVerify + DateVerify + URLVerify  [输出质量门禁]
+  → StockCodeVerify + DateVerify + NumberRangeVerify + URLVerify  [质量门禁]
+  → parseToolSuggestions → 工具调用结果写入 session history
   → shouldSuggestRemember?  [知识建议入库]
   → kernel.Message{Type:"chat.response", Payload: reply}
+
+cmd/beishan/main.go（对话结束后）:
+  → saveToSession(assistant reply)
+  → goroutine: sleep 500ms → GenerateSessionSummary → SaveSessionSummary
+    [异步生成 {sessionID}.summary.json，供跨 session 检索 Phase 1 使用]
 ```
+
+**关键词分流依据**：`plugins/intent_keywords.go`（唯一词表）
+- `ctxCurrentSession`：刚才/刚刚/上一句 → 不检索知识库
+- `ctxCrossSession`：上次/之前/讨论过 → episodic 优先
+- `ctxSemantic`：决策/结论/方案 → 知识库优先
+- `ctxCode`：代码/函数/实现 → 代码检索优先
 
 ### 路径 C：glue 子进程消息（✅ 已验证）
 

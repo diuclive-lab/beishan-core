@@ -110,13 +110,31 @@ func (sm *SessionManager) Reset(sessionID string) {
 }
 
 // Cleanup 清理所有过期会话
-func (sm *SessionManager) Cleanup() {
+// Cleanup 清理过期 pending，返回被清理的条目（供调用方写事件）
+func (sm *SessionManager) CollectExpiredPendings() []*PendingRemember {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	now := time.Now().Unix()
+	var expired []*PendingRemember
 	for id, s := range sm.sessions {
 		if s.Pending != nil && now > s.Pending.ExpiresAt {
+			expired = append(expired, s.Pending)
 			delete(sm.sessions, id)
 		}
 	}
+	return expired
+}
+
+// ClearPending 清除指定 session 的 pending，返回被清除的条目
+func (sm *SessionManager) ClearPending(sessionID string) *PendingRemember {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	s, ok := sm.sessions[sessionID]
+	if !ok || s.Pending == nil {
+		return nil
+	}
+	pr := s.Pending
+	s.Pending = nil
+	s.State = StateIdle
+	return pr
 }

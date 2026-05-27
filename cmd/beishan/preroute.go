@@ -9,6 +9,46 @@ import (
 	"beishan/kernel"
 )
 
+// highFreqRoute 高频功能白名单：精确匹配常见命令，不走 LLM Router
+// 优先级规则：更具体的匹配在前（如股票代码 > 网络搜索 > 知识库）
+func highFreqRoute(text string) (tool, msgType string, matched bool) {
+	// 股票代码（连续 6 位数字）— 最具体，放最前面
+	re := regexp.MustCompile(`\b\d{6}\b`)
+	if re.MatchString(text) {
+		return "memory_plugin", "stock_multi_quote", true
+	}
+	// 知识库 — 在搜索之前，避免"搜索知识库"路由到 web_search
+	if strings.Contains(text, "知识库") || strings.Contains(text, "记忆") {
+		return "memory_plugin", "knowledge_search", true
+	}
+	// 网络搜索
+	for _, p := range []string{"帮我搜索", "帮我搜一下", "搜索一下", "搜一下", "帮我搜", "帮我查", "查查", "查一下"} {
+		if strings.HasPrefix(text, p) {
+			return "search_plugin", "web_search", true
+		}
+	}
+	if strings.HasPrefix(text, "搜索") || strings.HasPrefix(text, "搜 ") {
+		return "search_plugin", "web_search", true
+	}
+	// 读文件
+	if strings.HasPrefix(text, "读一下") || strings.HasPrefix(text, "读取") || strings.HasPrefix(text, "打开文件") {
+		return "write_plugin", "read_file", true
+	}
+	// 写文件
+	if strings.HasPrefix(text, "写一个") || strings.HasPrefix(text, "创建文件") || strings.HasPrefix(text, "新建文件") {
+		return "write_plugin", "write_file", true
+	}
+	// 终端命令
+	if strings.HasPrefix(text, "运行") || strings.HasPrefix(text, "执行") || strings.HasPrefix(text, "终端") {
+		return "terminal_plugin", "terminal_exec", true
+	}
+	// 待办
+	if strings.HasPrefix(text, "添加待办") || strings.HasPrefix(text, "新建待办") || strings.HasPrefix(text, "新增待办") || strings.HasPrefix(text, "待办列表") || strings.HasPrefix(text, "我的待办") {
+		return "todo_plugin", "todo_add", true
+	}
+	return "", "", false
+}
+
 func preRoute(msg *kernel.Message) bool {
 	if msg.Recipient != "" {
 		return false
@@ -18,9 +58,20 @@ func preRoute(msg *kernel.Message) bool {
 		return false
 	}
 
+	// ① 高频白名单：精确匹配不走 EvidenceRouter
+	if tool, msgType, ok := highFreqRoute(userText); ok {
+		msg.Recipient = tool
+		msg.Type = msgType
+		if payload := buildPayload(tool, msgType, userText); payload != nil {
+			msg.Payload = payload
+		}
+		return true
+	}
+
+	// ② EvidenceRouter：模糊匹配，置信度 >= 0.8 才放行
 	router := tools.NewEvidenceRouter(tools.DefaultRoutingRules())
 	result := router.Route(userText)
-	if result == nil || result.Confidence < 0.3 {
+	if result == nil || result.Confidence < 0.8 {
 		return false
 	}
 

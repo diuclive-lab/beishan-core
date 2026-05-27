@@ -100,17 +100,10 @@ func RunFullRetrieval(query string, projectPath string) ([]retrieval.RetrievalRe
 
 // ── 代码检索管道 ─────────────────────────────────
 
-// codeQuestionKeywords 代码问题检测关键词
-var codeQuestionKeywords = []string{
-	"代码", "函数", "实现", "源码", "调用", "定义在哪",
-	"怎么实现", "code", "func", "implementation", "where",
-	"怎么写的", "在哪", "什么方法",
-}
-
 // looksLikeCodeQuestion 确定性检测是否是代码问题
 func looksLikeCodeQuestion(text string) bool {
 	lower := strings.ToLower(text)
-	for _, kw := range codeQuestionKeywords {
+	for _, kw := range ctxCode {
 		if strings.Contains(lower, kw) {
 			return true
 		}
@@ -164,22 +157,7 @@ const (
 	IntentMixed    QueryIntent = "mixed"    // 无法判断，混合检索
 )
 
-// episodicKeywords 情景记忆触发词
-var episodicKeywords = []string{
-	"之前", "上次", "讨论过", "聊过", "历史", "记得",
-	"什么时候", "几月", "当时", "那次", "曾经", "过去",
-	"还记得", "说过", "提到过", "刚才",
-	"以前", "过往", "做过", "决定过", "那时候",
-}
-
-// semanticKeywords 语义知识触发词（decision/conclusion oriented）
-var semanticKeywords = []string{
-	"决策", "决定", "结论", "方案", "教训", "原则",
-	"为什么放弃", "最终", "确定", "选择了", "机制",
-	"架构", "流程", "设计", "放弃", "为什么", "标准", "规则",
-}
-
-// classifyIntent 确定性意图分类
+// classifyIntent 确定性意图分类（关键词定义见 intent_keywords.go）
 func classifyIntent(text string) QueryIntent {
 	lower := strings.ToLower(text)
 
@@ -187,17 +165,17 @@ func classifyIntent(text string) QueryIntent {
 	semScore := 0
 	codeScore := 0
 
-	for _, kw := range episodicKeywords {
+	for _, kw := range ctxCrossSession {
 		if strings.Contains(lower, kw) {
 			epiScore++
 		}
 	}
-	for _, kw := range semanticKeywords {
+	for _, kw := range ctxSemantic {
 		if strings.Contains(lower, kw) {
 			semScore++
 		}
 	}
-	for _, kw := range codeQuestionKeywords {
+	for _, kw := range ctxCode {
 		if strings.Contains(lower, kw) {
 			codeScore++
 		}
