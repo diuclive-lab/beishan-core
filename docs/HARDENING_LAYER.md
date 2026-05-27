@@ -4,7 +4,7 @@
 > (1) parseDecision JSON+confidence+knownPlugins, 
 > (2) ValidateParams type+required+unknown-field rejection, 
 > (3) isSafePath path traversal prevention, 
-> (4) code_security 8 rules (SQL injection, reverse shell, etc.), 
+> (4) code_security 8 rules (reverse shell, path traversal, etc. — SQL injection is NOT guaranteed), 
 > (5) validate_file_op read/write/delete guard.
 > Also covers: desktop_actuator action whitelist, read_file/patch path hardening.
 > Does NOT guarantee: business logic correctness, LLM output quality, or absence of side effects.

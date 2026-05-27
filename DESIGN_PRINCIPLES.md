@@ -332,7 +332,7 @@ beishan-core = **硬化底座 + 左花执行侧**。
 ```
 right_flowers/
   ├── openhuman.yaml.example      ← 右花 A 的 manifest
-  ├── fanglab.yaml.example        ← 右花 B 的 manifest
+  ├── openhuman.yaml        ← 右花 B 的 manifest
   └── README.md                   ← 协议说明
 ```
 

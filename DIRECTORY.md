@@ -24,7 +24,7 @@
 | `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、Query DSL 余量接口 | L3 |
 | `internal/rightflower/` | 右花协议：Manifest 加载、HTTP dispatch、审计日志 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
-| `internal/tools/toolsets.go` | 12 工具组 + BuildToolsetSummary + ResolveToolset | L3 |
+| `internal/tools/toolsets.go` | 11 工具组 + BuildToolsetSummary + ResolveToolset | L3 |
 | `internal/tools/evidence_router.go` | 证据路由：规则引擎 + EWMA 自适应权重 + radix tree | L3 |
 | `internal/tools/radixtree.go` + test | 压缩前缀树（高效前缀匹配） | L3 |
 | `internal/tools/workspace.go` | 跨会话工作状态（workspace_save/load + 自动注入） | L3 |

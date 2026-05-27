@@ -5,7 +5,7 @@
 
 ---
 
-> **AI Summary:** 14 known limitations. Current: 115 tools, 0 MCP skills (框架保留), 3 right flowers, 40+ workflows, llmguard (8 files).
+> **AI Summary:** 14 known limitations. Current: 115 tools, 0 MCP skills (框架保留), 3 right flowers, 40+ workflows, llmguard (7 files).
 > Key: hardening only guarantees surface safety (not logic correctness).
 > No sandbox, no workflow persistence, no gate automation.
 > L2 glue doesn't manage right flower lifecycle (OS process manager does).
@@ -168,19 +168,8 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 13. Go 版本差异
 
-开发环境（Desktop/0）使用 **Go 1.26**，公开仓库（beishan-core）使用 **Go 1.21**。
-部分新标准库特性和语法糖不能在公开仓库中使用。
-
-**影响**：同步代码时需要手动适配 Go 版本差异。
-
-**缓解**：
-- 公开仓库保持 Go 1.21 兼容
-- 新特性先在开发环境验证
-
-
-## 15. Go-DSL 执行器不走硬化层（设计决策）
+## 14. Go-DSL 执行器不走硬化层（设计决策）
 
 `internal/workflow/gods_executor.go` 的 `callStep` 直接调 `kernel.Call`，不经 `ValidateAndExecute`。
 
@@ -190,7 +179,7 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 16. deleteReviewFile 不走 delete_file 工具（设计决策）
+## 15. deleteReviewFile 不走 delete_file 工具（设计决策）
 
 `plugins/review_handler.go` 的 `deleteReviewFile` 直接调 `os.Remove`，与 `saveReviewToFile` 走 `write_file` 工具不一致。
 
@@ -200,7 +189,7 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 14. L2 胶水层对右花无感知（已缓解）
+## 13. L2 胶水层对右花无感知（已缓解）
 
 L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC 生命周期。
 右花使用 HTTP 通信，生命周期由**平台进程管理器**负责（macOS 上为 launchd，Linux 上为 systemd），

@@ -48,7 +48,7 @@ kernel.Kernel  ─── 按 recipient 转发
 |-------|-----|---------|---------|--------------|
 | L1 | kernel/ | ✅ YES | Plugin interface, message routing, Router | only llm package |
 | L2 | glue/ | No | Subprocess IPC, manifest scan, right flower health | kernel, observatory |
-| L3 | internal/tools/ | No | Tool registry + ValidateAndExecute (99 tools) | registry |
+| L3 | internal/tools/ | No | Tool registry + ValidateAndExecute (115 tools) | registry |
 | L3 | internal/agent/ | No | Sub-agent delegation (spawn_subagent/parallel) | llm, tools, observatory |
 | L3 | internal/observatory/ | No | Trace recorder, health Pulse, event bus (PublishEvent) | — |
 | L3 | internal/llm/ | No | LLM provider config + thread-safe SetProvider | — |
@@ -56,8 +56,8 @@ kernel.Kernel  ─── 按 recipient 转发
 | L3 | internal/rightflower/ | No | Manifest loading, HTTP dispatch, audit | kernel |
 | L3 | internal/retrieval/ | No | L0 keyword + L1 semantic + L0.5 graph search | tools |
 | L3 | internal/workflow/ | No | YAML engine + Go-DSL engine | kernel, tools |
-| L4 | plugins/ | No | 23 orchestration plugins | kernel, tools |
-| L4 | workflows/ | No | 33 YAML workflow definitions | workflow_plugin |
+| L4 | plugins/ | No | 25 orchestration plugins | kernel, tools |
+| L4 | workflows/ | No | 42 YAML workflow definitions | workflow_plugin |
 
 ## Key Design Rules
 
@@ -323,7 +323,7 @@ fa63a5a fix: terminal_plugin Payload JSON 编码 + preRoute 全面审查修复
 
 **Known friction** (future improvements):
 - **Learning curve**: "hardening layer", "dual flower", "right flower protocol" — too many concepts. Needs a 5-min walkthrough.
-- **Missing demo**: 99 tools, 33 workflows — but no end-to-end example showing "what beishan-core can do for you".
+- **Missing demo**: 115 tools, 42 workflows — but no end-to-end example showing "what beishan-core can do for you".
 - **Right flower cold-start**: 3 right flowers running. Protocol generality verified.
 - **DeepSeek dependency**: Router prompt is DeepSeek-optimized. Provider switching is untested for routing with non-DeepSeek models.
 
