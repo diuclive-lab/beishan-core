@@ -1,24 +1,10 @@
 // Package retrieval — 检索层：查询 DSL + 结果合同 + 搜索策略。
 //
-// 查询 DSL 是余量设计（margin-of-safety）。
-// ParseQuery 当前仅提取原始关键词，不做结构化字段解析。
-// 字段筛选功能（tag:/type:/date:> 等）待知识库增长到 2000+ 条后激活。
+// ParseQuery 支持结构化字段查询语法。调用方无需感知解析器是否激活，
+// Query 结构的零值字段自动被 SearchWithQuery 跳过。
 package retrieval
 
 import "strings"
-
-/* ─── Query DSL 查询结构 ─────────────────────────
-
-   当前阶段：ParseQuery 只提取原始关键词，所有结构化字段忽略。
-   设计为余量接口，后续激活不需修改调用方。
-
-   查询语法（规划，未实现）：
-     "tag:go type:decision date:>2026-04"    → Tags=["go"], Types=["decision"], DateAfter="2026-04"
-     "namespace:hermes 路由方案"              → Namespace="hermes", Keywords=["路由方案"]
-     "status:archived"                        → Status="archived"
-     date:>2026-05-01
-     date:<2026-05-25                         → DateBefore 纯文本字符串，不解析为 time.Time
-*/
 
 // Query 是结构化检索查询。
 // 零值表示"无此筛选条件"，仅执行关键词搜索。
@@ -36,23 +22,65 @@ type Query struct {
 
 // ParseQuery 解析查询字符串为 Query 结构。
 //
-// 当前实现：将所有输入作为原始关键词，不提取字段值。
-// 这是余量接口——调用方不感知解析器是否激活。
+// 支持字段语法（可出现在输入任意位置）：
 //
-// 待实现：字段解析器按顺序扫描输入，提取 field:value 对，
-// 剩余部分作为 Keywords。格式：field:value 或 field:>value。
+//	tag:go           → Tags=["go"]（可重复）
+//	type:decision    → Types=["decision"]（type:/source: 别名，可重复）
+//	source:note      → Types=["note"]
+//	namespace:hermes → Namespace="hermes"
+//	date:>2026-04    → DateAfter="2026-04"
+//	date:<2026-05-25 → DateBefore="2026-05-25"
+//	status:archived  → Status="archived"
+//
+// 不匹配任何字段前缀的文本段合并为 Keywords。
 func ParseQuery(input string) *Query {
 	q := &Query{Raw: input}
-
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return q
 	}
 
-	// TODO: 解析 tag:/type:/namespace:/date:>/date:</status: 字段前缀
-	// 当前仅提取原始关键词，不做结构化解析
-	q.Keywords = []string{trimmed}
+	tokens := strings.Fields(trimmed)
+	var rest []string
 
+	for _, tok := range tokens {
+		switch {
+		case strings.HasPrefix(tok, "tag:"):
+			if v := tok[4:]; v != "" {
+				q.Tags = append(q.Tags, v)
+			}
+		case strings.HasPrefix(tok, "type:"):
+			if v := tok[5:]; v != "" {
+				q.Types = append(q.Types, v)
+			}
+		case strings.HasPrefix(tok, "source:"):
+			if v := tok[7:]; v != "" {
+				q.Types = append(q.Types, v)
+			}
+		case strings.HasPrefix(tok, "namespace:"):
+			if v := tok[10:]; v != "" {
+				q.Namespace = v
+			}
+		case strings.HasPrefix(tok, "date:>"):
+			if v := tok[6:]; v != "" {
+				q.DateAfter = v
+			}
+		case strings.HasPrefix(tok, "date:<"):
+			if v := tok[6:]; v != "" {
+				q.DateBefore = v
+			}
+		case strings.HasPrefix(tok, "status:"):
+			if v := tok[7:]; v != "" {
+				q.Status = v
+			}
+		default:
+			rest = append(rest, tok)
+		}
+	}
+
+	if len(rest) > 0 {
+		q.Keywords = []string{strings.Join(rest, " ")}
+	}
 	return q
 }
 
