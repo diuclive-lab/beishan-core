@@ -458,6 +458,7 @@ func main() {
 			if err == nil {
 				conn.Close()
 				tools.SetEmbeddingEndpoint(fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", embeddingPort))
+				os.Setenv("EMBEDDING_API_KEY", "local-dev")
 				log.Printf("[main] embedding sidecar 就绪，语义搜索已启用")
 				break
 			}

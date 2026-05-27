@@ -681,6 +681,11 @@ func tryEmbedding(text string) ([]float64, bool) {
 	if !embeddingEnabled() {
 		return nil, false
 	}
+	// 截断到 300 字符（nomic-embed 的 embedding 上下文窗口实测 ~512 token）
+	runes := []rune(text)
+	if len(runes) > 300 {
+		text = string(runes[:300])
+	}
 	body, err := json.Marshal(map[string]interface{}{
 		"model": embeddingModel(),
 		"input": text,
@@ -1688,24 +1693,48 @@ func dedupStrings(ss []string, n int) []string {
 
 /* ─── KnowledgeReindex 批量补全工具 ──────────── */
 
+// embeddingText 为知识条目生成用于计算向量的文本。
+// 优先使用 content（有实质内容时），回退到 title+summary。
+// 检测 summary 是否仅包含系统噪声（darwin 硬件信息），若是则忽略 summary。
+func embeddingText(e *KnowledgeEntry) string {
+	if e.Content != "" {
+		return e.Title + " " + e.Content
+	}
+	if strings.Contains(e.Summary, "darwin") && len(e.Summary) > 30 {
+		return e.Title
+	}
+	return e.Title + " " + e.Summary
+}
+
+/* KnowledgeReindex 为所有无 embedding 或维度不匹配的知识条目重新计算语义向量。
+   force=true 时强制重算所有条目（忽略已有 embedding）。 */
 func KnowledgeReindex() *ToolResult {
 	if !embeddingEnabled() {
 		return successResult(`{"message":"EMBEDDING_ENDPOINT 未设置，跳过"}`)
 	}
 	all := loadAllKnowledge()
 	var count int
+	// 先用一条文本探测当前 API 的向量维度
+	probeText := all[0].Title
+	probeEmb, ok := tryEmbedding(probeText)
+	if !ok || len(probeEmb) == 0 {
+		return successResult(`{"message":"embedding API 不可用，跳过"}`)
+	}
+	apiDim := len(probeEmb)
+
 	for _, e := range all {
-		if len(e.Embedding) > 0 {
+		// 跳过已有正确维度的 embedding
+		if len(e.Embedding) == apiDim {
 			continue
 		}
-		text := e.Title + " " + e.Summary
-		if emb, ok := tryEmbedding(text); ok {
+		text := embeddingText(e)
+		if emb, ok := tryEmbedding(text); ok && len(emb) == apiDim {
 			e.Embedding = emb
 			saveKnowledge(e)
 			count++
 		}
 	}
-	return successResult(fmt.Sprintf(`{"message":"补全完成","count":%d}`, count))
+	return successResult(fmt.Sprintf(`{"message":"重算完成","count":%d,"dim":%d}`, count, apiDim))
 }
 
 func KnowledgeList(sourceType string, days int, contentType string) *ToolResult {
