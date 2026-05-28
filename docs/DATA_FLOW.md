@@ -475,6 +475,27 @@ RetrievalResult 新增字段：
 
 ---
 
+### 路径 T：Lute markdown → Block 解析（✅ 已验证 2026-05-28）
+
+```
+EntryToDoc 或任何 markdown 文本（summary/content）
+  → MarkdownToBlocks(markdown)
+    → luteEngine.Md2BlockDOMTree(md, false)
+      → Lute AST: ast.NodeHeading/Paragraph/List/CodeBlock/Blockquote/Table
+    → 遍历 AST 子节点 → luteNodeToBlock()
+      → Block{Type: BlockHeading/Paragraph/List/..., Content, Markdown}
+  → 返回 []*Block 供 BlockStorage 存储
+```
+
+**入口：** `internal/tools/markdown_blocks.go` — `MarkdownToBlocks`
+**调用点：** `internal/tools/storage.go:259` — `EntryToDoc`
+**依赖：** `github.com/88250/lute` v1.7.6（MulanPSL 2.0，纯 Go，无间接依赖）
+**块类型映射：** heading → BlockHeading, paragraph → BlockParagraph, list → BlockList, code block → BlockCode, blockquote → BlockQuote, table → BlockTable
+**验证日期：** 2026-05-28
+**验证方式：** `go test -run TestMarkdownToBlocks` — 7 个用例全通过
+
+---
+
 1. 每次新增功能，在本文件增加对应路径
 2. 修复一个断路，将 ❌ 改为 ✅，并注明验证日期
 3. 发现新的断路，立即在此记录，不要假装它不存在

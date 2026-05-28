@@ -81,7 +81,7 @@ func luteNodeToBlock(node *ast.Node) *Block {
 
 // BlocksToMarkdown 将 Block 列表渲染为 markdown 文本。
 // 将 block 内容拼接为 markdown，用 Lute 格式化输出。
-func BlocksToMarkdown(blocks []*Block) string {
+func blocksToMarkdown(blocks []*Block) string {
 	if len(blocks) == 0 {
 		return ""
 	}
@@ -138,8 +138,8 @@ func luteNodeToBlockType(nodeType ast.NodeType) BlockType {
 }
 
 // RenderBlocksToHTML 使用 Lute 将 blocks 渲染为 HTML。
-func RenderBlocksToHTML(blocks []*Block) string {
-	md := BlocksToMarkdown(blocks)
+func renderBlocksToHTML(blocks []*Block) string {
+	md := blocksToMarkdown(blocks)
 	if md == "" {
 		return ""
 	}

@@ -110,7 +110,7 @@ func TestBlocksToMarkdown_RoundTrip(t *testing.T) {
 	}
 
 	// 验证内容完整
-	reconstructed := BlocksToMarkdown(blocks)
+	reconstructed := blocksToMarkdown(blocks)
 	if reconstructed == "" {
 		t.Fatal("BlocksToMarkdown 返回空")
 	}
