@@ -5,10 +5,10 @@
 ## Project Snapshot (live)
 
 - **git**: `main`, clean
-- **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
+- **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (22 packages)
 - **health**: `go run ./cmd/core-health` → pass
 - **tools**: ~120 registered
-- **plugins**: 25 L4 + ~44 YAML workflows (all v2.5 standard)
+- **plugins**: 25 L4 + 43 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **MCP servers**: 0 (框架保留，模板脚本已删除)
 - **UNIMPLEMENTED**: 0
@@ -57,7 +57,7 @@ kernel.Kernel  ─── 按 recipient 转发
 | L3 | internal/retrieval/ | No | L0 keyword + L1 semantic + L0.5 graph search | tools |
 | L3 | internal/workflow/ | No | YAML engine + Go-DSL engine | kernel, tools |
 | L4 | plugins/ | No | 25 orchestration plugins | kernel, tools |
-| L4 | workflows/ | No | ~44 YAML workflow definitions | workflow_plugin |
+| L4 | workflows/ | No | 43 YAML workflow definitions | workflow_plugin |
 
 ## Key Design Rules
 
@@ -380,7 +380,7 @@ curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-d
 | `docs/DATA_FLOW.md` | 系统真实数据流——端到端路径状态 | |
 | `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 |
 | `docs/devlog/DEVLOG_20260526.md` | 全量 v2.5 升级记录：40 YAML + Go 工具反推 + 引擎修复 |
-| `workflows/absorb_right_flower.yaml` | Absorption process (v2.5, 14步, 引用治理框架) |
+| `docs/archived/absorb_right_flower.yaml` | Absorption process (v2.5, 14步, 已归档，不可执行) |
 
 **Quick lookup**:
 - "Why is X this way?" → DESIGN_PRINCIPLES.md
