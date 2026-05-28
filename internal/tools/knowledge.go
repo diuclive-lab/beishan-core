@@ -2768,8 +2768,11 @@ func KnowledgeTimeline(groupBy string) *ToolResult {
 type GraphNode struct {
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`
-	SourceType string   `json:"source_type"`
-	Tags       []string `json:"tags"`
+	SourceType string   `json:"source_type,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Refs       int      `json:"refs,omitempty"`  // 入度（被引用次数）
+	Defs       int      `json:"defs,omitempty"`  // 出度（引用其他次数）
+	Size       float64  `json:"size,omitempty"`  // 节点大小（基于引用数对数缩放）
 }
 
 type GraphEdge struct {
@@ -3472,6 +3475,55 @@ func registerKnowledgeTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			return KnowledgeGraph()
+		},
+	)
+
+	Register("knowledge_graph_local", "以指定条目为中心构建局部知识图谱（N 跳扩展）。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"id":    stringParam("条目 ID"),
+				"depth": stringParam("递归深度（1-6，默认 2）"),
+			},
+			"required": []string{"id"},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			id, _ := args["id"].(string)
+			depth := 2
+			if v, ok := args["depth"].(float64); ok {
+				depth = int(v)
+			}
+			nodes, links, err := BuildLocalGraph(id, depth)
+			if err != nil {
+				return ErrorResult(err.Error())
+			}
+			b, _ := json.MarshalIndent(map[string]interface{}{
+				"nodes": nodes, "links": links, "count": len(nodes),
+			}, "", "  ")
+			return SuccessResult(string(b))
+		},
+	)
+
+	Register("knowledge_graph_global", "构建全库知识图谱，可按最小引用数过滤。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"min_refs": stringParam("最小引用数（低于此值不显示，默认 0 全部显示）"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			minRefs := 0
+			if v, ok := args["min_refs"].(float64); ok {
+				minRefs = int(v)
+			}
+			nodes, links, err := BuildGlobalGraph(minRefs)
+			if err != nil {
+				return ErrorResult(err.Error())
+			}
+			b, _ := json.MarshalIndent(map[string]interface{}{
+				"nodes": nodes, "links": links, "count": len(nodes),
+			}, "", "  ")
+			return SuccessResult(string(b))
 		},
 	)
 

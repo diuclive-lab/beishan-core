@@ -16,16 +16,8 @@ const (
 	graphMaxNodes = 200
 )
 
-type GraphExtNode struct {
-	ID    string   `json:"id"`
-	Title string   `json:"title"`
-	Tags  []string `json:"tags,omitempty"`
-	Size  float64  `json:"size"`
-	Refs  int      `json:"refs"`
-	Defs  int      `json:"defs"`
-}
-
-func BuildLocalGraph(targetID string, depth int) (nodes []GraphExtNode, links []GraphEdge, err error) {
+// BuildLocalGraph 以 targetID 为中心构建局部图谱，利用 notebooks/*.sy 的 refs/backlinks。
+func BuildLocalGraph(targetID string, depth int) (nodes []GraphNode, links []GraphEdge, err error) {
 	if depth <= 0 || depth > maxGraphDepth {
 		depth = 2
 	}
@@ -34,7 +26,10 @@ func BuildLocalGraph(targetID string, depth int) (nodes []GraphExtNode, links []
 	if _, err := os.Stat(nd); os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("块存储不存在")
 	}
-	docs := loadDocIndex(nd)
+	docs, err := loadDocIndex(nd)
+	if err != nil {
+		return nil, nil, fmt.Errorf("加载索引失败: %w", err)
+	}
 
 	visited := map[string]int{}
 	var collect func(id string, d int)
@@ -71,7 +66,7 @@ func BuildLocalGraph(targetID string, depth int) (nodes []GraphExtNode, links []
 
 	for id := range visited {
 		doc := docs[id]
-		n := GraphExtNode{ID: id, Title: doc.Title, Tags: doc.Tags}
+		n := GraphNode{ID: id, Title: doc.Title, Tags: doc.Tags}
 		for _, l := range links {
 			if l.Target == id {
 				n.Refs++
@@ -89,13 +84,17 @@ func BuildLocalGraph(targetID string, depth int) (nodes []GraphExtNode, links []
 	return
 }
 
-func BuildGlobalGraph(minRefs int) (nodes []GraphExtNode, links []GraphEdge, err error) {
+// BuildGlobalGraph 构建全库图谱，minRefs 过滤低引用节点。
+func BuildGlobalGraph(minRefs int) (nodes []GraphNode, links []GraphEdge, err error) {
 	nd := filepath.Join(knowledgeDir, "..", "notebooks")
 	nd, _ = filepath.Abs(nd)
 	if _, err := os.Stat(nd); os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("块存储不存在")
 	}
-	docs := loadDocIndex(nd)
+	docs, err := loadDocIndex(nd)
+	if err != nil {
+		return nil, nil, fmt.Errorf("加载索引失败: %w", err)
+	}
 
 	refCount := map[string]int{}
 	defCount := map[string]int{}
@@ -130,7 +129,7 @@ func BuildGlobalGraph(minRefs int) (nodes []GraphExtNode, links []GraphEdge, err
 		if minRefs > 0 && rc+dc < minRefs {
 			continue
 		}
-		nodes = append(nodes, GraphExtNode{
+		nodes = append(nodes, GraphNode{
 			ID: id, Title: doc.Title, Tags: doc.Tags,
 			Refs: rc, Defs: dc,
 			Size: math.Log2(float64(rc+dc+1)) * graphBaseSize,
@@ -145,18 +144,25 @@ func BuildGlobalGraph(minRefs int) (nodes []GraphExtNode, links []GraphEdge, err
 	return
 }
 
-func loadDocIndex(nd string) map[string]*Document {
+// loadDocIndex 加载 notebooks/ 目录到内存索引。错误向上传递，不吞。
+func loadDocIndex(nd string) (map[string]*Document, error) {
 	docs := make(map[string]*Document)
-	entries, _ := os.ReadDir(nd)
+	entries, err := os.ReadDir(nd)
+	if err != nil {
+		return nil, err
+	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sy") {
 			continue
 		}
-		data, _ := os.ReadFile(filepath.Join(nd, e.Name()))
+		data, err := os.ReadFile(filepath.Join(nd, e.Name()))
+		if err != nil {
+			continue
+		}
 		var doc Document
 		if json.Unmarshal(data, &doc) == nil && doc.ID != "" {
 			docs[doc.ID] = &doc
 		}
 	}
-	return docs
+	return docs, nil
 }
