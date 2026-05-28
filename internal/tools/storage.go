@@ -255,6 +255,21 @@ func DocToEntry(doc *Document) *KnowledgeEntry {
 
 // EntryToDoc 将 KnowledgeEntry 转换为 Document（迁移用）。
 func EntryToDoc(entry *KnowledgeEntry) *Document {
+	// 用 Lute 从 summary 解析 blocks
+	blocks := MarkdownToBlocks(entry.Summary)
+	if len(blocks) == 0 {
+		blocks = []*Block{{
+			ID:      entry.ID + "_b1",
+			Type:    BlockParagraph,
+			Content: entry.Summary,
+		}}
+	}
+	for i, b := range blocks {
+		if b.ID == "" {
+			b.ID = fmt.Sprintf("%s_b%d", entry.ID, i+1)
+		}
+	}
+
 	doc := &Document{
 		ID:        entry.ID,
 		Title:     entry.Title,
@@ -264,15 +279,7 @@ func EntryToDoc(entry *KnowledgeEntry) *Document {
 		Properties: map[string]string{
 			"source_type": entry.SourceType,
 		},
-		Blocks: []*Block{
-			{
-				ID:        entry.ID + "_b1",
-				Type:      BlockParagraph,
-				Content:   entry.Summary,
-				CreatedAt: entry.CreatedAt,
-				UpdatedAt: entry.CreatedAt,
-			},
-		},
+		Blocks:    blocks,
 		Embedding: entry.Embedding,
 	}
 	if doc.Properties == nil {
