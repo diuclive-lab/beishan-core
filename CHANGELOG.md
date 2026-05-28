@@ -1,5 +1,25 @@
 # 变更日志
 
+## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
+
+### Plugin 层修复（8 文件，按 §6.1 逐项核对）
+- **browser/image_gen/tts**: 成功路径返回空 Message → 输出 JSON Payload + 检查 result.Success
+- **write_plugin**: 4 个 case 从空 Message 改为输出 payload + 全部 case 添加 Success 检查
+- **notify_plugin**: `result.Error != ""` → `!result.Success`（语义等价性修复）
+- **search_plugin**: web_fetch/extract/render 添加 Success 检查 → `.error` 类型
+- **todo_plugin/skill_factory**: 失败时返回 `.error` 类型而非 `.result`
+
+### Workflow v2.5 合规（11 文件修复 + 41 文件补声明）
+- 11 个 YAML 修复缺失的 `on_error`/`timeout` 字段
+- 41 个 YAML 添加 `output_target: chat` 声明
+- `absorb_right_flower.yaml` 登记为不可执行参考文档
+
+### 文档
+- CODE_REVIEW_SPEC.md §9: 新增 6 种 AI 高频错误模式
+- KNOWN_LIMITATIONS.md §15: absorb_right_flower 归档标记
+- DEVLOG_20260528.md: 本次审查完整记录
+- DATASET.md → docs/archived/DATASET.md（已归档）
+
 ## 2026-05-26 v2.5 全量升级 + 治理框架 + Go 工具反推
 
 ### 新增

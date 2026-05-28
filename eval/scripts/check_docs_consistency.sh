@@ -36,8 +36,34 @@ echo -n "  [9] README.md 存在... "
 [ -f "$HERE/README.md" ] && echo "✅" || { echo "❌"; FAILED=1; }
 
 echo ""
-# 注意：工具计数等语义级检查需要人工确认，CI 无法自动判断
-echo "⚠️  工具计数等语义级一致性需人工确认（CI 无法判断内容准确性）"
+echo "=== 数字一致性校验 ==="
+echo ""
+
+# 从代码中提取实际数量
+ACTUAL_TOOLS=$(grep -rn 'Register("' "$HERE/internal/tools/" --include='*.go' | grep -v '_test.go' | wc -l | tr -d ' ')
+ACTUAL_PLUGINS=$(grep -E 'kernel\.Register|k\.Register\(' "$HERE/cmd/beishan/main.go" 2>/dev/null | wc -l | tr -d ' ')
+ACTUAL_WORKFLOWS=$(ls "$HERE/workflows/"*.yaml 2>/dev/null | grep -v '_template' | wc -l | tr -d ' ')
+
+# 从 CLAUDE.md 读取声称的数量
+CLAIMED_TOOLS=$(grep ' registered' "$HERE/CLAUDE.md" | head -1 | grep -o '[0-9]*' | head -1)
+CLAIMED_PLUGINS=$(grep ' L4 ' "$HERE/CLAUDE.md" | head -1 | grep -o '[0-9]*' | head -1)
+# grep 44 from "44 YAML workflows" — extract the number before "YAML"
+CLAIMED_WORKFLOWS=$(grep 'YAML workflows' "$HERE/CLAUDE.md" | head -1 | sed 's/.* \([0-9]*\) YAML workflows.*/\1/')
+
+# 允许 ±2 浮动（计数方法差异 + 边注册工具）
+TOLERANCE=2
+echo -n "  [10] 工具数: 代码=$ACTUAL_TOOLS, CLAUDE.md声称=$CLAIMED_TOOLS... "
+DIFF=$(( ACTUAL_TOOLS - CLAIMED_TOOLS ))
+if [ "${DIFF#-}" -le "$TOLERANCE" ] 2>/dev/null; then echo "✅ ($CLAIMED_TOOLS浮动±$TOLERANCE)"; else echo "❌ ($ACTUAL_TOOLS vs $CLAIMED_TOOLS)"; FAILED=1; fi
+
+echo -n "  [11] 插件数: 代码=$ACTUAL_PLUGINS（不含右花）, CLAUDE.md声称=$CLAIMED_PLUGINS... "
+DIFF=$(( ACTUAL_PLUGINS - CLAIMED_PLUGINS ))
+# 插件数差异包含 rightflower 动态注册（通常 3），容忍 ±7
+if [ "${DIFF#-}" -le 7 ] 2>/dev/null; then echo "✅ ($CLAIMED_PLUGINS浮动±7)"; else echo "❌ ($ACTUAL_PLUGINS vs $CLAIMED_PLUGINS)"; FAILED=1; fi
+
+echo -n "  [12] 工作流数: 代码=$ACTUAL_WORKFLOWS, CLAUDE.md声称=$CLAIMED_WORKFLOWS... "
+DIFF=$(( ACTUAL_WORKFLOWS - CLAIMED_WORKFLOWS ))
+if [ "${DIFF#-}" -le "$TOLERANCE" ] 2>/dev/null; then echo "✅ ($CLAIMED_WORKFLOWS浮动±$TOLERANCE)"; else echo "❌ ($ACTUAL_WORKFLOWS vs $CLAIMED_WORKFLOWS)"; FAILED=1; fi
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

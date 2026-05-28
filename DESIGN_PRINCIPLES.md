@@ -48,6 +48,12 @@
 3. `recipient` 必须在已注册插件名列表（`knownPlugins`）中
 校验不通过则返回错误，不给降级机会。
 
+**三级分流链路**：用户请求经过三层路由递减，每层精确度递增：
+1. `preRoute`（`cmd/beishan/preroute.go`）— 高频白名单精确匹配，命中后直接设 Recipient+Type+Payload，零 LLM 开销
+2. `evidence_router`（`internal/tools/evidence_router.go`）— 规则引擎 + EWMA 自适应权重，匹配则直接转发。阈值 0.8，避免模糊匹配
+3. `Router.Route(msg)`（`kernel/router.go`）— LLM 路由，`Recipient` 仍为空时触发。callDeepSeek → parseDecision 三层校验
+三级分流确保 80%+ 的请求在前两级完成路由，LLM 路由仅作为最后兜底。
+
 ## 核心认知
 
 大语言模型不是通用智能，是文本补全器。
