@@ -12,7 +12,7 @@
 | `cmd/repl/` | 实验性交互式 REPL，仅开发调试用 | — |
 | `kernel/` | 微内核：Plugin 接口、注册、消息路由、Router（DeepSeek 路由） | L1 |
 | `glue/` | IPC 通信：子进程管理、manifest 扫描、JSON 行协议 | L2 |
-| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（115 个工具） | L3 |
+| `internal/tools/` | 工具注册中心 + Schema 校验 + 硬化执行 + 安全检查（~120 个工具） | L3 |
 | `internal/workflow/` | 双工作流引擎：YAML 引擎 + Go-DSL 引擎 | L3 |
 | `internal/observatory/` | 决策追踪 + 健康检查 + 因果证据图 | L3 |
 | `internal/bench/` | 通用评估框架（bench + runner + suites） | L3 |
@@ -24,21 +24,33 @@
 | `internal/retrieval/` | 知识检索：向量化嵌入、语义搜索、Query DSL 余量接口 | L3 |
 | `internal/rightflower/` | 右花协议：Manifest 加载、HTTP dispatch、审计日志 | L3 |
 | `internal/notify/` | 通知发送：邮件、Slack、企业微信 | L3 |
+| `internal/llmguard/` | LLM 行为契约层：维度化 API + 结构/内容/事实三套契约 + Critique 自审 | L3 |
 | `internal/tools/toolsets.go` | 11 工具组 + BuildToolsetSummary + ResolveToolset | L3 |
 | `internal/tools/evidence_router.go` | 证据路由：规则引擎 + EWMA 自适应权重 + radix tree | L3 |
 | `internal/tools/radixtree.go` + test | 压缩前缀树（高效前缀匹配） | L3 |
 | `internal/tools/workspace.go` | 跨会话工作状态（workspace_save/load + 自动注入） | L3 |
+| `internal/tools/storage.go` | 存储适配器（StorageAdapter）：JSONStorage + BlockStorage 双实现 | L3 |
+| `internal/tools/link_index.go` | 自动双向链接索引（[[wikilink]] 解析 + UpdateBacklinks） | L3 |
+| `internal/tools/knowledge_graph.go` | 知识图谱（BuildLocalGraph / BuildGlobalGraph） | L3 |
+| `internal/tools/fact_check.go` | 事实核查（UngroundedNumbersWarn / StockCodeVerify / URLVerify） | L3 |
 | `internal/tools/filesystem_tools.go` | 8 个文件系统工具（guess_type/preview/archive/csv/json/stat/compare/extract） | L3 |
 | `plugins/session.go` | 会话状态机 SessionManager：Idle/RememberPending/ReviewPending 状态 | L4 |
 | `plugins/` | 生产级 L4 插件：search、write、memory、legal 审查簇、workflow 编排等 | L4 |
 | `cmd/rightflower-python-wrapper/` | Python 右花接入模板 + Hermes Agent / OpenClaw 适配器 | 右花 |
+| `cmd/knowledge-migrate/` | 知识库迁移工具（硬件前缀 strip + 格式转换） | 工具 |
+| `cmd/beishan-mcp/` | MCP 服务器，供 Claude Desktop 等 MCP 客户端调用 beishan-core 工具 | 工具 |
 | `workflows/` | YAML 工作流定义文件，被 `workflow_plugin` 加载执行 | L4 编排 |
+| `scripts/` | 辅助脚本：集成检查、桌面操作、文档提取 | 工具 |
 | `eval/` | 烟雾测试：场景定义、运行脚本、测试结果 | 测试 |
 | `examples/` | 开发/测试用示例插件（Go + Python 子进程模板） | 参考 |
-| `docs/` | 设计文档：架构决策、硬化层声明、已知限制、治理框架、v2.5 标准 | 文档 |
+| `docs/` | 设计文档：架构决策、硬化层声明、已知限制、治理框架、审查标准、产品愿景 | 文档 |
 | `docs/devlog/` | 开发日志，按日期记录内部开发过程 | 过程档案 |
 | `docs/ABSORPTION_GOVERNANCE.md` | 吸收治理框架：证据等级、吸收等级、风险分类、升级策略 | 治理根茎 |
 | `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 | 治理标准 |
+| `docs/CODE_REVIEW_SPEC.md` | 代码审查规范：三层验证体系 + AI 高频错误模式 13 条 | 审查标准 |
+| `docs/PRODUCT_VISION.md` | 产品定位与三阶段演进路线 | 产品方向 |
+| `docs/CODING_RHYTHM.md` | 代码审计方法论：审计→诊断→执行→验证四步闭环 | 工程规范 |
+| `docs/plans/` | 吸收方案、执行计划等阶段性文档 | 计划 |
 | `providers.json` | 声明式多 Provider 配置（failover 模型等），由 LLM_PROVIDERS_CONFIG 加载 | 配置 |
 
 ## 关键设计决策
