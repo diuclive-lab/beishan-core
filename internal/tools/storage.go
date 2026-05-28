@@ -129,11 +129,12 @@ const (
 
 // Block 文档树中的一个内容块。
 type Block struct {
-	ID        string      `json:"id"`
-	Type      BlockType   `json:"type"`
-	Content   string      `json:"content"`            // 纯文本内容
-	Markdown  string      `json:"markdown,omitempty"` // markdown 原文（段落级）
-	Children  []*Block    `json:"children,omitempty"`
+	ID        string            `json:"id"`
+	Type      BlockType         `json:"type"`
+	Content   string            `json:"content"`            // 纯文本内容
+	Markdown  string            `json:"markdown,omitempty"` // markdown 原文（段落级）
+	IAL       map[string]string `json:"ial,omitempty"`      // 自定义属性（参考 SiYuan Inline Attribute List）
+	Children  []*Block          `json:"children,omitempty"`
 	Depth     int         `json:"depth,omitempty"`    // 标题层级（heading 有效）
 	CreatedAt int64       `json:"created_at"`
 	UpdatedAt int64       `json:"updated_at"`
