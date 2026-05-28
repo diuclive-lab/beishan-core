@@ -61,6 +61,9 @@ func NewJSONStorage(dir string) *JSONStorage {
 func (s *JSONStorage) GetEntry(id string) *KnowledgeEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	// 设置 flag 避免 loadKnowledge 再次进入 Storage().GetEntry 造成循环
+	isLoadingFromJSON.Store(true)
+	defer isLoadingFromJSON.Store(false)
 	return loadKnowledge(id)
 }
 

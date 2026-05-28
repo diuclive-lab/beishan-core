@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"beishan/internal/retrieval"
@@ -153,6 +154,14 @@ func knowledgePath(id string) string {
 
 func loadKnowledge(id string) *KnowledgeEntry {
 	initKnowledgeDir()
+	// 优先走当前 StorageAdapter（BlockStorage 时走内存 index）。
+	// JSONStorage.GetEntry 内部调用此函数，用 isLoadingFromJSON 避免循环。
+	if !isLoadingFromJSON.Load() {
+		if entry := Storage().GetEntry(id); entry != nil {
+			return entry
+		}
+	}
+	// 降级：直接读 JSON 文件（JSONStorage 路径 / 兜底）
 	data, err := os.ReadFile(knowledgePath(id))
 	if err != nil {
 		return nil
@@ -161,6 +170,9 @@ func loadKnowledge(id string) *KnowledgeEntry {
 	json.Unmarshal(data, &entry)
 	return &entry
 }
+
+// isLoadingFromJSON 防止 JSONStorage.GetEntry → loadKnowledge → Storage().GetEntry 循环。
+var isLoadingFromJSON atomic.Bool
 
 // prepareEntry 入库前自动补全（SourceType/Tags/Embedding），纯副作用，不写磁盘。
 func prepareEntry(entry *KnowledgeEntry) {
@@ -2026,10 +2038,7 @@ func KnowledgeListNS(sourceType string, days int, contentType, namespace string)
 }
 
 func KnowledgeGet(id string) *ToolResult {
-	knowledgeMu.RLock()
-	defer knowledgeMu.RUnlock()
-
-	entry := loadKnowledge(id)
+	entry := Storage().GetEntry(id)
 	if entry == nil {
 		return errorResult(fmt.Sprintf("知识条目 %s 未找到", id))
 	}
