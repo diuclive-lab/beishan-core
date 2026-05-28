@@ -620,7 +620,9 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		if async {
 			msg.ReplyTo = "session:" + sessionID
 
-			go func(m kernel.Message) {
+			sendMsg := msg
+			observatory.SafeGo("async-send "+sendMsg.Type, func() {
+				m := sendMsg
 				if err := k.Send(m); err != nil {
 					// Router 降级：preRoute 未命中（Recipient 空）+ chat 类型 + 路由失败
 					// → 降级到 think_plugin 做纯对话，避免用户看到路由错误
@@ -634,7 +636,7 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 						log.Printf("[main] 异步请求失败: %v", err)
 					}
 				}
-			}(msg)
+			})
 
 			json.NewEncoder(w).Encode(map[string]string{
 				"status":     "pending",
@@ -667,16 +669,17 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 
 		// 异步更新 session 摘要：等待 session_add 消息落盘后生成
 		// 摘要供跨 session 历史检索（SessionSearchStructured Phase 1）使用
-		go func(sid string) {
+		sid := sessionID
+		observatory.SafeGo("session-summary "+sid, func() {
 			time.Sleep(500 * time.Millisecond)
 			if sum := tools.GenerateSessionSummary(sid); sum != nil {
 				tools.SaveSessionSummary(sum)
 			}
 			// 每 10 轮对话推断一次用户习惯，异步更新画像
 			if n := atomic.AddInt64(&chatCounter, 1); n%10 == 0 {
-				go tools.InferAndUpdateProfile()
+				observatory.SafeGo("profile-infer", func() { tools.InferAndUpdateProfile() })
 			}
-		}(sessionID)
+		})
 
 		// 包装响应，附加 session_id 供客户端后续请求使用
 		wrapped := map[string]interface{}{
@@ -817,7 +820,7 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 	}
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: withRecover(mux),
 	}
 
 	idleConnsClosed := make(chan struct{})
@@ -847,6 +850,21 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 	log.Println("[main] 服务已安全关闭")
 }
 
+
+// withRecover wraps an http.Handler so a panic in any handler becomes a logged
+// 500 JSON response instead of an abruptly dropped connection. net/http already
+// recovers per-connection, but only this gives the client a clean error and a
+// single observability funnel (observatory EventPanicRecovered).
+func withRecover(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer observatory.RecoverWith("http "+r.Method+" "+r.URL.Path, func(interface{}) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal server error"}`))
+		})
+		next.ServeHTTP(w, r)
+	})
+}
 
 /* buildWorkflowSummary 扫描 workflows/ 目录，提取每个 YAML 工作流的 id 和描述。
    用于注入 Router 提示词，让 DeepSeek 知道可用工作流。 */

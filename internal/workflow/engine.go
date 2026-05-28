@@ -303,6 +303,9 @@ func (e *Engine) runParallel(step *StepDef, ctx map[string]interface{}) StepResu
 	for i := range step.ParallelSteps {
 		sub := step.ParallelSteps[i]
 		go func(s StepDef) {
+			defer observatory.RecoverWith("workflow.parallel "+s.ID, func(r interface{}) {
+				ch <- subResult{id: s.ID, err: fmt.Errorf("panic: %v", r)}
+			})
 			payload := buildPayload(s.Inputs, ctx)
 			resp, err := e.Kernel.Call(kernel.Message{
 				Recipient: s.Plugin,
@@ -491,7 +494,7 @@ func (e *Engine) InitEventSubscriptions() {
 			wfID := id
 			observatory.Subscribe(eventType, func(evt observatory.Event) {
 				// 必须在 goroutine 中执行 — observatory 要求 handler 快速返回
-				go func() {
+				observatory.SafeGo("workflow.event-trigger "+wfID, func() {
 					payload, _ := json.Marshal(map[string]string{"workflow": wfID})
 					if err := e.Kernel.Send(kernel.Message{
 						Recipient: "workflow_plugin",
@@ -500,7 +503,7 @@ func (e *Engine) InitEventSubscriptions() {
 					}); err != nil {
 						log.Printf("[workflow] event-trigger 执行失败 %s: %v", wfID, err)
 					}
-				}()
+				})
 			})
 			log.Printf("[workflow] event-trigger 注册: %q → 自动执行 %s", eventType, wfID)
 		}

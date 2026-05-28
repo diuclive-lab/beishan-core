@@ -8,14 +8,7 @@ import (
 )
 
 func TestBuildLocalGraph(t *testing.T) {
-	oldKD := knowledgeDir
-	t.Cleanup(func() { knowledgeDir = oldKD })
-
-	dir := t.TempDir()
-	knowledgeDir = filepath.Join(dir, "knowledge")
-	os.MkdirAll(knowledgeDir, 0755)
-	nd := filepath.Join(dir, "notebooks")
-	os.MkdirAll(nd, 0755)
+	nd := withTempKnowledge(t)
 
 	docs := []*Document{
 		{ID: "doc_a", Title: "文档 A", Refs: []string{"doc_b"}},
@@ -41,14 +34,7 @@ func TestBuildLocalGraph(t *testing.T) {
 }
 
 func TestBuildGlobalGraph(t *testing.T) {
-	oldKD := knowledgeDir
-	t.Cleanup(func() { knowledgeDir = oldKD })
-
-	dir := t.TempDir()
-	knowledgeDir = filepath.Join(dir, "knowledge")
-	os.MkdirAll(knowledgeDir, 0755)
-	nd := filepath.Join(dir, "notebooks")
-	os.MkdirAll(nd, 0755)
+	nd := withTempKnowledge(t)
 
 	docs := []*Document{
 		{ID: "d1", Title: "条目一", Refs: []string{"d2"}},
@@ -73,14 +59,7 @@ func TestBuildGlobalGraph(t *testing.T) {
 }
 
 func TestBuildGlobalGraph_FilterByMinRefs(t *testing.T) {
-	oldKD := knowledgeDir
-	t.Cleanup(func() { knowledgeDir = oldKD })
-
-	dir := t.TempDir()
-	knowledgeDir = filepath.Join(dir, "knowledge")
-	os.MkdirAll(knowledgeDir, 0755)
-	nd := filepath.Join(dir, "notebooks")
-	os.MkdirAll(nd, 0755)
+	nd := withTempKnowledge(t)
 
 	docs := []*Document{
 		{ID: "d1", Title: "中心条目", Refs: []string{"d2", "d3", "d4", "d5"}},

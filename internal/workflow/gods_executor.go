@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"beishan/internal/observatory"
 	"beishan/kernel"
 )
 
@@ -449,6 +450,7 @@ func (ex *GoExecutor) runGoStepParallel(step GoStep, input map[string]interface{
 		wg.Add(1)
 		go func(s GoStep) {
 			defer wg.Done()
+			defer observatory.Recover("gods.parallel " + s.ID)
 			sr := ex.runGoStepWithRetry(s, input)
 			mu.Lock()
 			subResults = append(subResults, sr)

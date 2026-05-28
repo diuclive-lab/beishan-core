@@ -30,6 +30,7 @@ const (
 	ErrLLM           SubagentErrorCode = "llm_error"
 	ErrNotFound      SubagentErrorCode = "agent_not_found"
 	ErrEmptyPrompt   SubagentErrorCode = "empty_prompt"
+	ErrPanic         SubagentErrorCode = "panic"
 	ErrUnknown       SubagentErrorCode = "unknown"
 )
 
@@ -203,6 +204,14 @@ func RunParallel(ctx context.Context, tasks []ParallelTask, timeout time.Duratio
 
 	for i, t := range tasks {
 		go func(idx int, task ParallelTask) {
+			defer func() { done <- struct{}{} }()
+			defer observatory.RecoverWith(fmt.Sprintf("agent.parallel[%d] %s", idx, task.AgentID), func(r interface{}) {
+				results[idx] = SubagentResult{
+					TaskID: task.AgentID, AgentID: task.AgentID,
+					Error:     fmt.Sprintf("panic: %v", r),
+					ErrorCode: ErrPanic,
+				}
+			})
 			def, ok := Get(task.AgentID)
 			if !ok {
 				results[idx] = SubagentResult{
@@ -210,12 +219,10 @@ func RunParallel(ctx context.Context, tasks []ParallelTask, timeout time.Duratio
 					Error:     fmt.Sprintf("agent %q not found", task.AgentID),
 					ErrorCode: ErrNotFound,
 				}
-				done <- struct{}{}
 				return
 			}
 			// Each goroutine runs with its own context depth — no race on the counter
 			results[idx] = RunSubagent(ctx, fmt.Sprintf("parallel-%d", idx), task.Prompt, def, timeout)
-			done <- struct{}{}
 		}(i, t)
 	}
 

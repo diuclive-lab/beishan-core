@@ -2,8 +2,41 @@ package tools
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
+
+// withTempKnowledge points the package's knowledge storage at a fresh temp dir
+// for the duration of the test, then fully restores global storage state —
+// knowledgeDir AND the lazily-cached currentStorage — on cleanup, so no storage
+// state leaks into later tests. Storage() caches currentStorage permanently with
+// no reset path, so restoring knowledgeDir alone is not enough. Returns the
+// notebooks dir where .sy docs should be written.
+func withTempKnowledge(t *testing.T) (notebooksDir string) {
+	t.Helper()
+	oldKD := knowledgeDir
+	storageMu.Lock()
+	oldStorage := currentStorage
+	currentStorage = nil
+	storageMu.Unlock()
+
+	dir := t.TempDir()
+	knowledgeDir = filepath.Join(dir, "knowledge")
+	os.MkdirAll(knowledgeDir, 0755)
+	notebooksDir = filepath.Join(dir, "notebooks")
+	os.MkdirAll(notebooksDir, 0755)
+
+	t.Cleanup(func() {
+		knowledgeDir = oldKD
+		storageMu.Lock()
+		if currentStorage != nil && currentStorage != oldStorage {
+			currentStorage.Close()
+		}
+		currentStorage = oldStorage
+		storageMu.Unlock()
+	})
+	return notebooksDir
+}
 
 func TestBlockStorage_WriteRead(t *testing.T) {
 	dir := t.TempDir()
