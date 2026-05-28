@@ -76,8 +76,12 @@ func (s *JSONStorage) SearchEntries(query string, limit int) []*KnowledgeEntry {
 func (s *JSONStorage) SaveEntry(entry *KnowledgeEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	saveKnowledge(entry)
-	return nil
+	// 直接写 JSON，不经 saveKnowledge（避免循环调用）
+	data, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(knowledgePath(entry.ID), data, 0644)
 }
 
 func (s *JSONStorage) DeleteEntry(id string) error {

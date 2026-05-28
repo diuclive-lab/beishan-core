@@ -162,27 +162,27 @@ func loadKnowledge(id string) *KnowledgeEntry {
 	return &entry
 }
 
-func saveKnowledge(entry *KnowledgeEntry) {
-	initKnowledgeDir()
-
-	// 入库门禁：自动补全（不拒绝，但修正）
+// prepareEntry 入库前自动补全（SourceType/Tags/Embedding），纯副作用，不写磁盘。
+func prepareEntry(entry *KnowledgeEntry) {
 	if entry.SourceType == "" {
 		entry.SourceType = inferSourceType(entry)
 	}
 	if len(entry.Tags) == 0 {
 		entry.Tags = autoExtractTags(entry.Title, entry.Summary)
 	}
-
-	// 写入时顺带计算 embedding（失败不影响入库）
 	if embeddingEnabled() && len(entry.Embedding) == 0 {
 		text := entry.Title + " " + entry.Summary
 		if emb, ok := tryEmbedding(text); ok {
 			entry.Embedding = emb
 		}
 	}
+}
 
-	data, _ := json.MarshalIndent(entry, "", "  ")
-	os.WriteFile(knowledgePath(entry.ID), data, 0644)
+func saveKnowledge(entry *KnowledgeEntry) {
+	initKnowledgeDir()
+	prepareEntry(entry)
+	// 委托给当前存储适配器（BlockStorage 或 JSONStorage）
+	Storage().SaveEntry(entry) //nolint:errcheck
 }
 
 func deleteKnowledge(id string) error {
