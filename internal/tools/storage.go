@@ -255,6 +255,9 @@ func DocToEntry(doc *Document) *KnowledgeEntry {
 	if ct, ok := doc.Properties["content_type"]; ok {
 		entry.ContentType = ct
 	}
+	if ns, ok := doc.Properties["namespace"]; ok {
+		entry.Namespace = ns
+	}
 	return entry
 }
 
@@ -292,6 +295,9 @@ func EntryToDoc(entry *KnowledgeEntry) *Document {
 	}
 	doc.Properties["content_type"] = entry.ContentType
 	doc.Properties["imported_at"] = fmt.Sprintf("%d", time.Now().Unix())
+	if entry.Namespace != "" {
+		doc.Properties["namespace"] = entry.Namespace
+	}
 
 	return doc
 }
