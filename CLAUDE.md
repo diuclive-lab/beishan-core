@@ -149,7 +149,11 @@ kernel.Kernel  ─── 按 recipient 转发
 - **gateway**: OpenClaw Gateway on http://localhost:18789
 - **config**: `LLM_PROVIDERS_CONFIG` — 声明式多 Provider JSON 配置
 
-## AI Guardrails (what NOT to do)
+## AI Guardrails & 零容忍规则
+
+架构层面的禁止事项 + 操作层面的行为红线。违反任何一条规则的输出视为无效。
+
+### 架构禁令
 
 | Don't | Because |
 |-------|---------|
@@ -161,6 +165,21 @@ kernel.Kernel  ─── 按 recipient 转发
 | ❌ Don't skip breadth check | Changing A without checking B creates islands. |
 | ❌ Don't forget to update docs | After any code change, update relevant MD files. CI will check. |
 | ❌ Don't add dependencies lightly | Zero external Go deps except stdlib. |
+
+### 操作红线（零容忍）
+
+| 禁止行为 | 正确做法 |
+|----------|----------|
+| ❌ 说"应该""可能""按理说" | 只允许说"已确认"或"无法确认" |
+| ❌ 先写代码再说"需要测试" | 必须先确认非测试调用点再动手 |
+| ❌ 声明"已完成"但无调用点 | 必须提供非测试调用点或标记 UNIMPLEMENTED |
+| ❌ 根据文件名猜测内容 | 用 Read 工具读取后才能描述 |
+| ❌ 改一处不检查下游 | 改完后 grep 确认下游不受影响 |
+| ❌ 不确定时编造数字 | 用"未测量"替代估计值 |
+| ❌ 把"提示词写了"等于"代码保证了" | 硬化层原则：代码层保证，提示词层提醒 |
+| ❌ 声称功能"存在"而不先 grep | 必须 `grep -rn "符号名"` 验证后再声称 |
+| ❌ 跳过 `go build ./...` 说代码能工作 | 每次改动后必须先编译再结论 |
+| ❌ 无 INTEGRATION_PROOF 声称完成 | 完成定义=INTEGRATION_PROOF 可填写 |
 
 ## 集成纪律
 
@@ -200,6 +219,8 @@ kernel.Kernel  ─── 按 recipient 转发
   入口: [HTTP端点 / 插件名 / 工具名]
   经过: [你实现的代码位置]
   出口: [最终到达哪里]
+build验证: [go build ./... 输出结果]
+test验证: [go test ./... 输出结果（行数+状态）]
 DATA_FLOW.md 已更新: [是 / 否，原因: ...]
 integration_check.sh 无新增警告: [是 / 否，输出: ...]
 状态: [已完成集成 / 已实现但未集成（标记为 UNIMPLEMENTED）]
@@ -328,15 +349,20 @@ ls eval/run/conversations/
 curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-dev" ...
 ```
 
-## When to Ask the User
+## When to Ask the User / 遇问题处理规则
 
-| Situation | Action |
-|-----------|--------|
-| New right flower project to absorb | Propose plan, wait for approval |
-| kernel/ change needed | STOP — must get explicit approval |
-| Adding a new dependency | Ask first (zero deps policy) |
-| Changing launchd config | Ask first (system-level) |
-| Everything else | Proceed, report when done |
+| 情况 | 正确做法 |
+|------|----------|
+| 新右花吸收 | 提出方案，等批准 |
+| 需要改 `kernel/` | **STOP** — 必须获明确批准 |
+| 新增外部依赖 | 先问（零依赖原则） |
+| 改 launchd 配置 | 先问（系统级变更） |
+| **不知道某个函数的作用** | 用工具读源码，不猜 |
+| **修改导致 build 失败** | 立即停止，说明错误，不绕过 |
+| **某任务明显超出当前上下文能力** | 明确说"此任务需要额外信息：X"，不假装完成 |
+| **发现新的 bug 或问题** | 记录在遗留问题清单，不偷偷忽略 |
+| **DATA_FLOW.md 与代码不符** | 以代码为准，更新文档，不以文档强解代码 |
+| 以上之外 | 直接做，完成后报告 |
 
 ## Key Documents
 
