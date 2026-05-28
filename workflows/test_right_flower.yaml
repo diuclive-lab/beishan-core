@@ -6,6 +6,7 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: test_right_flower
+output_target: chat
 steps:
   - id: call_flower
     plugin: fake_example

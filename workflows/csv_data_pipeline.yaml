@@ -4,6 +4,7 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: csv_data_pipeline
+output_target: chat
 
 steps:
   - id: csv_profile

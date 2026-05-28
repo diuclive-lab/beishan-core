@@ -133,11 +133,16 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ## 10. 茎注册表运行时过滤未启用
 
-`internal/registry/` 的 `Policy.Filter()` 已实现但未接入 Go-DSL 的 `validateGoStep`。当前只使用了生命周期门控 `Lock()`，角色过滤能力待激活。
+`internal/registry/` 的 `Policy.Filter()` 已实现但未接入任何调用路径。`NewPolicy` 从未被调用，无 profile 配置，`validateGoStep` 中也无 TODO 注释（代码已改，注释未跟上）。
 
-**影响**：理论上有 profile 过滤能力，实际上所有工具对所有角色可见。
+**影响**：所有工具对所有角色可见，无 profile 过滤。
 
-**缓解**：`validateGoStep` 已有 TODO 注释，接入后开启。
+**阻塞点**：接入 `Policy.Filter()` 需要先解决三个前置问题：
+1. 在哪里定义 profiles（配置文件？硬编码？）
+2. Go-DSL 工作流如何声明所属 profile
+3. `validateGoStep` 加 `*Policy` 参数会破坏当前调用方签名
+
+**缓解**：该能力对当前单节点部署场景无实际需求。等多租户/角色隔离成为真实需求时再实现。
 
 ---
 
@@ -179,7 +184,19 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 15. deleteReviewFile 不走 delete_file 工具（设计决策）
+## 15. absorb_right_flower.yaml 是不可执行的参考文档
+
+`workflows/absorb_right_flower.yaml` 是一个 14 步的参考文档型工作流，使用非标准步骤格式（`title`/`description`/`deliverables`/`checks` 而非 `plugin`/`type`/`timeout`/`on_error`）。标准 YAML 引擎无法执行此工作流。
+
+**影响**：尝试通过 `{"workflow":"absorb_right_flower"}` 手动触发将导致引擎对每个空步骤执行 `kernel.Call("", "", input)`，行为未定义。
+
+**这不是 AI 生成的错误**：该文件由人类编写作为吸收流程的参考指南。设计意图是让开发者沿着步骤清单手动执行，而非自动化执行。
+
+**建议**：标示该文件的非可执行状态，或在引擎中添加对该格式的识别和跳过逻辑。
+
+---
+
+## 16. deleteReviewFile 不走 delete_file 工具（设计决策）
 
 `plugins/review_handler.go` 的 `deleteReviewFile` 直接调 `os.Remove`，与 `saveReviewToFile` 走 `write_file` 工具不一致。
 

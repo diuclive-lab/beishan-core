@@ -48,6 +48,11 @@ const baselineJSON = `[基线规则·JSON 输出]
 严格输出 JSON：不要 markdown 代码块（如 ` + "```" + `json），不要解释文字，不要前后缀。
 JSON 必须可被标准 JSON.parse 解析。`
 
+// baselineYAML YAML 输出强制（对应 Contract.OutputFormat="yaml"）。
+const baselineYAML = `[基线规则·YAML 输出]
+严格输出纯 YAML：不要 markdown 代码块（如 ` + "```" + `yaml），不要解释文字，不要前后缀。
+YAML 必须是合法语法，可被 yaml.Unmarshal 无错误解析。`
+
 // buildBaseline 根据 Contract 拼接需要注入的基线提示词。
 // 返回空字符串表示无需注入任何基线（零值 Contract 的语义）。
 func buildBaseline(c Contract) string {
@@ -58,11 +63,17 @@ func buildBaseline(c Contract) string {
 	if c.RequireEvidence {
 		parts = append(parts, baselineEvidence)
 	}
-	if c.OutputFormat == "json" {
+	switch c.OutputFormat {
+	case "json":
 		parts = append(parts, baselineJSON)
-	}
-	if c.JSONSchema != "" {
-		parts = append(parts, "[基线规则·字段] 输出 JSON 必须包含顶层字段："+c.JSONSchema)
+		if c.RequiredFields != "" {
+			parts = append(parts, "[基线规则·字段] 输出 JSON 必须包含顶层字段："+c.RequiredFields)
+		}
+	case "yaml":
+		parts = append(parts, baselineYAML)
+		if c.RequiredFields != "" {
+			parts = append(parts, "[基线规则·字段] 输出 YAML 必须包含顶层字段："+c.RequiredFields)
+		}
 	}
 	return strings.Join(parts, "\n\n")
 }

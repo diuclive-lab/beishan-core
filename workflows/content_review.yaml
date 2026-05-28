@@ -17,6 +17,7 @@
 #    "payload":{"workflow":"content_review","input":"<URL>"}}
 
 id: content_review
+output_target: chat
 
 steps:
   # ── Step 1: 获取内容 ──

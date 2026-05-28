@@ -5,6 +5,7 @@
 #   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
 
 id: security_audit_parallel
+output_target: chat
 
 steps:
   - id: get_diff
@@ -20,6 +21,7 @@ steps:
   - id: parallel_audit
     type: parallel
     timeout: 60
+    on_error: cross_check
     steps:
       - id: rule_check
         plugin: memory_plugin

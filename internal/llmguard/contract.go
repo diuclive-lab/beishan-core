@@ -51,6 +51,7 @@ type Contract struct {
 	// OutputFormat 期望的输出格式。
 	//   ""           — 不校验（默认）
 	//   "json"       — 解析后必须是合法 JSON（自动剥离 ```json 包裹）
+	//   "yaml"       — 解析后必须是合法 YAML（自动剥离 ```yaml 包裹）
 	//   "markdown"   — 不校验，仅用作语义标记
 	//   "free_text"  — 不校验，仅用作语义标记
 	//
@@ -59,11 +60,12 @@ type Contract struct {
 	// 这里可升级为"生成时强制"，强度从层2 提升到层2.5。
 	OutputFormat string
 
-	// JSONSchema 可选，输出 JSON 时必须包含的顶层字段名（逗号分隔）。
-	// 例：JSONSchema: "findings,risk_register"
+	// RequiredFields 可选，输出必须包含的顶层字段名（逗号分隔）。
+	// 例：RequiredFields: "findings,risk_register"
+	// 适用于 OutputFormat="json" 和 OutputFormat="yaml"。
 	// 仅做字段存在性检查，不做类型/嵌套校验（避免引入完整 schema validator 依赖）。
-	// 留空表示只校验 JSON 可解析性。
-	JSONSchema string
+	// 留空表示只校验格式可解析性。
+	RequiredFields string
 
 	// RequireEvidence 强制输出包含证据等级标注（E1/E2/E3/E4 或"证据"字样）。
 	// 对应 V25 标准 §1（docs/V25_WORKFLOW_STANDARD.md）。

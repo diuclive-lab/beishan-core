@@ -4,6 +4,7 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: legal_review
+output_target: chat
 steps:
   - id: cold_start
     plugin: cold_start_plugin

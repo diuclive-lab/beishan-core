@@ -12,6 +12,7 @@
 #    "payload":{"workflow":"code_audit","input":"internal/tools/"}}
 
 id: code_audit
+output_target: chat
 
 steps:
 
@@ -46,6 +47,7 @@ steps:
   - id: scan_metrics
     type: parallel
     timeout: 30
+    on_error: scan_todos
     steps:
       - id: func_size
         plugin: memory_plugin
@@ -114,6 +116,7 @@ steps:
     type: chat
     timeout: 300
     retry: 1
+    on_error: gap_analysis
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -182,6 +185,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-

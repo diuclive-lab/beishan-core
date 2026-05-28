@@ -1,0 +1,22 @@
+# 知识库备份 v2.5 — 每日定时备份，保留最近 7 份
+#
+# 备份内容：所有知识条目 JSON + calibration.jsonl
+# 保留策略：最多 7 份，自动清理更早的备份
+# 默认目标：~/.hermes/backups/knowledge_YYYYMMDD_HHMMSS/
+#
+# 触发方式：
+#   scheduler_plugin 每日 02:00 自动触发（main.go 注册）
+#   或手动触发：
+#   POST /api/chat {"recipient":"workflow_plugin","type":"workflow_run",
+#                   "payload":{"workflow":"kb_backup"}}
+
+id: kb_backup
+output_target: chat
+
+steps:
+  - id: backup
+    plugin: memory_plugin
+    type: knowledge_backup
+    timeout: 30
+    on_error: done
+    inputs: {}

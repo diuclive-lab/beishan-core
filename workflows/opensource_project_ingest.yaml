@@ -19,6 +19,7 @@
 #    "payload":{"workflow":"opensource_project_ingest","input":"https://github.com/user/repo"}}
 
 id: opensource_project_ingest
+output_target: chat
 
 steps:
   # ── 串行：获取项目基本信息 ──
@@ -68,6 +69,7 @@ steps:
   - id: research_parallel
     type: parallel
     timeout: 90
+    on_error: analyze
     steps:
       - id: fetch_core_files
         plugin: search_plugin

@@ -187,6 +187,21 @@ func main() {
 		"cron":     "0 4 * * 1", // 每周一 04:00
 	})
 	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: healSchedule})
+
+	backupSchedule, _ := json.Marshal(map[string]string{
+		"name":     "kb_backup_daily",
+		"workflow": "kb_backup",
+		"cron":     "0 2 * * *", // 每日 02:00
+	})
+	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: backupSchedule})
+
+	// 每周日 03:00 运行检索质量探针，测量 L0/L1 recall@3 并追加到 probe_history.jsonl
+	probeSchedule, _ := json.Marshal(map[string]string{
+		"name":     "knowledge_probe_weekly",
+		"workflow": "knowledge_probe",
+		"cron":     "0 3 * * 0", // 每周日 03:00
+	})
+	schedulerPlugin.OnMessage(kernel.Message{Type: "schedule_add", Payload: probeSchedule})
 	k.Register("codex_plugin", &plugins.CodexSessionPlugin{}, kernel.Meta{
 		Description: "Codex 对话导入：列出和提取本地 Codex 对话，用于知识库入库",
 		Tags:        []string{"codex", "import"},
@@ -605,11 +620,21 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		if async {
 			msg.ReplyTo = "session:" + sessionID
 
-			go func(sID string) {
-				if err := k.Send(msg); err != nil {
-					log.Printf("[main] 异步请求失败: %v", err)
+			go func(m kernel.Message) {
+				if err := k.Send(m); err != nil {
+					// Router 降级：preRoute 未命中（Recipient 空）+ chat 类型 + 路由失败
+					// → 降级到 think_plugin 做纯对话，避免用户看到路由错误
+					if m.Type == "chat" && m.Recipient == "" {
+						log.Printf("[main] 异步 LLM Router 不可达，降级到 think_plugin: %v", err)
+						m.Recipient = "think_plugin"
+						if err2 := k.Send(m); err2 != nil {
+							log.Printf("[main] 异步降级也失败: %v", err2)
+						}
+					} else {
+						log.Printf("[main] 异步请求失败: %v", err)
+					}
 				}
-			}(sessionID)
+			}(msg)
 
 			json.NewEncoder(w).Encode(map[string]string{
 				"status":     "pending",
@@ -619,6 +644,16 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		}
 
 		resp, err := k.Call(msg, 120*time.Second)
+
+		// Router 降级：当 preRoute 未命中（Recipient 空）且 LLM Router 不可达时，
+		// chat 消息降级到 think_plugin 做纯对话处理，系统保持基本可用。
+		// 非 chat 类型（工作流触发、工具调用等）不降级，保留原错误以便排查。
+		if err != nil && msg.Type == "chat" && msg.Recipient == "" {
+			log.Printf("[main] LLM Router 不可达，降级到 think_plugin: %v", err)
+			fallbackMsg := msg
+			fallbackMsg.Recipient = "think_plugin"
+			resp, err = k.Call(fallbackMsg, 120*time.Second)
+		}
 
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]string{

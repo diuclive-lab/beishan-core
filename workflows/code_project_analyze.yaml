@@ -4,6 +4,7 @@
 #   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: code_project_analyze
+output_target: chat
 
 steps:
   - id: read_file

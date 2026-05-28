@@ -5,6 +5,7 @@
 #   - content_type 过滤：只聚合工作记录/决策/教训/事实，排除对话噪音
 
 id: weekly_review
+output_target: chat
 
 steps:
   - id: list_knowledge

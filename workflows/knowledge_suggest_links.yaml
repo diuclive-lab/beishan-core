@@ -6,6 +6,7 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: knowledge_suggest_links
+output_target: chat
 
 steps:
   - id: suggest

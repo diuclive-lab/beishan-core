@@ -10,7 +10,7 @@ package llmguard
 //   - 事实（grounding/facts）：客观的可校验，但 critique 成本翻倍，按需启用
 //
 // 维度 → 层级映射：
-//   ForStructure → 层 2 强制结构（OutputFormat + JSONSchema + retry）
+//   ForStructure → 层 2 强制结构（OutputFormat + RequiredFields + retry）
 //   ForContent   → 层 1 基线（AntiLazy 反偷懒+反编造+引用源）
 //   ForFacts     → 层 1+4 事实强制（RequireEvidence + Critique 自审）
 //
@@ -39,17 +39,17 @@ package llmguard
 // 模型按 schema 输出 100% 听话即可，不需要给"发挥空间"。
 //
 // 参数：
-//   format  — 输出格式，目前支持 "json"。空字符串等价于 ForContent + 零结构。
-//   fields  — 必须存在的顶层字段（逗号分隔），例如 "findings,risk_register"
+//   format  — 输出格式，支持 "json" 或 "yaml"。空字符串等价于 ForContent + 零结构。
+//   fields  — 必须存在的顶层字段（逗号分隔），例如 "findings,risk_register" / "id,steps"
 //   retries — 输出违规时的重试次数，建议 1（DeepSeek/Local 偶尔被 markdown 包裹）
 //
 // 注意：当前是事后校验+重试策略。未来接入 provider 原生 response_format API
 // 后，强度从层 2 提升到层 2.5（生成时强制）。
 func ForStructure(format, fields string, retries int) Contract {
 	return Contract{
-		OutputFormat: format,
-		JSONSchema:   fields,
-		MaxRetries:   retries,
+		OutputFormat:   format,
+		RequiredFields: fields,
+		MaxRetries:     retries,
 	}
 }
 
@@ -94,7 +94,7 @@ func ForFacts() Contract {
 // 如果已经设置了 MaxRetries，取较大值（不降低重试预算）。
 func (c Contract) WithStructure(format, fields string, retries int) Contract {
 	c.OutputFormat = format
-	c.JSONSchema = fields
+	c.RequiredFields = fields
 	if retries > c.MaxRetries {
 		c.MaxRetries = retries
 	}

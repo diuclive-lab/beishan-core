@@ -3,6 +3,7 @@ package plugins
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"beishan/kernel"
 )
@@ -115,35 +116,42 @@ func (p *ColdStartPlugin) buildProfile(contractText string, input map[string]int
 
 /* inferChineseContractType 根据合同文本推断合同类型。
 
-   使用《民法典》合同编典型合同分类：
-   - 买卖合同（第595条-第647条）
-   - 供用电水气热力合同（第648条-第656条）
-   - 赠与合同（第657条-第666条）
-   - 借款合同（第667条-第680条）
-   - 保证合同（第681条-第702条）
-   - 租赁合同（第703条-第734条）
-   - 融资租赁合同（第735条-第760条）
-   - 保理合同（第761条-第769条）
-   - 承揽合同（第770条-第787条）
-   - 建设工程合同（第788条-第808条）
-   - 运输合同（第809条-第842条）
-   - 技术合同（第843条-第887条）
-   - 保管合同（第888条-第903条）
-   - 仓储合同（第904条-第916条）
-   - 委托合同（第919条-第936条）
-   - 物业服务合同（第937条-第950条）
-   - 行纪合同（第951条-第958条）
-   - 中介合同（第959条-第966条）
-   - 合伙合同（第967条-第978条）
-
-   实际实现中应使用关键词匹配或 LLM 调用。
-   此处为确定性规则引擎，后续可扩展。
+   按《民法典》合同编典型合同分类，使用确定性关键词规则引擎。
+   优先级从高到低：输入显式字段 > 关键词匹配 > 默认兜底。
 */
 func inferChineseContractType(text string, input map[string]interface{}) string {
-	if v, ok := input["contract_type"].(string); ok {
+	if v, ok := input["contract_type"].(string); ok && v != "" {
 		return v
 	}
-	return "合同审查" // 默认：通用合同审查
+	t := strings.ToLower(text)
+	switch {
+	case containsAny(t, "nda", "保密", "不得透露", "机密信息", "保密协议"):
+		return "保密协议"
+	case containsAny(t, "劳动合同", "雇佣", "入职", "试用期", "工资", "薪资", "社保", "员工"):
+		return "劳动合同"
+	case containsAny(t, "借款", "贷款", "利息", "还款", "借贷", "出借"):
+		return "借款合同"
+	case containsAny(t, "租赁", "出租", "承租", "房租", "租金", "租期"):
+		return "租赁合同"
+	case containsAny(t, "建设工程", "施工", "承包", "工程款", "竣工"):
+		return "建设工程合同"
+	case containsAny(t, "技术开发", "软件开发", "系统开发", "研发", "技术服务", "技术转让"):
+		return "技术合同"
+	case containsAny(t, "知识产权", "专利", "版权", "商标", "著作权", "许可使用"):
+		return "知识产权合同"
+	case containsAny(t, "股权", "投资", "认购", "出资", "股东", "并购"):
+		return "股权投资合同"
+	case containsAny(t, "买卖", "购买", "出售", "买方", "卖方", "货款", "交货"):
+		return "买卖合同"
+	case containsAny(t, "服务", "提供服务", "委托", "承揽", "外包"):
+		return "服务合同"
+	case containsAny(t, "运输", "承运", "货运", "物流", "托运"):
+		return "运输合同"
+	case containsAny(t, "保证", "担保", "抵押", "质押", "保证人"):
+		return "担保合同"
+	default:
+		return "合同审查" // 兜底：通用合同审查
+	}
 }
 
 /* inferPartyRole 推断当事人在合同中的角色。
@@ -189,22 +197,47 @@ func generateChineseSummary(text string, input map[string]interface{}) string {
 	return text
 }
 
-/* inferChineseKeyTerms 识别常见中国合同风险领域。
+/* inferChineseKeyTerms 识别合同中存在的风险领域。
 
-   参考 claude-for-legal 的 playbook 风险领域分类，
-   适配中国合同审查实务常见风险点：
-   - 违约责任（违约金、赔偿范围）
-   - 管辖权（中国法院 vs 仲裁）
-   - 保密义务
-   - 知识产权归属
-   - 竞业限制
-   - 数据合规（《个人信息保护法》）
-   - 格式条款（《民法典》第496-498条）
+   参考中国合同审查实务常见风险点，基于关键词确定性匹配。
+   结果供 clause_analyzer_plugin 和 legal_search_plugin 使用。
 */
 func inferChineseKeyTerms(text string) []string {
-	// 基于关键词匹配的初始风险识别
-	// 后续可接入 LLM
-	return nil // 初始为空，由后续分析步骤填充
+	t := strings.ToLower(text)
+	var terms []string
+
+	riskMap := []struct {
+		label    string
+		keywords []string
+	}{
+		{"违约责任", []string{"违约", "违约金", "赔偿", "赔偿责任", "损失"}},
+		{"管辖与仲裁", []string{"仲裁", "管辖", "法院", "争议解决", "诉讼"}},
+		{"保密义务", []string{"保密", "机密", "不得透露", "nda"}},
+		{"知识产权归属", []string{"知识产权", "专利", "版权", "著作权", "商标", "所有权"}},
+		{"竞业限制", []string{"竞业", "同业竞争", "不竞争", "竞业禁止"}},
+		{"数据合规", []string{"个人信息", "数据保护", "隐私", "用户数据", "个人信息保护法"}},
+		{"格式条款", []string{"免责", "不承担", "概不负责", "一切风险由"}},
+		{"价款与支付", []string{"付款", "支付", "结算", "账期", "发票"}},
+		{"验收与交付", []string{"验收", "交付", "交付物", "验收标准"}},
+		{"合同解除", []string{"解除合同", "终止合同", "提前终止", "单方解除"}},
+	}
+
+	for _, r := range riskMap {
+		if containsAny(t, r.keywords...) {
+			terms = append(terms, r.label)
+		}
+	}
+	return terms
+}
+
+// containsAny 检查 text 中是否包含 keywords 中的任意一个。
+func containsAny(text string, keywords ...string) bool {
+	for _, kw := range keywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 /* inferApplicableChineseLaws 推断可能适用的中国法律法规。

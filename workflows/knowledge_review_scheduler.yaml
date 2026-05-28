@@ -22,6 +22,7 @@
 #    "payload":{"workflow":"knowledge_review_scheduler"}}
 
 id: knowledge_review_scheduler
+output_target: chat
 
 steps:
 
@@ -149,6 +150,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 15
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >

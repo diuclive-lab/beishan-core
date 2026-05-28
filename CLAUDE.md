@@ -7,8 +7,8 @@
 - **git**: `main`, clean
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (21 packages)
 - **health**: `go run ./cmd/core-health` → pass
-- **tools**: 115 registered (105 base + 8 filesystem + 2 workspace)
-- **plugins**: 25 L4 + 40 YAML workflows (all v2.5 standard)
+- **tools**: 118 registered (108 base + 8 filesystem + 2 workspace)
+- **plugins**: 25 L4 + 44 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **MCP servers**: 0 (框架保留，模板脚本已删除)
 - **UNIMPLEMENTED**: 0
@@ -48,7 +48,7 @@ kernel.Kernel  ─── 按 recipient 转发
 |-------|-----|---------|---------|--------------|
 | L1 | kernel/ | ✅ YES | Plugin interface, message routing, Router | only llm package |
 | L2 | glue/ | No | Subprocess IPC, manifest scan, right flower health | kernel, observatory |
-| L3 | internal/tools/ | No | Tool registry + ValidateAndExecute (115 tools) | registry |
+| L3 | internal/tools/ | No | Tool registry + ValidateAndExecute (118 tools) | registry |
 | L3 | internal/agent/ | No | Sub-agent delegation (spawn_subagent/parallel) | llm, tools, observatory |
 | L3 | internal/observatory/ | No | Trace recorder, health Pulse, event bus (PublishEvent) | — |
 | L3 | internal/llm/ | No | LLM provider config + thread-safe SetProvider | — |
@@ -57,7 +57,7 @@ kernel.Kernel  ─── 按 recipient 转发
 | L3 | internal/retrieval/ | No | L0 keyword + L1 semantic + L0.5 graph search | tools |
 | L3 | internal/workflow/ | No | YAML engine + Go-DSL engine | kernel, tools |
 | L4 | plugins/ | No | 25 orchestration plugins | kernel, tools |
-| L4 | workflows/ | No | 42 YAML workflow definitions | workflow_plugin |
+| L4 | workflows/ | No | 44 YAML workflow definitions | workflow_plugin |
 
 ## Key Design Rules
 
@@ -314,18 +314,15 @@ fa63a5a fix: terminal_plugin Payload JSON 编码 + preRoute 全面审查修复
 - 全测试：21 个包全绿 ✅
 
 **Unfinished** (ask user before implementing):
-- Embedding endpoint (已启用: nomic-embed-text-v1.5 via glue sidecar, 768 维)
 - LLM function calling API (currently text-mode JSON parsing)
 - Cross-platform deploy (launchd is macOS-only, needs systemd/Docker)
-- Event subscribers (log-only, no automated reactions)
-- `knowledge.go` 查询参数（q.Tags/q.Types/q.DateAfter）有 TODO 未实现
-- `workflow/gods_executor` 使用 kernel.Call 零校验（与 agent runner 不一致）
+- `registry/Policy.Filter()` 已实现但未接入（无 profile 配置，接上去也无东西可过滤）
 
 **Known friction** (future improvements):
 - **Learning curve**: "hardening layer", "dual flower", "right flower protocol" — too many concepts. Needs a 5-min walkthrough.
-- **Missing demo**: 115 tools, 42 workflows — but no end-to-end example showing "what beishan-core can do for you".
+- **Missing demo**: 118 tools, 44 workflows — but no end-to-end example showing "what beishan-core can do for you".
 - **Right flower cold-start**: 3 right flowers running. Protocol generality verified.
-- **DeepSeek dependency**: Router prompt is DeepSeek-optimized. Provider switching is untested for routing with non-DeepSeek models.
+- **Router prompt 收敛**：canonicalRouterRules 已覆盖 deepseek/openai/local 三个 provider；xiaomi 保留独立格式。切换本地模型时路由规则不需要重新标定，LocalRouteStrategy 自动注入系统消息约束 JSON 格式。
 
 ## Logs & Debugging
 

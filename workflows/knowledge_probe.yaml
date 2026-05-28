@@ -1,0 +1,25 @@
+# 检索质量探针 v2.5 — 每周定时测量 L0/L1 召回率
+#
+# 探针逻辑：随机采样 10 条 active 知识条目，
+#   用每条的标题分别走 L0 关键词 + L1 语义搜索，
+#   统计 recall@3（结果前3中是否命中）。
+#
+# 结果追加到 ~/.hermes/probe_history.jsonl（历史趋势）
+# 已知基线（2026-05-27）：L0 6/10（0.60）、L1 4/10（0.40）
+#
+# 触发方式：
+#   scheduler_plugin 每周日 03:00 自动触发（main.go 注册）
+#   或手动触发：
+#   POST /api/chat {"recipient":"workflow_plugin","type":"workflow_run",
+#                   "payload":{"workflow":"knowledge_probe"}}
+
+id: knowledge_probe
+output_target: chat
+
+steps:
+  - id: probe
+    plugin: memory_plugin
+    type: knowledge_probe
+    timeout: 60
+    on_error: done
+    inputs: {}

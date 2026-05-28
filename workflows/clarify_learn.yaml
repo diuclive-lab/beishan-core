@@ -4,6 +4,7 @@
 #   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: clarify_learn
+output_target: chat
 steps:
   - id: ask
     plugin: memory_plugin

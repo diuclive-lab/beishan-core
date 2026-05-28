@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // validateOutput 检查 LLM 输出是否符合 Contract。
@@ -12,8 +14,9 @@ import (
 //
 // 校验顺序（从轻到重，提前失败减少无效检查）：
 //  1. OutputFormat="json" → 必须是合法 JSON（自动剥离 markdown 包裹）
-//  2. JSONSchema 字段名 → 顶层字段必须存在
-//  3. RequireEvidence → 必须包含 E1-E4 或"证据"字样
+//  2. OutputFormat="yaml" → 必须是合法 YAML（自动剥离 markdown 包裹）
+//  3. RequiredFields 字段名 → 顶层字段必须存在（JSON 和 YAML 均支持）
+//  4. RequireEvidence → 必须包含 E1-E4 或"证据"字样
 //
 // 设计选择：只做"框架级"通用校验，业务层 schema 仍由调用方处理。
 // 这避免 llmguard 引入完整 JSON Schema validator 依赖。
@@ -30,33 +33,63 @@ func validateOutput(output string, c Contract) error {
 			return fmt.Errorf("输出不是合法 JSON（前 100 字符: %q）", truncate(output, 100))
 		}
 
-		// ── 检查2：JSONSchema 字段存在 ───────────────────────
-		if c.JSONSchema != "" {
+		// ── 检查2：必需顶层字段存在（JSON）────────────────────
+		if c.RequiredFields != "" {
 			var obj map[string]interface{}
 			if err := json.Unmarshal([]byte(cleaned), &obj); err != nil {
 				// 顶层不是对象（可能是数组），跳过字段检查
 				// 这是允许的，不视为契约违规
 			} else {
-				for _, field := range strings.Split(c.JSONSchema, ",") {
-					field = strings.TrimSpace(field)
-					if field == "" {
-						continue
-					}
-					if _, ok := obj[field]; !ok {
-						return fmt.Errorf("输出 JSON 缺少必需字段 %q", field)
-					}
+				if err := checkRequiredFields(obj, c.RequiredFields, "JSON"); err != nil {
+					return err
 				}
 			}
 		}
 	}
 
-	// ── 检查3：证据等级标注 ───────────────────────────────
+	// ── 检查3：YAML 格式 ─────────────────────────────────────
+	if c.OutputFormat == "yaml" {
+		cleaned := stripMarkdownFences(output)
+		var obj map[string]interface{}
+		if err := yaml.Unmarshal([]byte(cleaned), &obj); err != nil {
+			return fmt.Errorf("输出不是合法 YAML: %v", err)
+		}
+
+		// ── 检查4：必需顶层字段存在（YAML）────────────────────
+		if c.RequiredFields != "" {
+			if err := checkRequiredFields(obj, c.RequiredFields, "YAML"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// ── 检查5：证据等级标注 ───────────────────────────────
 	if c.RequireEvidence {
 		if !hasEvidenceMarker(output) {
 			return fmt.Errorf("输出缺少证据等级标注（应包含 E1/E2/E3/E4 或\"证据\"字样）")
 		}
 	}
 
+	return nil
+}
+
+// checkRequiredFields 检查 map 中是否存在所有必需的顶层字段（逗号分隔）。
+// 一次性收集所有缺失字段，避免 LLM 多轮重试才发现全部问题。
+// format 用于错误消息中区分 "JSON" 和 "YAML"。
+func checkRequiredFields(obj map[string]interface{}, fields, format string) error {
+	var missing []string
+	for _, field := range strings.Split(fields, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if _, ok := obj[field]; !ok {
+			missing = append(missing, field)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("输出 %s 缺少必需字段：%s", format, strings.Join(missing, ", "))
+	}
 	return nil
 }
 

@@ -21,6 +21,7 @@
 #    "payload":{"workflow":"project_analyze","input":"<项目URL或本地路径>"}}
 
 id: project_analyze
+output_target: chat
 
 steps:
 
@@ -58,6 +59,7 @@ steps:
     plugin: memory_plugin
     type: github_readme
     timeout: 30
+    on_error: assess_remote
     inputs:
       url: "${input}"
     next: assess_remote
@@ -78,6 +80,7 @@ steps:
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 30
+    on_error: static_metrics
     inputs:
       command: >-
         echo "=== GO FILES ===" && find ${input} -name '*.go' -not -path '*/vendor/*' -not -name '*_test.go' -not -path '*/.git/*' | sort | head -80 &&
@@ -92,6 +95,7 @@ steps:
   - id: static_metrics
     type: parallel
     timeout: 30
+    on_error: bc_context
     steps:
       # 度量 A: 入口文件内容
       - id: entry_point
@@ -135,6 +139,7 @@ steps:
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 15
+    on_error: assess
     inputs:
       command: >-
         echo "=== TOOL COUNT ===" && grep -rn --include='*.go' 'Register("' internal/tools/ 2>/dev/null | wc -l &&
@@ -152,6 +157,7 @@ steps:
     type: chat
     timeout: 300
     retry: 1
+    on_error: save
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -245,6 +251,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 180
+    on_error: save
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -264,6 +271,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "code"
       title: "${steps.assess.output.project_name} 吸收评估"
@@ -294,6 +302,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-

@@ -37,10 +37,9 @@ type WorkflowDef struct {
 	// 设计目标是支持三种触发：手动 / 定时 / 事件驱动。
 	// 当前 event 类型预留接口，引擎加载时打印警告，不执行。
 	//
-	// TODO(event-trigger): 事件驱动触发依赖 observatory.Subscribe 接入。
-	//   计划：WorkflowDef.Trigger.EventType 注册为 observatory 订阅者，
-	//   收到匹配事件时自动 kernel.Call("workflow_plugin", "workflow_run")。
-	//   预计在事件总线有实际行为后实现，当前占位。
+	// Trigger 已支持三种类型：manual / scheduled / event。
+	// event 类型由 Engine.InitEventSubscriptions() 在启动时扫描注册，
+	// 收到匹配 observatory 事件时自动执行工作流（main.go:283 已调用）。
 	Trigger *TriggerDef `yaml:"trigger,omitempty"`
 }
 
@@ -52,7 +51,8 @@ type TriggerDef struct {
 
 	// EventType 仅 type=event 时有效。
 	// 格式与 observatory.Event.Type 一致，例如 "agent.failed" / "knowledge.added"。
-	// TODO(event-trigger): 当前引擎忽略此字段，仅打印日志。
+	// EventType 格式与 observatory.Event.Type 一致，如 "agent.failed" / "knowledge.added"。
+	// Engine.InitEventSubscriptions() 读取此字段并调用 observatory.Subscribe。
 	EventType string `yaml:"event_type,omitempty"`
 
 	// Cron 仅 type=scheduled 时有效，标准 5 段 cron 表达式（由 scheduler_plugin 解析）。

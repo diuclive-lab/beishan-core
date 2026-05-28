@@ -4,11 +4,13 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: quick_project_scan
+output_target: chat
 
 steps:
   - id: parallel_scan
     type: parallel
     timeout: 30
+    on_error: summarize
     steps:
       - id: file_tree
         plugin: memory_plugin

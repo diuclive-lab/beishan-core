@@ -118,6 +118,30 @@ func TestAPIKeyFor_FallsBack(t *testing.T) {
 	}
 }
 
+func TestAPIKey_LocalProvider(t *testing.T) {
+	// 切换到 local provider 时，APIKey() 应返回 "local-dev"（或 LOCAL_API_KEY），
+	// 而不是 DEEPSEEK_API_KEY。这保证 kernel/router.go 的 callDeepSeek
+	// 在 LLM_PROVIDER=local 时能用正确的 key 访问本地端点。
+	os.Unsetenv("LLM_API_KEY")
+	os.Unsetenv("LOCAL_API_KEY")
+	os.Setenv("LLM_PROVIDER", "local")
+	defer os.Unsetenv("LLM_PROVIDER")
+
+	key := APIKey()
+	if key != "local-dev" {
+		t.Fatalf("expected local-dev for local provider, got %q", key)
+	}
+
+	// 自定义 LOCAL_API_KEY 优先
+	os.Setenv("LOCAL_API_KEY", "my-local-key")
+	defer os.Unsetenv("LOCAL_API_KEY")
+
+	key2 := APIKey()
+	if key2 != "my-local-key" {
+		t.Fatalf("expected my-local-key when LOCAL_API_KEY set, got %q", key2)
+	}
+}
+
 func TestIsValidEndpoint(t *testing.T) {
 	tests := []struct {
 		endpoint string

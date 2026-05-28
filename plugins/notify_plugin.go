@@ -28,7 +28,7 @@ func (p *NotifyPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 			respPayload, _ = json.Marshal(output)
 		}
 		respType := msg.Type + ".result"
-		if result.Error != "" {
+		if !result.Success {
 			respType = msg.Type + ".error"
 		}
 		return kernel.Message{Type: respType, Payload: respPayload}, nil

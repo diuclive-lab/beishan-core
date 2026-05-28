@@ -17,6 +17,7 @@
 # ═══════════════════════════════════════════════════════════
 
 id: code_review_9x
+output_target: chat
 
 steps:
 
@@ -39,6 +40,7 @@ steps:
   - id: parallel_review
     type: parallel
     timeout: 300
+    on_error: report
     steps:
 
       # 维度 A: 逻辑正确性
@@ -230,6 +232,7 @@ steps:
   - id: report
     plugin: write_plugin
     type: write_file
+    timeout: 30
     on_error: done
     inputs:
       path: "/tmp/code_review_report_${id}.md"

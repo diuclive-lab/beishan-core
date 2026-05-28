@@ -199,11 +199,12 @@ glue.healthCheckLoop
       → AntiLazy        → "防偷懒"基线（禁止"将会做"语态、禁止编造、引用须有源）
       → RequireEvidence → "证据等级"基线（E1/E2/E3/E4 标注强制）
       → OutputFormat="json" → "JSON 输出"基线（拒绝 markdown 包裹）
-      → JSONSchema     → 字段名清单注入
+      → OutputFormat="yaml" → "YAML 输出"基线（拒绝 markdown 包裹）
+      → RequiredFields  → 字段名清单注入（JSON 和 YAML 均适用）
   → injectBaseline(messages, baseline)  [追加到现有 system 或前插新 system]
   → chatFunc → llm.ChatCompletionWithUsage(messages, timeout)
   → validateOutput(output, Contract)
-      → 合法 JSON / JSONSchema 字段 / 证据标注 三层校验
+      → 合法 JSON / 合法 YAML / RequiredFields 字段 / 证据标注 四层校验
       → 违规 → 拼接反馈到下一轮 messages，重试（最多 MaxRetries 次）
   → Contract.Critique==true:
       → critiqueRevise: LLM 自审 + LLM 重写（仅在第一次成功后触发）
@@ -211,16 +212,16 @@ glue.healthCheckLoop
 ```
 
 **注入点：** `plugins/think_plugin.go` — handleChat 默认 provider 路径调 `llmguard.Chat`（Contract{AntiLazy:true}）
-**新增包：** `internal/llmguard/` — Contract / Chat / validate / critique 共 4 文件 + 1 测试文件
-**测试覆盖：** 17 个用例，含桩函数注入，无需真实 LLM
+**新增包：** `internal/llmguard/` — Contract / Chat / validate / feedback / critique 共 5 文件 + 1 测试文件
+**测试覆盖：** 34 个用例，含桩函数注入，无需真实 LLM
 **支持契约维度：**
   - 层1 提示词基线（AntiLazy / RequireEvidence）
-  - 层2 输出校验+重试（OutputFormat / JSONSchema / MaxRetries）
+  - 层2 输出校验+重试（OutputFormat "json"/"yaml" / RequiredFields / MaxRetries）
   - 层3 Critique-Revise（Critique，约翻倍成本）
 **已对接调用方：** 8（think_plugin 4 处 + skill_factory 3 处 + tool_synthesis 1 处）
 **待迁移调用方：** 0（think_plugin / skill_factory 的所有 LLM 调用都已进 llmguard 漏斗）
 **维度化 API（Contract 构造器）：**
-  - `ForStructure(format, fields, retries)` — 结构维度（层 2 强制：OutputFormat + JSONSchema + retry）
+  - `ForStructure(format, fields, retries)` — 结构维度（层 2 强制：OutputFormat + RequiredFields + retry）支持 "json" / "yaml"
   - `ForContent()` — 内容维度（层 1 半强制：AntiLazy 基线）
   - `ForFacts()` — 事实维度（层 1+4 强制：RequireEvidence + AntiLazy + Critique）
   - 组合：`.WithStructure() / .WithContent() / .WithFacts() / .WithCritique() / .WithEvidence() / .WithRetries()`
@@ -231,9 +232,9 @@ glue.healthCheckLoop
   - think_plugin.query_rewrite → `Contract{}` (机械变换，零契约省 token)
   - skill_factory.classifyOutputType → `ForContent()` (单词分类)
   - skill_factory.fillTemplate → `ForStructure("json", "name", 1).WithContent()` (结构化模板填充)
-  - skill_factory.generateWorkflow → `ForContent()` (YAML 全量生成)
+  - skill_factory.generateWorkflow → `ForStructure("yaml", "id,steps", 1).WithContent()` (YAML 工作流生成)
 **ChatWithProvider 入口：** 用于 workflow per-step provider override，与 Chat 共享 chatCore 逻辑
-**验证日期：** 2026-05-27 (维度化 API + 5 处新增接入)
+**验证日期：** 2026-05-27 (维度化 API + 5 处新增接入) / 2026-05-28 (YAML 结构维度 + RequiredFields 重命名 + 结构化错误反馈)
 
 ---
 
@@ -363,6 +364,70 @@ GET /status
 **关联端点：** `GET /metrics` 保留原 observatory 快照（向后兼容）
 **验证日期：** 2026-05-27
 **验证方式：** `curl http://localhost:8013/status | python3 -m json.tool` — 输出包含全部 7 个字段
+
+---
+
+### 路径 O：Router 降级路径（✅ 已验证 2026-05-28）
+
+```
+HTTP POST /api/chat {message: "..."}
+  → preRoute(&msg)  [未命中，msg.Recipient 仍为空]
+  → k.Call(msg, 120s)  → k.Send → Router.Route → callDeepSeek
+    → 失败（API 不可达）→ 返回 error
+  → main.go 降级检查：err != nil && msg.Type=="chat" && msg.Recipient==""
+    → fallbackMsg.Recipient = "think_plugin"
+    → k.Call(fallbackMsg, 120s)  → think_plugin.handleChat（无检索直答）
+  → 正常响应
+```
+
+**异步路径**：goroutine 内同样的降级逻辑，路由失败后重试 think_plugin。
+**非 chat 类型**：不降级，原错误直接返回（工作流触发、工具调用等不应静默降级）。
+**验证日期**：2026-05-28（代码审查验证）
+
+---
+
+### 路径 P：知识库每日备份（✅ 已验证 2026-05-28）
+
+```
+scheduler_plugin → cron "0 2 * * *"（每日 02:00）
+  → kernel.Send({workflow_plugin, workflow_run, {workflow:"kb_backup"}})
+  → workflow/engine.Run("kb_backup")
+    → step: memory_plugin / knowledge_backup
+      → KnowledgeBackup("")
+        → 复制 ~/.hermes/knowledge/*.json + calibration.jsonl
+          → 目标 ~/.hermes/backups/knowledge_YYYYMMDD_HHMMSS/
+        → pruneOldBackups（保留最近 7 份）
+  → 返回 {backup_dir, files_copied, old_backups_pruned}
+```
+
+**工具注册**：`knowledge_backup`（tools.Registry）
+**工作流**：`workflows/kb_backup.yaml`
+**调度注册**：`cmd/beishan/main.go`（scheduler_plugin）
+**验证日期**：2026-05-28（代码审查验证）
+
+---
+
+### 路径 Q：检索质量探针（✅ 已验证 2026-05-28）
+
+```
+scheduler_plugin → cron "0 3 * * 0"（每周日 03:00）
+  → kernel.Send({workflow_plugin, workflow_run, {workflow:"knowledge_probe"}})
+  → workflow/engine.Run("knowledge_probe")
+    → step: memory_plugin / knowledge_probe
+      → KnowledgeProbe()
+        → loadAllKnowledge → 过滤 active → 随机采样 min(10, total)
+        → 每条：SearchWithScore(title, 3, "") → 检查 ID 是否在 top-3（L0）
+        →       tryEmbedding(title) → searchByEmbedding(3, "") → 同（L1，需 EMBEDDING_ENDPOINT）
+        → 计算 recall@3：l0_recall = l0_found/n，l1_recall = l1_found/n
+        → 追加写入 ~/.hermes/probe_history.jsonl
+  → 返回 {probe_time, total_entries, total_sampled, l0_recall_at_3, l1_recall_at_3, l1_available}
+```
+
+**已知基线（2026-05-27）**：L0 6/10（0.60）、L1 4/10（0.40）
+**工具注册**：`knowledge_probe`（tools.Registry）
+**工作流**：`workflows/knowledge_probe.yaml`
+**调度注册**：`cmd/beishan/main.go`（scheduler_plugin）
+**验证日期**：2026-05-28（代码审查验证）
 
 ---
 

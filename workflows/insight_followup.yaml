@@ -12,6 +12,7 @@
 #    "payload":{"workflow":"insight_followup","input":"<知识条目ID>"}}
 
 id: insight_followup
+output_target: chat
 
 steps:
   # ── Step 1: 获取条目内容 ──

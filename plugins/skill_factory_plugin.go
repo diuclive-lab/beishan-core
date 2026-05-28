@@ -52,6 +52,10 @@ func (p *SkillFactoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, erro
 	case "skill_evaluate":
 		result := tools.ValidateAndExecute(msg.Type, msg.Payload)
 		fmt.Printf("[技能评估] %s\n", result.Output[:min(len(result.Output), 200)])
+		respType := msg.Type + ".result"
+		if !result.Success {
+			respType = msg.Type + ".error"
+		}
 		var respPayload json.RawMessage
 		output := result.Output
 		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
@@ -59,7 +63,7 @@ func (p *SkillFactoryPlugin) OnMessage(msg kernel.Message) (kernel.Message, erro
 		} else {
 			respPayload, _ = json.Marshal(output)
 		}
-		return kernel.Message{Type: msg.Type + ".result", Payload: respPayload}, nil
+		return kernel.Message{Type: respType, Payload: respPayload}, nil
 
 	case "skill_create":
 		return p.handleCreate(msg)
@@ -892,16 +896,16 @@ V25 强制规则（违反则验证失败）：
 可用插件：
 %s`, description, nameHint, pluginList)
 
-	// 维度：仅内容（ForContent）。
-	// YAML 不在 llmguard 当前结构维度支持范围内，OutputFormat 不适用。
-	// AntiLazy 基线防止 LLM 在 YAML 里编造插件名、加 markdown 包裹。
-	// 后续若 llmguard 支持 OutputFormat="yaml"，此处升级到 ForStructure("yaml",...)。
+	// 维度：结构（ForStructure "yaml"）+ 内容（WithContent）。
+	// 层 2 校验：必须是合法 YAML 且包含顶层字段 id 和 steps。
+	// 层 1 基线：AntiLazy 防止 LLM 编造插件名、加 markdown 包裹。
+	// MaxRetries=1：YAML 生成偶尔有 markdown 包裹，一次重试即可纠正。
 	content, usage, err := llmguard.Chat(
 		[]llm.ChatMessage{
 			{Role: "system", Content: "你生成 beishan-core 工作流 YAML。只输出纯 YAML，不加 markdown 代码块或解释。"},
 			{Role: "user", Content: prompt},
 		},
-		llmguard.ForContent(),
+		llmguard.ForStructure("yaml", "id,steps", 1).WithContent(),
 		90*time.Second,
 	)
 	llm.RecordUsage("skill_factory_generate", usage)

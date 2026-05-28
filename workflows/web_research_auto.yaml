@@ -19,6 +19,7 @@
 #    "payload":{"workflow":"web_research_auto","input":"搜索关键词"}}
 
 id: web_research_auto
+output_target: chat
 
 steps:
 

@@ -43,16 +43,17 @@ var allowedTypes = map[string]bool{
 // defaultRouterPrompt 是自定义 Provider 使用的通用 Router prompt。
 // 它不包含 DeepSeek 特有的路由规则，只做最基础的插件路由。
 // 自定义 Provider 的路由决策质量可能低于原生 DeepSeek。
-const defaultRouterPrompt = `Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
-Recipient is the plugin to handle this request. Available plugins:
+const defaultRouterPrompt = `Output JSON: {"recipient":"","msg_type":"","payload":{},"reason":"","confidence":0.0}
+Recipient is the plugin to handle this request. IMPORTANT: payload must be a JSON object, not a string.
+Available plugins:
 %s
 Rules:
-- chat/greetings → think_plugin:chat
-- web search / look up → search_plugin:web_search
-- knowledge search / memory → memory_plugin:knowledge_search
+- chat/greetings → think_plugin:chat, payload:{}
+- web search / look up → search_plugin:web_search, payload:{"query":"user input"}
+- knowledge search / memory → memory_plugin:knowledge_search, payload:{"keyword":"user input"}
 - tool usage / command → terminal_plugin:terminal_exec
 - file operations → write_plugin:write_file or read_file
-- Default → think_plugin:chat
+- Default → think_plugin:chat, payload:{}
 Output ONLY valid JSON, no markdown. Input: %s`
 
 // ExtraProviderConfig 是配置文件中一个自定义 Provider 的声明。

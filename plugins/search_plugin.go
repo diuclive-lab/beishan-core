@@ -198,13 +198,17 @@ func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		// 降级：直接返回原始结果
 		var respPayload json.RawMessage
 		output := result.Output
+		respType := msg.Type + ".result"
+		if !result.Success {
+			respType = msg.Type + ".error"
+		}
 		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
 			respPayload = json.RawMessage(output)
 		} else {
 			respPayload, _ = json.Marshal(output)
 		}
 		return kernel.Message{
-			Type:    msg.Type + ".result",
+			Type:    respType,
 			Payload: respPayload,
 		}, nil
 
@@ -213,13 +217,17 @@ func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		fmt.Printf("[抓取] %s\n", result.Output)
 		var respPayload json.RawMessage
 		output := result.Output
+		respType := msg.Type + ".result"
+		if !result.Success {
+			respType = msg.Type + ".error"
+		}
 		if len(output) > 0 && output[0] == '{' && json.Valid([]byte(output)) {
 			respPayload = json.RawMessage(output)
 		} else {
 			respPayload, _ = json.Marshal(output)
 		}
 		return kernel.Message{
-			Type:    msg.Type + ".result",
+			Type:    respType,
 			Payload: respPayload,
 		}, nil
 

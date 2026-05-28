@@ -16,6 +16,7 @@
 #   4. notify:       通知完成
 
 id: kb_hygiene_plus
+output_target: chat
 
 steps:
   - id: kb_audit
@@ -45,5 +46,6 @@ steps:
     plugin: notify_plugin
     type: notify_send
     timeout: 10
+    on_error: done
     inputs:
       message: "知识库巡检完成：${steps.kb_audit.output}"

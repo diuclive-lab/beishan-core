@@ -7,6 +7,7 @@
 #   - 升级策略 → docs/ABSORPTION_GOVERNANCE.md §4
 
 id: kb_hygiene
+output_target: chat
 
 trigger:
   type: event

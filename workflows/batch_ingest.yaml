@@ -4,6 +4,7 @@
 #   - 证据等级 → docs/ABSORPTION_GOVERNANCE.md §1
 
 id: batch_ingest
+output_target: chat
 
 steps:
   - id: review

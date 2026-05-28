@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1695,12 +1696,13 @@ func dedupStrings(ss []string, n int) []string {
 
 // embeddingText 为知识条目生成用于计算向量的文本。
 // 优先使用 content（有实质内容时），回退到 title+summary。
-// 检测 summary 是否仅包含系统噪声（darwin 硬件信息），若是则忽略 summary。
+// 检测 summary 是否为 macOS 系统噪声（形如 "darwin/20.x.x ..."），若是则忽略。
 func embeddingText(e *KnowledgeEntry) string {
 	if e.Content != "" {
 		return e.Title + " " + e.Content
 	}
-	if strings.Contains(e.Summary, "darwin") && len(e.Summary) > 30 {
+	// 匹配 macOS 内核版本字符串噪声：小写 "darwin/" 后跟版本号
+	if strings.Contains(strings.ToLower(e.Summary), "darwin/") && len(e.Summary) > 30 {
 		return e.Title
 	}
 	return e.Title + " " + e.Summary
@@ -1713,6 +1715,9 @@ func KnowledgeReindex() *ToolResult {
 		return successResult(`{"message":"EMBEDDING_ENDPOINT 未设置，跳过"}`)
 	}
 	all := loadAllKnowledge()
+	if len(all) == 0 {
+		return successResult(`{"message":"知识库为空，跳过","count":0}`)
+	}
 	var count int
 	// 先用一条文本探测当前 API 的向量维度
 	probeText := all[0].Title
@@ -1735,6 +1740,192 @@ func KnowledgeReindex() *ToolResult {
 		}
 	}
 	return successResult(fmt.Sprintf(`{"message":"重算完成","count":%d,"dim":%d}`, count, apiDim))
+}
+
+// KnowledgeBackup 将知识库目录备份到带时间戳的子目录。
+//
+// 备份内容：
+//   - knowledgeDir（所有 .json 知识条目）
+//   - calibration.jsonl（分类校准数据）
+//
+// 保留策略：最多保留最近 7 份，自动删除更早的备份。
+// 默认目录：~/.hermes/backups/knowledge_YYYYMMDD_HHMMSS
+/* ─── 检索质量探针 ─────────────────────────────────────────────────────────
+   每次探针从知识库随机采样 10 条，测量 L0 关键词 + L1 语义的召回率@3。
+   结果追加到 ~/.hermes/probe_history.jsonl，供趋势分析。
+   已知基线（2026-05-27）：L0 6/10、L1 4/10。
+──────────────────────────────────────────────────────────────────────────── */
+
+// ProbeResult 记录单次检索质量探针的结果。
+type ProbeResult struct {
+	ProbeTime    string  `json:"probe_time"`
+	TotalEntries int     `json:"total_entries"`
+	TotalSampled int     `json:"total_sampled"`
+	L0Found      int     `json:"l0_found"`
+	L0Recall     float64 `json:"l0_recall_at_3"`
+	L1Found      int     `json:"l1_found"`
+	L1Recall     float64 `json:"l1_recall_at_3"`
+	L1Available  bool    `json:"l1_available"`
+}
+
+// KnowledgeProbe 检索质量探针。
+// 随机采样 min(10, total) 条 active 知识条目，分别用 L0（关键词）和
+// L1（向量，需 EMBEDDING_ENDPOINT）搜索每条条目的标题，统计 recall@3。
+// 结果追加写入 probe_history.jsonl，并以 JSON 形式返回。
+func KnowledgeProbe() *ToolResult {
+	initKnowledgeDir()
+
+	all := loadAllKnowledge()
+	var active []*KnowledgeEntry
+	for _, e := range all {
+		if e.Status == "" || e.Status == "active" {
+			active = append(active, e)
+		}
+	}
+	if len(active) < 3 {
+		return successResult(fmt.Sprintf(
+			`{"message":"知识库条目不足，跳过探针","total_entries":%d}`, len(active)))
+	}
+
+	const sampleSize = 10
+	const topK = 3
+
+	// 随机打乱后取前 sampleSize 条
+	sample := make([]*KnowledgeEntry, len(active))
+	copy(sample, active)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(sample), func(i, j int) { sample[i], sample[j] = sample[j], sample[i] })
+	if len(sample) > sampleSize {
+		sample = sample[:sampleSize]
+	}
+
+	l1Available := embeddingEndpoint() != ""
+	var l0Found, l1Found int
+
+	for _, entry := range sample {
+		// L0：用标题关键词搜索，检查 entry.ID 是否出现在 top-K
+		l0Results := SearchWithScore(entry.Title, topK, "")
+		for _, res := range l0Results {
+			if res.ID == entry.ID {
+				l0Found++
+				break
+			}
+		}
+
+		// L1：向量搜索（仅在 EMBEDDING_ENDPOINT 可用时）
+		if l1Available {
+			if emb, ok := tryEmbedding(entry.Title); ok {
+				l1Results := searchByEmbedding(emb, topK, "")
+				for _, res := range l1Results {
+					if res.ID == entry.ID {
+						l1Found++
+						break
+					}
+				}
+			}
+		}
+	}
+
+	n := len(sample)
+	l0Recall := float64(l0Found) / float64(n)
+	var l1Recall float64
+	if l1Available && n > 0 {
+		l1Recall = float64(l1Found) / float64(n)
+	}
+
+	result := ProbeResult{
+		ProbeTime:    time.Now().UTC().Format(time.RFC3339),
+		TotalEntries: len(active),
+		TotalSampled: n,
+		L0Found:      l0Found,
+		L0Recall:     l0Recall,
+		L1Found:      l1Found,
+		L1Recall:     l1Recall,
+		L1Available:  l1Available,
+	}
+
+	// 追加到历史记录（趋势分析用）
+	historyPath := filepath.Join(HermesHome, "probe_history.jsonl")
+	if line, err := json.Marshal(result); err == nil {
+		if f, err := os.OpenFile(historyPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			_, _ = fmt.Fprintf(f, "%s\n", line)
+			f.Close()
+		}
+	}
+
+	out, _ := json.Marshal(result)
+	return successResult(string(out))
+}
+
+func KnowledgeBackup(destParent string) *ToolResult {
+	initKnowledgeDir()
+
+	if destParent == "" {
+		destParent = filepath.Join(HermesHome, "backups")
+	}
+	ts := time.Now().Format("20060102_150405")
+	backupDir := filepath.Join(destParent, "knowledge_"+ts)
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return errorResult(fmt.Sprintf("创建备份目录失败: %v", err))
+	}
+
+	// 复制所有知识条目 JSON
+	entries, err := os.ReadDir(knowledgeDir)
+	if err != nil {
+		return errorResult(fmt.Sprintf("读取知识库目录失败: %v", err))
+	}
+	var copied int
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		src := filepath.Join(knowledgeDir, e.Name())
+		dst := filepath.Join(backupDir, e.Name())
+		if data, err := os.ReadFile(src); err == nil {
+			if err := os.WriteFile(dst, data, 0644); err == nil {
+				copied++
+			}
+		}
+	}
+
+	// 复制校准数据
+	calibSrc := filepath.Join(MemoryDir, "knowledge_calibration.jsonl")
+	if data, err := os.ReadFile(calibSrc); err == nil {
+		_ = os.WriteFile(filepath.Join(backupDir, "knowledge_calibration.jsonl"), data, 0644)
+	}
+
+	// 清理旧备份，保留最近 7 份
+	pruned := pruneOldBackups(destParent, "knowledge_", 7)
+
+	return successResult(fmt.Sprintf(
+		`{"backup_dir":%q,"files_copied":%d,"old_backups_pruned":%d}`,
+		backupDir, copied, pruned,
+	))
+}
+
+// pruneOldBackups 删除目录下前缀匹配的旧备份，保留最新 keep 份。
+func pruneOldBackups(parent, prefix string, keep int) int {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return 0
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	// ReadDir 按名字排序，时间戳格式保证字典序 = 时间序
+	sort.Strings(dirs)
+	var pruned int
+	for len(dirs) > keep {
+		old := dirs[0]
+		dirs = dirs[1:]
+		if err := os.RemoveAll(filepath.Join(parent, old)); err == nil {
+			pruned++
+		}
+	}
+	return pruned
 }
 
 func KnowledgeList(sourceType string, days int, contentType string) *ToolResult {
@@ -3200,6 +3391,30 @@ func registerKnowledgeTools() {
 		},
 		func(args map[string]interface{}) *ToolResult {
 			return KnowledgeGraph()
+		},
+	)
+
+	Register("knowledge_probe", "检索质量探针：随机采样知识库条目，测量 L0 关键词和 L1 语义检索的 recall@3。结果追加到 probe_history.jsonl。",
+		map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties":           map[string]interface{}{},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeProbe()
+		},
+	)
+
+	Register("knowledge_backup", "备份知识库到带时间戳的目录。保留最近 7 份，自动清理旧备份。可选 dest 参数覆盖默认目录。",
+		map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]interface{}{
+				"dest": stringParam("备份目标父目录（可选，默认 ~/.hermes/backups）"),
+			},
+		},
+		func(args map[string]interface{}) *ToolResult {
+			return KnowledgeBackup(strArg(args, "dest"))
 		},
 	)
 }

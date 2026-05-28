@@ -26,6 +26,7 @@
 #    "payload":{"workflow":"code_deep_analyze","input":"/绝对路径/到/项目目录"}}
 
 id: code_deep_analyze
+output_target: chat
 
 steps:
 
@@ -61,6 +62,7 @@ steps:
   # ── Step 2: 并行静态度量（3 路同时跑） ─────────────────
   # 调用：code_stats(list_files=true) / go_struct_scan(root=)
   - id: static_metrics
+    on_error: runtime_anatomy
     next: runtime_anatomy
     type: parallel
     timeout: 45
@@ -104,6 +106,7 @@ steps:
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 15
+    on_error: select_files
     inputs:
       command: >-
         echo "=== GOROUTINE USAGE ===" && grep -rn --include='*.go' 'go func\|sync\.WaitGroup\|sync\.Mutex\|sync\.RWMutex\|time\.After\|time\.Tick' ${input} | grep -v vendor | grep -v '_test.go' | head -30 && echo "=== TIMEOUT PATTERNS ===" && grep -rn --include='*.go' 'context\.WithTimeout\|\.SetDeadline\|timeout\|TimeOut' ${input} | grep -v vendor | grep -v '_test.go' | head -20 && echo "=== SHUTDOWN/CLEANUP ===" && grep -rn --include='*.go' 'func.*Close\|func.*Shutdown\|func.*Cleanup\|defer.*\.Close()' ${input} | grep -v vendor | grep -v '_test.go' | head -15
@@ -118,6 +121,7 @@ steps:
     type: chat
     timeout: 120
     retry: 1
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -182,6 +186,7 @@ steps:
     plugin: terminal_plugin
     type: terminal_exec
     timeout: 30
+    on_error: analyze_files
     batch:
       foreach: "${steps.select_files.output.core_files}"
       parallel: true
@@ -203,6 +208,7 @@ steps:
     timeout: 600
     retry: 1
     retry_delay: 10
+    on_error: gap_analysis
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -260,6 +266,7 @@ steps:
     type: chat
     timeout: 300
     retry: 1
+    on_error: gap_analysis
     inputs:
       mode: "no_retrieval"
       message: >-
@@ -412,6 +419,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: followup
     inputs:
       source_type: "code"
       title: "${steps.synthesize.output.project} 深度合并分析（v2 手术方案）"
@@ -478,6 +486,7 @@ steps:
     plugin: think_plugin
     type: chat
     timeout: 30
+    on_error: done
     inputs:
       mode: "no_retrieval"
       message: >-

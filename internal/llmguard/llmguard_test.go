@@ -2,6 +2,7 @@ package llmguard
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,13 +32,29 @@ func TestBuildBaseline_AllFlags(t *testing.T) {
 		AntiLazy:        true,
 		RequireEvidence: true,
 		OutputFormat:    "json",
-		JSONSchema:      "findings,risk_register",
+		RequiredFields:  "findings,risk_register",
 	})
 	// 检查关键关键词都在
 	for _, kw := range []string{"防偷懒", "证据等级", "JSON 输出", "findings,risk_register"} {
 		if !strings.Contains(b, kw) {
 			t.Errorf("baseline 缺少关键词 %q\nbaseline=%s", kw, b)
 		}
+	}
+}
+
+func TestBuildBaseline_YAMLFormat(t *testing.T) {
+	b := buildBaseline(Contract{
+		OutputFormat:   "yaml",
+		RequiredFields: "id,steps",
+	})
+	for _, kw := range []string{"YAML 输出", "id,steps"} {
+		if !strings.Contains(b, kw) {
+			t.Errorf("YAML baseline 缺少关键词 %q\nbaseline=%s", kw, b)
+		}
+	}
+	// YAML baseline 不应出现 JSON 字样（避免混淆）
+	if strings.Contains(b, "JSON 输出") {
+		t.Errorf("YAML baseline 不应包含 JSON 输出规则")
 	}
 }
 
@@ -104,13 +121,50 @@ func TestValidate_JSONFormat(t *testing.T) {
 }
 
 func TestValidate_JSONSchema(t *testing.T) {
-	c := Contract{OutputFormat: "json", JSONSchema: "findings,risk_register"}
+	c := Contract{OutputFormat: "json", RequiredFields: "findings,risk_register"}
 
 	if err := validateOutput(`{"findings":[],"risk_register":[]}`, c); err != nil {
 		t.Errorf("含全部字段应通过: %v", err)
 	}
 	if err := validateOutput(`{"findings":[]}`, c); err == nil {
 		t.Errorf("缺 risk_register 应失败")
+	}
+}
+
+func TestValidate_YAMLFormat(t *testing.T) {
+	cases := []struct {
+		name    string
+		output  string
+		wantErr bool
+	}{
+		{"valid yaml", "id: test\nsteps:\n  - id: s1", false},
+		{"markdown wrapped", "```yaml\nid: test\nsteps: []\n```", false},
+		{"invalid yaml", "id: [\nbad: yaml: here", true},
+		{"empty", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateOutput(tc.output, Contract{OutputFormat: "yaml"})
+			if (err != nil) != tc.wantErr {
+				t.Errorf("output=%q wantErr=%v gotErr=%v", tc.output, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestValidate_YAMLRequiredFields(t *testing.T) {
+	c := Contract{OutputFormat: "yaml", RequiredFields: "id,steps"}
+
+	if err := validateOutput("id: wf\nsteps:\n  - id: s1", c); err != nil {
+		t.Errorf("含全部字段应通过: %v", err)
+	}
+	if err := validateOutput("id: wf\nname: test", c); err == nil {
+		t.Errorf("缺 steps 应失败")
+	}
+	// 错误消息应说 YAML 而不是 JSON
+	err := validateOutput("id: wf", c)
+	if err == nil || !strings.Contains(err.Error(), "YAML") {
+		t.Errorf("错误消息应包含 YAML, 实际: %v", err)
 	}
 }
 
@@ -277,8 +331,8 @@ func TestForStructure(t *testing.T) {
 	if c.OutputFormat != "json" {
 		t.Errorf("OutputFormat want json, got %q", c.OutputFormat)
 	}
-	if c.JSONSchema != "findings,risk_register" {
-		t.Errorf("JSONSchema mismatch: %q", c.JSONSchema)
+	if c.RequiredFields != "findings,risk_register" {
+		t.Errorf("RequiredFields mismatch: %q", c.RequiredFields)
 	}
 	if c.MaxRetries != 1 {
 		t.Errorf("MaxRetries want 1, got %d", c.MaxRetries)
@@ -286,6 +340,16 @@ func TestForStructure(t *testing.T) {
 	// 结构维度不应启用 AntiLazy / Critique
 	if c.AntiLazy || c.Critique || c.RequireEvidence {
 		t.Errorf("纯 ForStructure 不应启用其他维度: %+v", c)
+	}
+}
+
+func TestForStructure_YAML(t *testing.T) {
+	c := ForStructure("yaml", "id,steps", 1)
+	if c.OutputFormat != "yaml" {
+		t.Errorf("OutputFormat want yaml, got %q", c.OutputFormat)
+	}
+	if c.RequiredFields != "id,steps" {
+		t.Errorf("RequiredFields mismatch: %q", c.RequiredFields)
 	}
 }
 
@@ -310,7 +374,7 @@ func TestForFacts(t *testing.T) {
 func TestFluentComposition(t *testing.T) {
 	// 三维度全开（V25 全合规场景）
 	c := ForStructure("json", "findings", 1).WithContent().WithFacts()
-	if c.OutputFormat != "json" || c.JSONSchema != "findings" || c.MaxRetries < 1 {
+	if c.OutputFormat != "json" || c.RequiredFields != "findings" || c.MaxRetries < 1 {
 		t.Errorf("结构维度丢失: %+v", c)
 	}
 	if !c.AntiLazy || !c.RequireEvidence || !c.Critique {
@@ -323,6 +387,97 @@ func TestWithStructure_PreservesRetries(t *testing.T) {
 	c := Contract{MaxRetries: 3}.WithStructure("json", "x", 1)
 	if c.MaxRetries != 3 {
 		t.Errorf("WithStructure 不应降低 MaxRetries, 实际 %d", c.MaxRetries)
+	}
+}
+
+// ─── buildRetryFeedback 测试 ─────────────────────────────────
+
+func TestBuildRetryFeedback_JSONMissingField_ShowsPresent(t *testing.T) {
+	// 有现有字段时，反馈应包含"已有字段"信息
+	output := `{"findings":[],"summary":"ok"}`
+	violation := fmt.Errorf("输出 JSON 缺少必需字段：risk_register")
+	c := Contract{OutputFormat: "json", RequiredFields: "findings,risk_register"}
+
+	fb := buildRetryFeedback(output, violation, c)
+	if !strings.Contains(fb, "已有字段") {
+		t.Errorf("应包含已有字段信息, got: %q", fb)
+	}
+	if !strings.Contains(fb, "findings") || !strings.Contains(fb, "summary") {
+		t.Errorf("应列出现有字段 findings/summary, got: %q", fb)
+	}
+	if !strings.Contains(fb, "risk_register") {
+		t.Errorf("应提示缺失字段 risk_register, got: %q", fb)
+	}
+}
+
+func TestBuildRetryFeedback_JSONMarkdownWrapped_SpecificHint(t *testing.T) {
+	// 有 ``` 时，应给出"去掉代码块"的具体指示
+	output := "```json\n{\"a\":1}\n```"
+	violation := fmt.Errorf(`输出不是合法 JSON（前 100 字符: "` + "```" + `json..."）`)
+	c := Contract{OutputFormat: "json"}
+
+	fb := buildRetryFeedback(output, violation, c)
+	if !strings.Contains(fb, "```") && !strings.Contains(fb, "代码块") {
+		t.Errorf("应提示去掉 markdown 包裹, got: %q", fb)
+	}
+}
+
+func TestBuildRetryFeedback_YAMLMissingField_ShowsPresent(t *testing.T) {
+	output := "id: wf\nname: test"
+	violation := fmt.Errorf("输出 YAML 缺少必需字段：steps")
+	c := Contract{OutputFormat: "yaml", RequiredFields: "id,steps"}
+
+	fb := buildRetryFeedback(output, violation, c)
+	if !strings.Contains(fb, "已有字段") {
+		t.Errorf("应包含已有字段信息, got: %q", fb)
+	}
+	if !strings.Contains(fb, "id") {
+		t.Errorf("应列出现有字段 id, got: %q", fb)
+	}
+	if !strings.Contains(fb, "steps") {
+		t.Errorf("应提示缺失字段 steps, got: %q", fb)
+	}
+}
+
+func TestBuildRetryFeedback_CheckAllMissingFields(t *testing.T) {
+	// checkRequiredFields 应一次收集所有缺失字段，不是首次即返
+	c := Contract{OutputFormat: "json", RequiredFields: "a,b,c"}
+	err := validateOutput(`{"x":1}`, c)
+	if err == nil {
+		t.Fatal("应失败")
+	}
+	// 错误消息应包含全部 3 个缺失字段
+	msg := err.Error()
+	for _, field := range []string{"a", "b", "c"} {
+		if !strings.Contains(msg, field) {
+			t.Errorf("缺失字段 %q 应在错误消息中, got: %q", field, msg)
+		}
+	}
+}
+
+func TestChat_YAMLRetry_RecoverOnSecondAttempt(t *testing.T) {
+	calls := 0
+	withStubChatFunc(t, func(messages []llm.ChatMessage, timeout time.Duration) (string, *llm.Usage, error) {
+		calls++
+		if calls == 1 {
+			return "this is not yaml: [bad", &llm.Usage{TotalTokens: 4}, nil
+		}
+		return "id: wf\nsteps:\n  - id: s1", &llm.Usage{TotalTokens: 6}, nil
+	})
+
+	out, _, err := Chat(
+		[]llm.ChatMessage{{Role: "user", Content: "生成工作流"}},
+		Contract{OutputFormat: "yaml", RequiredFields: "id,steps", MaxRetries: 1},
+		5*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("应在第二次重试成功: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("应调用 2 次, 实际 %d", calls)
+	}
+	if !strings.Contains(out, "id: wf") {
+		t.Errorf("应返回第二次输出, got: %q", out)
 	}
 }
 

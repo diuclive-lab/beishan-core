@@ -7,6 +7,7 @@
 #   - 升级策略 → docs/ABSORPTION_GOVERNANCE.md §4
 
 id: knowledge_heal
+output_target: chat
 
 steps:
   # ── Step 1: 自愈扫描 ──

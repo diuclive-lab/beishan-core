@@ -102,7 +102,7 @@ func chatCore(messages []llm.ChatMessage, c Contract, timeout time.Duration, fn 
 		log.Printf("[llmguard] 契约校验失败 (attempt %d/%d): %v", attempt+1, maxAttempts, violation)
 
 		if attempt+1 < maxAttempts {
-			feedback := fmt.Sprintf("你上一次的输出违反了契约：%v\n请按契约规则重新输出，只输出符合规则的内容。", violation)
+			feedback := buildRetryFeedback(output, violation, c)
 			current = append(append([]llm.ChatMessage{}, current...),
 				llm.ChatMessage{Role: "assistant", Content: output},
 				llm.ChatMessage{Role: "user", Content: feedback})

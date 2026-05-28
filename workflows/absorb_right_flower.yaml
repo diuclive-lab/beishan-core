@@ -19,6 +19,7 @@
 # v2.5 升级：2026-05-26
 
 id: absorb_right_flower
+output_target: chat
 
 info:
   title: "右花吸收工作流 v2.5"

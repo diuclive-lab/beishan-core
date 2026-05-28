@@ -98,11 +98,17 @@ func critiqueRevise(origMessages []llm.ChatMessage, firstOutput string, c Contra
 //   - 不让 LLM 自由发挥，只针对契约规则审查
 func buildCritiquePrompt(c Contract, output string) string {
 	var rules []string
-	if c.OutputFormat == "json" {
+	switch c.OutputFormat {
+	case "json":
 		rules = append(rules, "1. 必须是合法 JSON，不能有 markdown 代码块包裹")
-	}
-	if c.JSONSchema != "" {
-		rules = append(rules, fmt.Sprintf("2. JSON 必须包含字段：%s", c.JSONSchema))
+		if c.RequiredFields != "" {
+			rules = append(rules, fmt.Sprintf("2. JSON 必须包含字段：%s", c.RequiredFields))
+		}
+	case "yaml":
+		rules = append(rules, "1. 必须是合法 YAML，不能有 markdown 代码块包裹")
+		if c.RequiredFields != "" {
+			rules = append(rules, fmt.Sprintf("2. YAML 必须包含顶层字段：%s", c.RequiredFields))
+		}
 	}
 	if c.RequireEvidence {
 		rules = append(rules, "3. 每条结论必须有 E1/E2/E3/E4 证据等级或\"证据\"字样")

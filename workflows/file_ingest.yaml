@@ -18,6 +18,7 @@
 # 支持格式: .txt, .md, .pdf
 
 id: file_ingest
+output_target: chat
 
 steps:
   - id: parse
@@ -73,6 +74,7 @@ steps:
     plugin: memory_plugin
     type: knowledge_add
     timeout: 15
+    on_error: done
     inputs:
       source_type: "${steps.analyze.output.source_type}"
       title: "${steps.analyze.output.title}"

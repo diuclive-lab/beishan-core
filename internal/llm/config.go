@@ -132,14 +132,13 @@ func SetProvider(name string) {
 }
 
 // FailoverProvider switches to the local provider for fallback.
-func FailoverProvider() { SetProvider("failover") }
+// "failover" is not a separate provider entry; it maps directly to "local".
+func FailoverProvider() { SetProvider("local") }
 
-var providers = map[string]Provider{
-	"deepseek": {
-		Name:    "deepseek",
-		BaseURL: "https://api.deepseek.com/v1",
-		Model:   "deepseek-chat",
-		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":{},"reason":"","confidence":0.0}
+// canonicalRouterRules 是所有 OpenAI 兼容 provider 共享的路由规则集。
+// 基于 DeepSeek 调优后验证的版本，更新此处对全部 provider 生效。
+// 占位符：%s = 插件列表，%s = 输入消息。
+const canonicalRouterRules = `Output JSON: {"recipient":"","msg_type":"","payload":{},"reason":"","confidence":0.0}
 Recipient is the plugin to handle this request. msg_type is the message type the plugin expects.
 IMPORTANT: payload must be a JSON object, not a string.
 Available plugins:
@@ -159,9 +158,19 @@ Routing rules with payload formats:
 - think_plugin handles its own retrieval (knowledge + code + session history). Do NOT route conversational queries to memory_plugin.
 - ONLY output the JSON, no markdown, no explanations
 
-Input: %s`,
+Input: %s`
+
+var providers = map[string]Provider{
+	// deepseek、openai、local 共用 canonicalRouterRules，保持路由规则同步。
+	// 切换 provider 不需要单独维护 prompt，降低后续模型迁移成本。
+	"deepseek": {
+		Name:         "deepseek",
+		BaseURL:      "https://api.deepseek.com/v1",
+		Model:        "deepseek-chat",
+		RouterPrompt: canonicalRouterRules,
 	},
 	"xiaomi": {
+		// xiaomi 保留独立 prompt：该模型对中英混排规则集反应较好。
 		Name:    "xiaomi",
 		BaseURL: "https://token-plan-cn.xiaomimimo.com/v1",
 		Model:   "mimo-v2.5-pro",
@@ -188,23 +197,18 @@ Input: %s`,
 			"\nUser input:\n%s",
 	},
 	"openai": {
-		Name:    "openai",
-		BaseURL: "https://api.openai.com/v1",
-		Model:   "gpt-4o",
-		RouterPrompt: `Output JSON: {"recipient":"","msg_type":""}
-Available plugins:
-%s
-Input: %s`,
+		Name:         "openai",
+		BaseURL:      "https://api.openai.com/v1",
+		Model:        "gpt-4o",
+		RouterPrompt: canonicalRouterRules,
 	},
 	"local": {
-		Name:    "local",
-		BaseURL: "http://127.0.0.1:8090/v1",
-		Model:   "gemma-4-E4B-it-Q4_K_M.gguf",
-		RouterPrompt: `Output JSON: {"recipient":"","msg_type":"","payload":"","reason":"","confidence":0.0}
-Recipient is the plugin to handle this request. msg_type is the message type the plugin expects.
-When routing to workflow_plugin, set msg_type to "workflow_run" and payload to {"workflow":"<name>"}
-Available plugins:
-%sInput: %s`,
+		// local 也使用 canonicalRouterRules；LocalRouteStrategy.callLocal() 额外
+		// 注入系统消息约束格式，两者叠加保证本地模型输出合法 JSON。
+		Name:         "local",
+		BaseURL:      "http://127.0.0.1:8090/v1",
+		Model:        "gemma-4-E4B-it-Q4_K_M.gguf",
+		RouterPrompt: canonicalRouterRules,
 	},
 }
 
@@ -241,9 +245,19 @@ func ProviderName() string {
 	return activeProvider().Name
 }
 
+// APIKey returns the API key for the currently active provider.
+// For the local provider it returns LOCAL_API_KEY (or "local-dev"),
+// so callers don't need to know which provider is active.
 func APIKey() string {
 	if k := os.Getenv("LLM_API_KEY"); k != "" {
 		return k
+	}
+	name := ProviderName()
+	if name == "local" || name == "failover" {
+		if k := os.Getenv("LOCAL_API_KEY"); k != "" {
+			return k
+		}
+		return "local-dev"
 	}
 	return os.Getenv("DEEPSEEK_API_KEY")
 }
