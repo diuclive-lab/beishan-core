@@ -14,16 +14,22 @@
 
 | 你想了解什么 | 看哪个文件 |
 |-------------|-----------|
+| **项目快照 + AI 工作章程（必读）** | **`CLAUDE.md`** |
 | 目录结构——代码物理布局 | `DIRECTORY.md` |
 | 硬化层能力边界——保证什么、不保证什么 | `docs/HARDENING_LAYER.md` |
 | 关键决策记录——为什么系统是这个样子 | `docs/MERGE_DECISIONS.md` |
 | 已知限制——诚实的设计边界 | `docs/KNOWN_LIMITATIONS.md` |
+| 系统真实数据流——端到端路径状态 | `docs/DATA_FLOW.md` |
+| 吸收治理框架——证据等级、吸收等级、风险分类 | `docs/ABSORPTION_GOVERNANCE.md` |
+| 代码审查规范——三层验证体系 + AI 错误模式 | `docs/CODE_REVIEW_SPEC.md` |
+| 产品定位与演进路线 | `docs/PRODUCT_VISION.md` |
+| 审计修复方法论——四步闭环 | `docs/CODING_RHYTHM.md` |
+| v2.5 工作流编写标准 | `docs/V25_WORKFLOW_STANDARD.md` |
+| 右花接入协议——外部工具如何连到底座 | `docs/RIGHT_FLOWER_PROTOCOL.md` |
 | 变更历史——面向用户的版本摘要 | `CHANGELOG.md` |
 | 开发日志——每日过程记录 | `docs/devlog/` |
-| 右花接入协议——外部工具如何连到底座 | `docs/RIGHT_FLOWER_PROTOCOL.md` |
-| 系统真实数据流——端到端路径状态 | `docs/DATA_FLOW.md` |
 
-**新加入者建议阅读顺序**：`DIRECTORY.md` → 本文件 → `docs/HARDENING_LAYER.md` → `docs/MERGE_DECISIONS.md`
+**新加入者建议阅读顺序**：`CLAUDE.md` → `DIRECTORY.md` → 本文件 → `docs/HARDENING_LAYER.md` → `docs/DATA_FLOW.md`
 
 ## 四层架构
 
