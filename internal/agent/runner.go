@@ -249,11 +249,11 @@ func parseToolCall(output string) *parsedToolCall {
 }
 
 func executeTool(tc *parsedToolCall) string {
-	if !tools.HasTool(tc.Tool) {
+	if !tools.HasAgentTool(tc.Tool) {
 		return fmt.Sprintf("Error: tool %q not found", tc.Tool)
 	}
 	argsJSON, _ := json.Marshal(tc.Arguments)
-	result := tools.ValidateAndExecute(tc.Tool, json.RawMessage(argsJSON))
+	result := tools.ExecuteAgentTool(tc.Tool, json.RawMessage(argsJSON))
 	if result.Error != "" {
 		return fmt.Sprintf("Tool %s error: %s", tc.Tool, result.Error)
 	}
@@ -276,7 +276,7 @@ func buildSubagentPrompt(def Definition) string {
 }
 
 func buildToolDescriptions(allowedTools []string) string {
-	defs := tools.GetDefinitions(allowedTools)
+	defs := tools.GetAgentDefinitions(allowedTools)
 	if len(defs) == 0 {
 		return "No tools available."
 	}

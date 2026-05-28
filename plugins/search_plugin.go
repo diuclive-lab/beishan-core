@@ -3,6 +3,7 @@ package plugins
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -11,6 +12,23 @@ import (
 	"beishan/internal/tools"
 	"beishan/kernel"
 )
+
+// datePatterns 匹配查询中常见的日期后缀（带年月日的中文日期，含可选的英文年份）。
+var datePatterns = regexp.MustCompile(
+	`\d{4}年\d{1,2}月\d{1,2}日` + // 2026年5月28日
+		`|\d{4}年\d{1,2}月` + // 2026年5月
+		`|\d{4}-\d{2}-\d{2}` + // 2026-05-28
+		`|今天|昨天|今日|昨日`) // 口语时间词
+
+// stripDateFromQuery 去掉查询末尾的日期词，返回精简后的查询。
+// 若结果与原始相同或为空，返回原始 query。
+func stripDateFromQuery(query string) string {
+	stripped := strings.TrimSpace(datePatterns.ReplaceAllString(query, ""))
+	if stripped == "" || stripped == query {
+		return query
+	}
+	return stripped
+}
 
 type SearchPlugin struct {
 	Kernel *kernel.Kernel
@@ -171,6 +189,19 @@ func (p *SearchPlugin) OnMessage(msg kernel.Message) (kernel.Message, error) {
 		relevance := checkSearchRelevance(query, result.Output)
 		if relevance < 0.3 {
 			fmt.Printf("[搜索] 相关性低 (%.2f)，query=%s\n", relevance, query)
+			// 去掉日期后缀重试一次（日期限定词常导致搜索引擎返回无关首页）
+			if retryQ := stripDateFromQuery(query); retryQ != query {
+				retryPayload, _ := json.Marshal(map[string]interface{}{"query": retryQ})
+				retryResult := tools.ValidateAndExecute("web_search", retryPayload)
+				retryRelevance := checkSearchRelevance(retryQ, retryResult.Output)
+				fmt.Printf("[搜索重试] query=%s 相关性 %.2f→%.2f\n", retryQ, relevance, retryRelevance)
+				if retryRelevance > relevance {
+					result = retryResult
+					searchPayload = retryPayload
+					query = retryQ
+					relevance = retryRelevance
+				}
+			}
 		}
 
 		// 结果回传 think_plugin 做自然语言总结

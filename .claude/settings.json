@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "beishan-knowledge": {
+      "command": "/Users/dc/Desktop/0/beishan-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

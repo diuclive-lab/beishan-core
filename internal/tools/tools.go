@@ -198,6 +198,76 @@ type RegisteredTool struct {
 // Registry holds all registered tools.
 var Registry = make(map[string]*RegisteredTool)
 
+// agentRegistry holds tools that are only available to the internal agent framework.
+// Right flowers and the general LLM routing path (think_plugin) cannot access these.
+// Use RegisterAgentOnly to add tools here; use ExecuteAgentTool / HasAgentTool to call them.
+var agentRegistry = make(map[string]*RegisteredTool)
+
+// RegisterAgentOnly registers a tool that is exclusive to the internal agent framework.
+// It will NOT appear in the global Registry, so ValidateAndExecute and think_plugin
+// cannot see or invoke it.
+func RegisterAgentOnly(name, description string, params interface{}, handler ToolHandler) {
+	agentRegistry[name] = &RegisteredTool{
+		Definition: ToolDefinition{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        name,
+				Description: description,
+				Parameters:  params,
+			},
+		},
+		Handler: handler,
+	}
+}
+
+// HasAgentTool returns true if a tool exists in the global registry OR the agent-only registry.
+func HasAgentTool(name string) bool {
+	_, ok := Registry[name]
+	if ok {
+		return true
+	}
+	_, ok = agentRegistry[name]
+	return ok
+}
+
+// ExecuteAgentTool runs a tool available to the agent framework (checks both registries).
+// Agent-only tools (e.g. MCP skills) are accessible here but not via ValidateAndExecute.
+func ExecuteAgentTool(name string, rawArgs json.RawMessage) *ToolResult {
+	// Check agent-only registry first, then fall through to global
+	if tool, ok := agentRegistry[name]; ok {
+		var args map[string]interface{}
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return errorResult("invalid JSON arguments: " + err.Error())
+		}
+		return tool.Handler(args)
+	}
+	return ValidateAndExecute(name, rawArgs)
+}
+
+// GetAgentDefinitions returns tool definitions visible to the agent framework
+// (global registry + agent-only registry), filtered by the given allowlist.
+func GetAgentDefinitions(filter []string) []ToolDefinition {
+	filterSet := make(map[string]bool, len(filter))
+	for _, f := range filter {
+		filterSet[f] = true
+	}
+	var defs []ToolDefinition
+	collect := func(reg map[string]*RegisteredTool) {
+		for name, tool := range reg {
+			if len(filter) > 0 && !filterSet[name] {
+				continue
+			}
+			if tool.CheckFn != nil && !tool.CheckFn() {
+				continue
+			}
+			defs = append(defs, tool.Definition)
+		}
+	}
+	collect(Registry)
+	collect(agentRegistry)
+	return SanitizeToolSchemas(defs)
+}
+
 // HasTool 返回指定名称的工具是否已注册。
 func HasTool(name string) bool {
 	_, ok := Registry[name]

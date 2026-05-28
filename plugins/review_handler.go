@@ -678,7 +678,7 @@ func (p *ThinkPlugin) handleConfirmAll() (kernel.Message, error) {
 	latest := reviews[len(reviews)-1]
 	var recorded []string
 	for i, c := range latest.Candidates {
-		result := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0)
+		result := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0, "")
 		recorded = append(recorded, fmt.Sprintf("%d. %s: %s", i+1, c.Title, result.Output))
 	}
 

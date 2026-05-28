@@ -110,7 +110,7 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 		for _, idx := range indices {
 			if idx > 0 && idx <= len(candidates) {
 				c := candidates[idx-1]
-				res := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0)
+				res := tools.KnowledgeRemember(c.Title, c.Summary, "", nil, 0, "")
 				recorded = append(recorded, fmt.Sprintf("%d. %s: %s", idx, c.Title, res.Output))
 			}
 		}
@@ -131,7 +131,7 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 					return chatReply(fmt.Sprintf("⚠️ 事实核查不通过：%s\n\n实际值：%s\n\n仍需记录？回复「是的，强制记录」", r.Reason, r.Actual))
 				}
 			}
-			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0, "")
 			if pr.ContentType != "" {
 				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "confirmed", SessionID: sessionID})
 			}
@@ -147,7 +147,7 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 	if isForceSaveReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
-			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0, "")
 			if pr.ContentType != "" {
 				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "confirmed", SessionID: sessionID})
 			}
@@ -175,7 +175,7 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 			if pr.ContentType != "" {
 				AppendCalibEvent(CalibrationEvent{ContentType: pr.ContentType, Confidence: pr.Confidence, Title: pr.Title, Action: "corrected", SessionID: sessionID})
 			}
-			result := tools.KnowledgeRemember(pr.Title, pr.Summary, newType, pr.Tags, 0)
+			result := tools.KnowledgeRemember(pr.Title, pr.Summary, newType, pr.Tags, 0, "")
 			return chatReply(fmt.Sprintf("已修正分类为【%s】并入库：%s\n%s", contentTypeLabel(newType), pr.Title, result.Output))
 		}
 	}
@@ -193,10 +193,10 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 			}
 			json.Unmarshal([]byte(searchResult.Output), &searchOut)
 			if len(searchOut.Results) == 0 {
-				result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+				result := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0, "")
 				return chatReply(fmt.Sprintf("未找到相似条目，已新建：%s\n%s", pr.Title, result.Output))
 			}
-			newResult := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0)
+			newResult := tools.KnowledgeRemember(pr.Title, pr.Summary, pr.ContentType, pr.Tags, 0, "")
 			var newEntry struct{ ID string `json:"id"` }
 			json.Unmarshal([]byte(newResult.Output), &newEntry)
 			targetID := searchOut.Results[0].ID
@@ -475,20 +475,31 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 			}
 			if len(toolContents) > 0 {
 				// 维度：仅内容（ForContent）。
-				// LLM 合成：把工具的 JSON 结果改写为自然语言。输出无结构、无事实可校验，
-				// AntiLazy 基线防止 LLM 偷懒拼接原始 JSON 或编造工具没返回的内容。
-				synthesisPrompt := fmt.Sprintf("用户的问题：%s\n\n工具执行结果：\n%s\n\n请根据以上结果用清晰自然的语言回答用户，不要展示 JSON 或技术细节。",
-					userText, strings.Join(toolContents, "\n\n"))
+				// LLM 合成：把工具的 JSON 结果改写为自然语言。
+				// 显式接地约束：只能引用 toolContents 中已出现的数字和事实；
+				// 工具未返回的数据必须说"本次搜索未返回"，禁止用训练知识补充。
+				toolSource := strings.Join(toolContents, "\n\n")
+				synthesisPrompt := fmt.Sprintf(
+					"用户的问题：%s\n\n"+
+						"工具执行结果（唯一可引用的信息来源）：\n%s\n\n"+
+						"规则：只能引用上方工具结果中明确出现的数字和事实。"+
+						"工具结果中未出现的任何数字、价格、比例，必须说「本次搜索未返回该数据」，不得从训练知识补充或推断。",
+					userText, toolSource)
 				synthesized, synthUsage, synthErr := llmguard.Chat([]llm.ChatMessage{
 					{Role: "system", Content: systemPrompt},
 					{Role: "user", Content: synthesisPrompt},
 				}, llmguard.ForContent(), 60*time.Second)
 				llm.RecordUsage("tool_synthesis", synthUsage)
 				if synthErr == nil && strings.TrimSpace(synthesized) != "" {
-					reply = strings.TrimSpace(synthesized)
+					synthesized = strings.TrimSpace(synthesized)
+					// 接地校验：检测合成输出中不在工具来源里的数字
+					if warn := tools.UngroundedNumbersWarn(synthesized, toolSource); warn != "" {
+						fmt.Printf("[接地校验] %s\n", warn)
+					}
+					reply = synthesized
 				} else {
 					// 降级：直接拼接清理后的内容
-					reply += "\n\n---\n" + strings.Join(toolContents, "\n")
+					reply += "\n\n---\n" + toolSource
 				}
 			}
 		}
@@ -504,7 +515,7 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 		label := contentTypeLabel(ct)
 		if IsAutoMode(ct) {
 			// 精度已达阈值：直接入库，不打扰用户
-			tools.KnowledgeRemember(title, summary, ct, nil, 0)
+			tools.KnowledgeRemember(title, summary, ct, nil, 0, "")
 			AppendCalibEvent(CalibrationEvent{ContentType: ct, Confidence: confidence, Title: title, Action: "auto_confirmed", SessionID: sessionID})
 			reply += fmt.Sprintf("\n\n---\n✓ 已自动入库【%s】：%s", label, title)
 			fmt.Printf("[思考] 自动入库: type=%s title=%s\n", ct, title)

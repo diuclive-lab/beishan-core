@@ -178,14 +178,6 @@ func saveKnowledge(entry *KnowledgeEntry) {
 		}
 	}
 
-	// 写入时附加系统环境快照（仅在首次写入时，检查前缀标记）
-	if entry.SourceType != "memory" && !strings.HasPrefix(entry.Summary, "【") {
-		hw := HardwareSummary()
-		if hw != "" {
-			entry.Summary = "【" + hw + "】" + entry.Summary
-		}
-	}
-
 	data, _ := json.MarshalIndent(entry, "", "  ")
 	os.WriteFile(knowledgePath(entry.ID), data, 0644)
 }
@@ -245,11 +237,12 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 // KnowledgeRemember 轻量记忆写入：包装 KnowledgeAdd，固定 source_type="memory"。
 // Agent 主动调用时用此工具记录关键事实、用户偏好、决策结果。
 // contentType: work_record | decision | lesson | fact | ""（空=未分类）
-func KnowledgeRemember(title, summary, contentType string, tags []string, expiresInDays int) *ToolResult {
+// namespace: 条目所属空间，空=default。claude_dev 专用于 Claude Code 开发会话记忆，与智能体主知识库隔离。
+func KnowledgeRemember(title, summary, contentType string, tags []string, expiresInDays int, namespace string) *ToolResult {
 	if title == "" && summary == "" {
 		return errorResult("title 和 summary 不能同时为空")
 	}
-	now := time.Now().Unix()
+	now := time.Now()
 	entry := &KnowledgeEntry{
 		ID:          newKnowledgeID(),
 		SourceType:  "memory",
@@ -257,14 +250,21 @@ func KnowledgeRemember(title, summary, contentType string, tags []string, expire
 		Title:       title,
 		Summary:     summary,
 		Tags:        tags,
-		CreatedAt:   now,
+		CreatedAt:   now.Unix(),
+		Namespace:   namespace,
 	}
 	if expiresInDays > 0 {
 		entry.Ephemeral = true
-		entry.ExpiresAt = now + int64(expiresInDays*86400)
+		entry.ExpiresAt = now.Unix() + int64(expiresInDays*86400)
 	}
 	saveKnowledge(entry)
-	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"记忆已记录"}`, entry.ID, title))
+	ts := now.Format("2006-01-02 15:04:05")
+	ns := namespace
+	if ns == "" {
+		ns = "default"
+	}
+	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","namespace":"%s","created_at":"%s","message":"记忆已记录"}`,
+		entry.ID, title, ns, ts))
 }
 
 func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
@@ -576,39 +576,63 @@ func computeStructuralBoost(entry *KnowledgeEntry) (int, []retrieval.Contradicti
 	return boost, contradictions
 }
 
-// stringContainsAny 检查 target 中的语义词是否出现在 query 中。
-// 按空格/标点切词后，对中文词取所有 ≥2 字符的连续子串匹配。
-// 解决中文不依赖分词："本地模型方案已放弃" → 检查 "本地" "模型" "方案" 等是否在 query 中。
+// stringContainsAny 检查 query 的语义词是否出现在 target 中。
+// 方向：将 query 按空格/标点切词，对每个词检查是否作为子串出现在 target 中。
+//
+// 中文专用滑动窗口：只对 CJK 词生成 ≥3 字符子串（因中文不依赖空格分词）。
+// ASCII 词要求精确整词匹配（ASCII 已有空格分词，不需要子串拆分）。
+// 这样避免 "xyzzy_nonexistent_12345" 的 "ent"/"one" 等 3 字符片段误命中无关条目。
 func stringContainsAny(target, query string) bool {
-	raw := strings.FieldsFunc(target, func(r rune) bool {
+	qTokens := strings.FieldsFunc(query, func(r rune) bool {
 		return r == ' ' || r == '　' || r == '，' || r == '。' || r == '、' ||
 			r == '：' || r == '（' || r == '）' || r == '—' || r == '|'
 	})
-	q := strings.ToLower(query)
-	for _, token := range raw {
+	targetLower := strings.ToLower(target)
+	for _, token := range qTokens {
 		token = strings.TrimSpace(token)
 		if token == "" {
 			continue
 		}
-		// 检查整个 token 是否在 query 中
 		lower := strings.ToLower(token)
-		if strings.Contains(q, lower) {
+		// 整个 token 出现在 target 中
+		if strings.Contains(targetLower, lower) {
 			return true
 		}
-		// 对于长中文词，拆成 2/3/4 字符窗口匹配
-		runes := []rune(lower)
-		if len(runes) > 3 {
-			for i := 0; i < len(runes)-1; i++ {
-				for j := i + 2; j <= len(runes) && j-i < 5; j++ {
-					seg := string(runes[i:j])
-					if len([]rune(seg)) >= 2 && strings.Contains(q, seg) {
-						return true
+		// 滑动窗口仅适用于含 CJK 字符的词（避免 ASCII 片段误命中）
+		if isCJKToken(lower) {
+			runes := []rune(lower)
+			if len(runes) > 3 {
+				for i := 0; i < len(runes)-2; i++ {
+					for j := i + 3; j <= len(runes) && j-i < 6; j++ {
+						seg := string(runes[i:j])
+						if strings.Contains(targetLower, seg) {
+							return true
+						}
 					}
 				}
 			}
 		}
 	}
 	return false
+}
+
+// isCJKToken 判断字符串是否主要包含 CJK（中日韩）字符。
+// 阈值：CJK 字符占比 > 50% 视为 CJK 词，适用滑动窗口分词。
+func isCJKToken(s string) bool {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return false
+	}
+	cjk := 0
+	for _, r := range runes {
+		if r >= 0x4E00 && r <= 0x9FFF || // CJK 统一汉字
+			r >= 0x3400 && r <= 0x4DBF || // CJK 扩展 A
+			r >= 0x20000 && r <= 0x2A6DF || // CJK 扩展 B
+			r >= 0x3000 && r <= 0x303F { // CJK 符号和标点
+			cjk++
+		}
+	}
+	return cjk*2 > len(runes)
 }
 
 // FormatForPrompt 将检索结果格式化为 <background> 文本。
@@ -1929,6 +1953,12 @@ func pruneOldBackups(parent, prefix string, keep int) int {
 }
 
 func KnowledgeList(sourceType string, days int, contentType string) *ToolResult {
+	return KnowledgeListNS(sourceType, days, contentType, "")
+}
+
+// KnowledgeListNS 列出知识条目，支持 namespace 过滤。
+// namespace="" 返回所有 namespace（向后兼容）；非空时精确匹配。
+func KnowledgeListNS(sourceType string, days int, contentType, namespace string) *ToolResult {
 	initKnowledgeDir()
 	entries, _ := os.ReadDir(knowledgeDir)
 
@@ -1946,7 +1976,13 @@ func KnowledgeList(sourceType string, days int, contentType string) *ToolResult 
 		if sourceType != "" && entry.SourceType != sourceType {
 			continue
 		}
+		if contentType != "" && entry.ContentType != contentType {
+			continue
+		}
 		if days > 0 && time.Unix(entry.CreatedAt, 0).Before(cutoff) {
+			continue
+		}
+		if namespace != "" && entry.Namespace != namespace {
 			continue
 		}
 		kEntries = append(kEntries, *entry)
@@ -1962,10 +1998,14 @@ func KnowledgeList(sourceType string, days int, contentType string) *ToolResult 
 
 	var sb strings.Builder
 	for _, e := range kEntries {
-		created := time.Unix(e.CreatedAt, 0).Format("01-02 15:04")
+		created := time.Unix(e.CreatedAt, 0).Format("2006-01-02 15:04:05")
+		ns := e.Namespace
+		if ns == "" {
+			ns = "default"
+		}
 		tags := strings.Join(e.Tags, ", ")
-		sb.WriteString(fmt.Sprintf("%s [%s][%s] %s — %s (tags: %s)\n",
-			e.ID, e.SourceType, e.ContentType, e.Title, created, tags))
+		sb.WriteString(fmt.Sprintf("%s [%s][%s][ns:%s] %s — %s (tags: %s)\n",
+			e.ID, e.SourceType, e.ContentType, ns, e.Title, created, tags))
 	}
 	return successResult(sb.String())
 }
@@ -3099,6 +3139,7 @@ func registerKnowledgeTools() {
 						"type":        "integer",
 						"description": "过期天数，到期后不参与检索。0=永久（默认0）。",
 					},
+					"namespace": stringParam("所属空间：空=default（智能体主知识库），claude_dev=Claude Code 开发会话专用（与主库隔离）"),
 				},
 			},
 			func(args map[string]interface{}) *ToolResult {
@@ -3109,22 +3150,25 @@ func registerKnowledgeTools() {
 					strArg(args, "content_type"),
 					strSliceArg(args, "tags"),
 					int(expDays),
+					strArg(args, "namespace"),
 				)
 			},
 		)
 
-	Register("knowledge_list", "列出所有知识条目，可按来源类型和天数过滤。",
+	Register("knowledge_list", "列出所有知识条目，可按来源类型、天数、namespace 过滤。",
 		map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": true,
 			"properties": map[string]interface{}{
-				"source_type": stringParam("可选的来源类型过滤"),
-				"days":        intParam("最近 N 天（0=全部）"),
+				"source_type":  stringParam("可选的来源类型过滤"),
+				"days":         intParam("最近 N 天（0=全部）"),
+				"content_type": stringParam("内容类型过滤：work_record|decision|lesson|fact"),
+				"namespace":    stringParam("空间过滤：留空=全部，claude_dev=仅 Claude Code 开发记忆"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
 			days, _ := args["days"].(float64)
-			return KnowledgeList(strArg(args, "source_type"), int(days), strArg(args, "content_type"))
+			return KnowledgeListNS(strArg(args, "source_type"), int(days), strArg(args, "content_type"), strArg(args, "namespace"))
 		},
 	)
 

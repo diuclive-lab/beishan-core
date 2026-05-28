@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"beishan/internal/tools"
 	"beishan/kernel"
 )
 
@@ -231,5 +232,66 @@ func TestLegalSearchPlugin_DefaultReturnsError(t *testing.T) {
 	_, err := p.OnMessage(kernel.Message{Type: "unknown_type", Payload: json.RawMessage(`{}`)})
 	if err == nil {
 		t.Fatal("expected error for unknown type")
+	}
+}
+
+// ─── session_search_plugin 格式往返测试 ───────────────────────────────────
+// 历史 bug：fmt.Sprintf("%q", output) 导致双重转义，接收方 json.Unmarshal 得到错误内容。
+// 修复后验证：无论 session_list 返回 JSON 数组还是纯字符串，
+// 接收方都必须能对 msg.Payload 做 json.Unmarshal，且结果不是双重转义字符串。
+
+func TestSessionSearchPlugin_PayloadRoundTrip(t *testing.T) {
+	tools.Init() // 必须：注册 session_list/session_search 工具
+	p := &SessionSearchPlugin{}
+
+	// session_list 不需要参数，空知识库下会返回 "No sessions found." 纯字符串
+	msg, err := p.OnMessage(kernel.Message{
+		Type:    "session_list",
+		Payload: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("session_list 执行失败: %v", err)
+	}
+
+	// 类型断言
+	if msg.Type != "session_list.result" && msg.Type != "session_list.error" {
+		t.Errorf("期望 Type 以 .result/.error 结尾，实际: %q", msg.Type)
+	}
+
+	// 核心：Payload 必须是合法 JSON（可被 Unmarshal）
+	if msg.Payload == nil {
+		t.Fatal("Payload 不能为 nil")
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(msg.Payload, &decoded); err != nil {
+		t.Fatalf("Payload 不是合法 JSON（格式往返失败）: %v\npayload=%s", err, msg.Payload)
+	}
+
+	// 反双重转义验证：如果结果是字符串，不应再包含 \" 转义（说明未被 %q 双重编码）
+	if s, ok := decoded.(string); ok {
+		if len(s) > 0 && s[0] == '"' {
+			t.Errorf("检测到双重转义：Payload 是 JSON 字符串，但内容又以引号开头（历史 %%q bug）: %q", s)
+		}
+	}
+}
+
+func TestSessionSearchPlugin_JSONArrayPayload(t *testing.T) {
+	// 验证：当工具返回 JSON 数组时，Payload 直接透传（不被 Marshal 成字符串）
+	// 这是 memory_plugin 模式一致性的检验点
+	tools.Init()
+	p := &SessionSearchPlugin{}
+	msg, err := p.OnMessage(kernel.Message{
+		Type:    "session_search",
+		Payload: json.RawMessage(`{"query":"不存在的内容xyz123abc"}`),
+	})
+	if err != nil {
+		t.Fatalf("session_search 执行失败: %v", err)
+	}
+	if msg.Payload == nil {
+		t.Fatal("Payload 不能为 nil")
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(msg.Payload, &decoded); err != nil {
+		t.Fatalf("session_search Payload 不是合法 JSON: %v\npayload=%s", err, msg.Payload)
 	}
 }

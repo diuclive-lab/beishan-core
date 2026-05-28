@@ -326,6 +326,44 @@ func extractStockKW(ctx, code string) []string {
 	return found
 }
 
+// UngroundedNumbersWarn 检测合成输出中"不在工具来源里的数字+单位"组合，
+// 返回警告字符串（供调用方 log；不修改输出，避免误伤）。
+// 只检查带有明确经济/计量单位的数字，避免对年份、ID 等误报。
+func UngroundedNumbersWarn(synthesized, toolSource string) string {
+	// 匹配：数字+可选逗号分隔+可选小数 + 空格? + 关键单位
+	// 单位列表覆盖金融、计量、时间常见误编造场景
+	unitRe := regexp.MustCompile(
+		`(\d[\d,]*\.?\d*)\s*` +
+			`(元/克|元\/克|元|美元|港元|欧元|英镑|日元` +
+			`|%|吨|克|升|万|亿|亿元|万元` +
+			`|个月|个季度|天|年内` +
+			`|bp|bps|点)`)
+
+	matches := unitRe.FindAllStringSubmatch(synthesized, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	var ungrounded []string
+	for _, m := range matches {
+		token := m[0] // 完整匹配（数字+单位）
+		// 去掉逗号后的纯数字，用于宽松匹配
+		numOnly := strings.ReplaceAll(m[1], ",", "")
+		// 在 toolSource 中找：完整 token 或纯数字任一存在即为有接地
+		if strings.Contains(toolSource, token) ||
+			strings.Contains(toolSource, numOnly) {
+			continue
+		}
+		ungrounded = append(ungrounded, token)
+	}
+
+	if len(ungrounded) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("接地校验发现 %d 个未接地数字（未出现在工具来源中）: %s",
+		len(ungrounded), strings.Join(ungrounded, ", "))
+}
+
 // isCommonWord 判断是否为常见的非公司名词汇（避免误判）。
 func isCommonWord(s string) bool {
 	common := map[string]bool{

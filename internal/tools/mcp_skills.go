@@ -18,7 +18,9 @@ func RegisterMCPSkills() {
 	for _, s := range mcp.List() {
 		name := s.ID
 		desc := s.Description
-		Register("skill_"+name, desc,
+		// Agent-only: MCP skills are NOT exposed to think_plugin or right flowers.
+		// Only internal/agent/ can call these via ExecuteAgentTool / HasAgentTool.
+		RegisterAgentOnly("skill_"+name, desc,
 			map[string]interface{}{
 				"type":     "object",
 				"required": []string{"prompt"},
