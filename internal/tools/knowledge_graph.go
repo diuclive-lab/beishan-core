@@ -23,12 +23,16 @@ func BuildLocalGraph(targetID string, depth int) (nodes []GraphNode, links []Gra
 	}
 	nd := filepath.Join(knowledgeDir, "..", "notebooks")
 	nd, _ = filepath.Abs(nd)
-	if _, err := os.Stat(nd); os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("块存储不存在")
+	docs := blockDocMapForDir(nd)
+	if docs == nil {
+		var err error
+		docs, err = loadDocIndex(nd)
+		if err != nil {
+			return nil, nil, fmt.Errorf("加载索引失败: %w", err)
+		}
 	}
-	docs, err := loadDocIndex(nd)
-	if err != nil {
-		return nil, nil, fmt.Errorf("加载索引失败: %w", err)
+	if len(docs) == 0 {
+		return nil, nil, fmt.Errorf("块存储不存在或为空")
 	}
 
 	visited := map[string]int{}
@@ -88,12 +92,16 @@ func BuildLocalGraph(targetID string, depth int) (nodes []GraphNode, links []Gra
 func BuildGlobalGraph(minRefs int) (nodes []GraphNode, links []GraphEdge, err error) {
 	nd := filepath.Join(knowledgeDir, "..", "notebooks")
 	nd, _ = filepath.Abs(nd)
-	if _, err := os.Stat(nd); os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("块存储不存在")
+	docs := blockDocMapForDir(nd)
+	if docs == nil {
+		var e error
+		docs, e = loadDocIndex(nd)
+		if e != nil {
+			return nil, nil, fmt.Errorf("加载索引失败: %w", e)
+		}
 	}
-	docs, err := loadDocIndex(nd)
-	if err != nil {
-		return nil, nil, fmt.Errorf("加载索引失败: %w", err)
+	if len(docs) == 0 {
+		return nil, nil, fmt.Errorf("块存储不存在或为空")
 	}
 
 	refCount := map[string]int{}

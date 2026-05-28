@@ -286,14 +286,8 @@ func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
 	if rawRef == "" {
 		return nil
 	}
-	initKnowledgeDir()
-	entries, _ := os.ReadDir(knowledgeDir)
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".embed.json") {
-			continue
-		}
-		entry := loadKnowledge(strings.TrimSuffix(e.Name(), ".json"))
-		if entry != nil && entry.RawRef == rawRef {
+	for _, entry := range Storage().AllEntries() {
+		if entry.RawRef == rawRef {
 			return entry
 		}
 	}

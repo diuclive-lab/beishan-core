@@ -239,8 +239,8 @@ func DocToEntry(doc *Document) *KnowledgeEntry {
 			}
 		}
 		summary = strings.Join(parts, " | ")
-		if len(summary) > 300 {
-			summary = summary[:300]
+		if runes := []rune(summary); len(runes) > 300 {
+			summary = string(runes[:300])
 		}
 	}
 
@@ -369,14 +369,24 @@ func (s *BlockStorage) SaveEntry(entry *KnowledgeEntry) error {
 
 	doc, ok := s.index[entry.ID]
 	if ok {
-		// 更新已有文档
+		// 更新已有文档：更新结构字段，保留 Blocks/Refs/Backlinks 不变。
+		// 注意：不重新生成 Blocks，避免用 DocToEntry 重建的截断 summary 覆盖原始内容。
 		doc.Title = entry.Title
+		doc.Tags = entry.Tags
 		doc.UpdatedAt = time.Now().Unix()
 		if entry.Embedding != nil {
 			doc.Embedding = entry.Embedding
 		}
+		if doc.Properties == nil {
+			doc.Properties = map[string]string{}
+		}
+		if entry.Namespace != "" {
+			doc.Properties["namespace"] = entry.Namespace
+		}
+		if entry.SourceType != "" {
+			doc.Properties["source_type"] = entry.SourceType
+		}
 	} else {
-		// 新建文档
 		doc = EntryToDoc(entry)
 	}
 	s.index[entry.ID] = doc
@@ -384,23 +394,33 @@ func (s *BlockStorage) SaveEntry(entry *KnowledgeEntry) error {
 		return err
 	}
 
-	// 自动更新反向链接
-	docs, _ := loadDocIndex(s.dir)
-	if current, ok := docs[entry.ID]; ok {
-		UpdateBacklinks(current, docs)
-		for _, linked := range docs {
-			if linked.ID == entry.ID {
-				continue
-			}
-			if len(linked.Backlinks) > 0 || len(linked.Refs) > 0 {
-				data, _ := json.MarshalIndent(linked, "", "  ")
-				os.WriteFile(s.docPath(linked.ID), data, 0644)
-			}
+	// 自动更新反向链接：仅当内容含 [[wikilink]] 或 ((block-ref)) 时才做全量 IO
+	hasLinks := false
+	for _, b := range doc.Blocks {
+		if strings.Contains(b.Content, "[[") || strings.Contains(b.Markdown, "[[") ||
+			strings.Contains(b.Content, "((") || strings.Contains(b.Markdown, "((") {
+			hasLinks = true
+			break
 		}
-		s.saveDoc(current)
-		s.index = make(map[string]*Document)
-		for id, d := range docs {
-			s.index[id] = d
+	}
+	if hasLinks {
+		docs, _ := loadDocIndex(s.dir)
+		if current, ok := docs[entry.ID]; ok {
+			UpdateBacklinks(current, docs)
+			for _, linked := range docs {
+				if linked.ID == entry.ID {
+					continue
+				}
+				if len(linked.Backlinks) > 0 || len(linked.Refs) > 0 {
+					data, _ := json.MarshalIndent(linked, "", "  ")
+					os.WriteFile(s.docPath(linked.ID), data, 0644) //nolint:errcheck
+				}
+			}
+			s.saveDoc(current) //nolint:errcheck
+			s.index = make(map[string]*Document)
+			for id, d := range docs {
+				s.index[id] = d
+			}
 		}
 	}
 
@@ -432,6 +452,46 @@ func (s *BlockStorage) Count() int {
 }
 
 func (s *BlockStorage) Close() {}
+
+// DocMap 返回内存文档索引快照（供图谱/反向链接等只读操作使用）。
+func (s *BlockStorage) DocMap() map[string]*Document {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snap := make(map[string]*Document, len(s.index))
+	for k, v := range s.index {
+		snap[k] = v
+	}
+	return snap
+}
+
+// BlockDocMap 返回当前存储的文档索引快照（仅 BlockStorage 有效，否则返回 nil）。
+func BlockDocMap() map[string]*Document {
+	if bs, ok := Storage().(*BlockStorage); ok {
+		return bs.DocMap()
+	}
+	return nil
+}
+
+// blockDocMapForDir 返回文档索引快照，仅当已初始化的 BlockStorage 目录与 nd 匹配时有效。
+// 不触发 Storage() 初始化，避免测试用临时目录污染全局 currentStorage。
+func blockDocMapForDir(nd string) map[string]*Document {
+	storageMu.Lock()
+	cs := currentStorage
+	storageMu.Unlock()
+	if cs == nil {
+		return nil
+	}
+	bs, ok := cs.(*BlockStorage)
+	if !ok {
+		return nil
+	}
+	absBS, _ := filepath.Abs(bs.dir)
+	absND, _ := filepath.Abs(nd)
+	if absBS != absND {
+		return nil
+	}
+	return bs.DocMap()
+}
 
 // ─── 全局存储实例 ─────────────────────────────
 
