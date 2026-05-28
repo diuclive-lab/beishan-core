@@ -87,11 +87,25 @@ func (s *JSONStorage) DeleteEntry(id string) error {
 }
 
 func (s *JSONStorage) AllEntries() []*KnowledgeEntry {
-	return loadAllKnowledge()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil
+	}
+	var result []*KnowledgeEntry
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".embed.json") {
+			continue
+		}
+		entry := loadKnowledge(strings.TrimSuffix(e.Name(), ".json"))
+		if entry != nil {
+			result = append(result, entry)
+		}
+	}
+	return result
 }
 
 func (s *JSONStorage) Count() int {
-	return len(loadAllKnowledge())
+	return len(s.AllEntries())
 }
 
 func (s *JSONStorage) Close() {}
@@ -445,12 +459,23 @@ func UseBlockStorage() error {
 	return nil
 }
 
-// Storage 返回当前存储实例。
+// Storage 返回当前存储实例。首次调用时自动初始化。
 func Storage() StorageAdapter {
 	storageMu.Lock()
 	defer storageMu.Unlock()
 	if currentStorage == nil {
-		InitStorage()
+		// 确保 knowledgeDir 已初始化
+		initKnowledgeDir()
+		// 尝试初始块级存储
+		blockDir := filepath.Join(knowledgeDir, "..", "notebooks")
+		blockDir, _ = filepath.Abs(blockDir)
+		if _, err := os.Stat(blockDir); err == nil {
+			currentStorage = NewBlockStorage(blockDir)
+		} else {
+			// 回退 JSON 存储
+			os.MkdirAll(knowledgeDir, 0755)
+			currentStorage = NewJSONStorage(knowledgeDir)
+		}
 	}
 	return currentStorage
 }
