@@ -76,6 +76,14 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 		//
 		// TODO(workflow-pause): 完整暂停/恢复需要将 ctx 序列化到持久化存储，
 		//   再由 confirm 路径反序列化继续执行。当前先用拆两段方式，够用。
+
+		// 空 plugin 检查（防止 AI 生成的步骤模板混入执行）
+		if step.Plugin == "" {
+			return buildResult(workflowID, results, step.ID, false,
+				fmt.Sprintf("步骤 %q 缺少 plugin 字段，拒绝执行", step.ID),
+				time.Since(tStart).Milliseconds()), nil
+		}
+
 		if step.Plugin == "human_confirm" {
 			payload := buildPayload(step.Inputs, ctx)
 			var inp map[string]interface{}
