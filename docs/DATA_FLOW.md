@@ -449,6 +449,32 @@ kernel.Send(msg{Type:"workflow_list", Recipient:"workflow_plugin"})
 
 ---
 
+### 路径 S：块级搜索（✅ 已验证 2026-05-28）
+
+```
+loadAllKnowledge() 优先检查 notebooks/ 目录
+  → 存在 .sy 文件 → 用 DocToEntry() 加载为 KnowledgeEntry
+    → BlockContents 字段包含所有文档块内容
+  → 无 .sy 文件 → 回退 JSON 存储 (knowledge/kn_*.json)
+
+SearchWithScore 新增：
+  → 遍历 entry.BlockContents，对每个块内容做子串/滑动窗口匹配
+  → 命中块内容时 score += 2（独立于 title/summary 评分）
+
+RetrievalResult 新增字段：
+  → block_id:      命中块 UUID
+  → block_content: 命中的块内容片段
+  → block_type:    块类型 (heading/paragraph/list 等)
+```
+
+**入口：** `internal/tools/knowledge.go` — `SearchWithScore` / `loadAllKnowledge`
+**新增包：** `internal/tools/storage.go` — StorageAdapter 接口 + BlockStorage 实现
+**块格式：** `notebooks/*.sy`（JSON，参考 SiYuan Note Block 模型）
+**验证日期：** 2026-05-28
+**注意：** 343 条历史知识已从 JSON 迁移到块格式，迁移后 L0 检索 8/10 ✅
+
+---
+
 1. 每次新增功能，在本文件增加对应路径
 2. 修复一个断路，将 ❌ 改为 ✅，并注明验证日期
 3. 发现新的断路，立即在此记录，不要假装它不存在

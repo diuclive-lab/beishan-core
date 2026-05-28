@@ -83,6 +83,24 @@ kernel.Kernel  ─── 按 recipient 转发
 
 **勿将 `.embed.json`（BOW 512 维）与 `entry.Embedding`（API 向量）混淆。** 两者独立，修一个不影响另一个。
 
+### 存储格式（2026-05-28 起双格式支持）
+
+知识库支持两种存储后端，通过 `StorageAdapter` 接口统一访问：
+- **JSON 格式**（旧）：`memory/knowledge/kn_*.json`，只读兼容
+- **块级格式**（新）：`memory/notebooks/*.sy`，文档=块树结构
+
+块级格式参考 SiYuan Note 的 Block 模型，每篇文档由多个带 UUID 的块组成：
+```json
+{
+  "id": "doc_uuid", "title": "标题", "tags": [...],
+  "blocks": [{"id": "b1", "type": "heading", "content": "..."}],
+  "refs": ["目标文档ID"], "backlinks": ["来源文档ID"],
+  "embedding": [0.01, ...]
+}
+```
+
+搜索管道在块级存储上额外评分块内容匹配（`BlockContents` → L0 +2）。结果可定位到具体块（`BlockID`/`BlockContent`）。
+
 ## Right Flower Protocol (concrete example)
 
 ```json
