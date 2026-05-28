@@ -431,6 +431,24 @@ scheduler_plugin → cron "0 3 * * 0"（每周日 03:00）
 
 ---
 
+### 路径 R：工作流列表查询（✅ 已实现 2026-05-28）
+
+```
+kernel.Send(msg{Type:"workflow_list", Recipient:"workflow_plugin"})
+  → workflow_plugin.OnMessage(msg)
+    → os.ReadDir(Engine.Dir) 扫描 workflows/ 目录
+    → extractWorkflowDescription() 读取前 20 行找 description: 字段
+    → 返回 {count: N, workflows: [{id, description}]}
+  → kernel.Message{Type:"workflow_list.result", Payload: {...}}
+```
+
+**入口：** `plugins/workflow_plugin.go` — `Type: "workflow_list"`
+**新增函数：** `extractWorkflowDescription(file) string` — 只扫前 20 行，不全量解析 YAML
+**价值：** 智能体首次可自省可用工作流，不再猜测数量
+**验证日期：** 2026-05-28
+
+---
+
 1. 每次新增功能，在本文件增加对应路径
 2. 修复一个断路，将 ❌ 改为 ✅，并注明验证日期
 3. 发现新的断路，立即在此记录，不要假装它不存在

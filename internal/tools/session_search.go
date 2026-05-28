@@ -546,7 +546,11 @@ func sessionListHandler(args map[string]interface{}) *ToolResult {
 	var sb strings.Builder
 	for _, s := range sessions {
 		ts := time.Unix(s.updatedAt, 0).Format("01-02 15:04")
-		sb.WriteString(fmt.Sprintf("  %s [%d msgs, %d ev] %s\n", s.id[:8], s.msgCount, s.evCount, ts))
+		truncID := s.id
+		if len(truncID) > 8 {
+			truncID = truncID[:8]
+		}
+		sb.WriteString(fmt.Sprintf("  %s [%d msgs, %d ev] %s\n", truncID, s.msgCount, s.evCount, ts))
 	}
 	return successResult(sb.String())
 }
