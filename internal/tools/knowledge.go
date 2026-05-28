@@ -2502,47 +2502,7 @@ func KnowledgeSuggestLinks(id string, maxResults int) *ToolResult {
 /* ─── 内部辅助 ─────────────────────────────────── */
 
 func loadAllKnowledge() []*KnowledgeEntry {
-	// 优先从块级存储加载（迁移后 notebooks/ 存在）。
-	blockDir := filepath.Join(knowledgeDir, "..", "notebooks")
-	if absDir, err := filepath.Abs(blockDir); err == nil {
-		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
-			if entries, err := os.ReadDir(absDir); err == nil {
-				var result []*KnowledgeEntry
-				for _, e := range entries {
-					if e.IsDir() || !strings.HasSuffix(e.Name(), ".sy") {
-						continue
-					}
-					data, err := os.ReadFile(filepath.Join(absDir, e.Name()))
-					if err != nil {
-						continue
-					}
-					var doc Document
-					if json.Unmarshal(data, &doc) == nil && doc.ID != "" {
-						result = append(result, DocToEntry(&doc))
-					}
-				}
-				return result
-			}
-		}
-	}
-
-	// 回退 JSON 存储
-	initKnowledgeDir()
-	entries, err := os.ReadDir(knowledgeDir)
-	if err != nil {
-		return nil
-	}
-	var result []*KnowledgeEntry
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".embed.json") {
-			continue
-		}
-		entry := loadKnowledge(strings.TrimSuffix(e.Name(), ".json"))
-		if entry != nil {
-			result = append(result, entry)
-		}
-	}
-	return result
+	return Storage().AllEntries()
 }
 
 func intersectStrings(a, b []string) []string {

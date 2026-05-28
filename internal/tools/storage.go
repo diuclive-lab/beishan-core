@@ -345,7 +345,31 @@ func (s *BlockStorage) SaveEntry(entry *KnowledgeEntry) error {
 		doc = EntryToDoc(entry)
 	}
 	s.index[entry.ID] = doc
-	return s.saveDoc(doc)
+	if err := s.saveDoc(doc); err != nil {
+		return err
+	}
+
+	// 自动更新反向链接
+	docs, _ := loadDocIndex(s.dir)
+	if current, ok := docs[entry.ID]; ok {
+		UpdateBacklinks(current, docs)
+		for _, linked := range docs {
+			if linked.ID == entry.ID {
+				continue
+			}
+			if len(linked.Backlinks) > 0 || len(linked.Refs) > 0 {
+				data, _ := json.MarshalIndent(linked, "", "  ")
+				os.WriteFile(s.docPath(linked.ID), data, 0644)
+			}
+		}
+		s.saveDoc(current)
+		s.index = make(map[string]*Document)
+		for id, d := range docs {
+			s.index[id] = d
+		}
+	}
+
+	return nil
 }
 
 func (s *BlockStorage) DeleteEntry(id string) error {
