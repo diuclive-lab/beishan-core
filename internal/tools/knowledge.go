@@ -62,6 +62,9 @@ type KnowledgeEntry struct {
 	HitCount      int64     `json:"hit_count,omitempty"`       // 被检索命中次数，用于排序加权
 	UtilityScore  float64   `json:"utility_score,omitempty"`   // 用户反馈评分: +1/-1/0，越用越准
 	ContentType   string    `json:"content_type,omitempty"`    // work_record | decision | lesson | fact
+
+	// BlockContents 块级存储的文档块内容列表（检索时匹配用，不序列化到 JSON 文件）。
+	BlockContents []string `json:"-"`
 }
 
 /* ─── Retrieval Trace ──────────────────────────── */
@@ -367,6 +370,15 @@ func SearchWithScore(query string, limit int, namespace string) []ScoredEntry {
 			score += 1
 		} else if stringContainsAny(summary, q) {
 			score += 1
+		}
+
+		// 块级内容匹配加分（BlockStorage 迁移后可用）。
+		for _, block := range entry.BlockContents {
+			blockLower := strings.ToLower(block)
+			if strings.Contains(blockLower, q) || stringContainsAny(blockLower, q) {
+				score += 2
+				break
+			}
 		}
 
 		if score > 0 {
@@ -2490,6 +2502,31 @@ func KnowledgeSuggestLinks(id string, maxResults int) *ToolResult {
 /* ─── 内部辅助 ─────────────────────────────────── */
 
 func loadAllKnowledge() []*KnowledgeEntry {
+	// 优先从块级存储加载（迁移后 notebooks/ 存在）。
+	blockDir := filepath.Join(knowledgeDir, "..", "notebooks")
+	if absDir, err := filepath.Abs(blockDir); err == nil {
+		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
+			if entries, err := os.ReadDir(absDir); err == nil {
+				var result []*KnowledgeEntry
+				for _, e := range entries {
+					if e.IsDir() || !strings.HasSuffix(e.Name(), ".sy") {
+						continue
+					}
+					data, err := os.ReadFile(filepath.Join(absDir, e.Name()))
+					if err != nil {
+						continue
+					}
+					var doc Document
+					if json.Unmarshal(data, &doc) == nil && doc.ID != "" {
+						result = append(result, DocToEntry(&doc))
+					}
+				}
+				return result
+			}
+		}
+	}
+
+	// 回退 JSON 存储
 	initKnowledgeDir()
 	entries, err := os.ReadDir(knowledgeDir)
 	if err != nil {

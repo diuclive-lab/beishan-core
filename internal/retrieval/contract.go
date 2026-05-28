@@ -38,6 +38,13 @@ type RetrievalResult struct {
 	LinkFrom       string                   `json:"link_from,omitempty"`
 	Contradictions []ContradictionAnnotation `json:"contradictions,omitempty"`
 
+	// BlockID 块级检索时标识命中的具体块（为空表示整条匹配）。
+	BlockID string `json:"block_id,omitempty"`
+	// BlockContent 命中的块内容片段（用于上下文展示）。
+	BlockContent string `json:"block_content,omitempty"`
+	// BlockType 块类型（heading/paragraph/list 等）。
+	BlockType string `json:"block_type,omitempty"`
+
 	// Code-specific fields
 	FilePath   string `json:"file_path,omitempty"`   // 代码文件路径
 	LineNumber int    `json:"line_number,omitempty"` // 行号

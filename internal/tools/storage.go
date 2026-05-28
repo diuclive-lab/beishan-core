@@ -189,11 +189,24 @@ func (s *BlockStorage) saveDoc(doc *Document) error {
 	return os.WriteFile(s.docPath(doc.ID), data, 0644)
 }
 
+// collectBlockContents 提取文档中所有块的纯文本内容（用于检索匹配）。
+func collectBlockContents(blocks []*Block) []string {
+	var contents []string
+	for _, b := range blocks {
+		if b.Content != "" {
+			contents = append(contents, b.Content)
+		}
+		if len(b.Children) > 0 {
+			contents = append(contents, collectBlockContents(b.Children)...)
+		}
+	}
+	return contents
+}
+
 // DocToEntry 将 Document 转换为 KnowledgeEntry（供上层检索管道使用）。
 func DocToEntry(doc *Document) *KnowledgeEntry {
 	summary := ""
 	if len(doc.Blocks) > 0 {
-		// 收集前几个块的内容作为摘要
 		var parts []string
 		for i, b := range doc.Blocks {
 			if i >= 3 {
@@ -210,11 +223,12 @@ func DocToEntry(doc *Document) *KnowledgeEntry {
 	}
 
 	entry := &KnowledgeEntry{
-		ID:      doc.ID,
-		Title:   doc.Title,
-		Summary: summary,
-		Tags:    doc.Tags,
+		ID:       doc.ID,
+		Title:    doc.Title,
+		Summary:  summary,
+		Tags:     doc.Tags,
 		Embedding: doc.Embedding,
+		BlockContents: collectBlockContents(doc.Blocks),
 	}
 	if st, ok := doc.Properties["source_type"]; ok {
 		entry.SourceType = st
