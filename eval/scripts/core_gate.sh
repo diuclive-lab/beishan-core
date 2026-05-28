@@ -25,6 +25,9 @@ if ! $QUICK; then
   echo -n "  boundary scan... "
   if bash "$HERE/eval/scripts/scan_boundary.sh" 2>/dev/null | tail -1 | grep -q "通过"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 
+  echo -n "  workflow v2.5... "
+  if bash "$HERE/eval/scripts/check_workflow_v25.sh" 2>/dev/null | tail -1 | grep -q "符合"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
+
   echo -n "  core-eval... "
   if go run ./cmd/core-eval/ --suite smoke 2>/dev/null | head -1 | grep -q "Bench"; then echo "✅"; else echo "⚠️"; $STRICT && FAILED=1; fi
 

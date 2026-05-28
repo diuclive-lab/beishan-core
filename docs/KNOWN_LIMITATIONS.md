@@ -156,20 +156,19 @@ L3 工具在宿主进程中执行，没有沙箱隔离。
 
 ---
 
-## 12. 右花协议未实现
+## 12. 右花协议完成（2026-05-28 更新）
 
 `docs/RIGHT_FLOWER_PROTOCOL.md` 已定义三层契约（通信/安全/注册）。
 
-**代码层已实现（2026-05-24）**：
+**已实现**：
 - `internal/rightflower/plugin.go` — RegisterAll 扫描 `right_flowers/` 目录 ✅
 - `right_flowers/openhuman.yaml` — 首个右花 manifest 已激活 ✅
 - adapter 桥接 + dispatch + probe-methods 已贯通 ✅
+- `k.RegisterUnlisted` — 不暴露给路由器但可通过 `kernel.Call` 直达 ✅
+- **工作流已可直接编排右花**：YAML 中用 `plugin: openhuman / hermes_agent` 即可，`kernel.Call` 通过 `k.plugins` 直达右花（见 `workflows/test_right_flower.yaml`） ✅
 
-**未实现**：
-- glue/protocol.go 无 `external_flower` 消息类型
-- 工作流不支持 `external_flower` 步骤类型
-
-**缓解**：右花的 glue 集成目前通过 `RegisterRightFlower` 健康监控实现，协议层的完整步骤类型待后续。
+**不实现**（明确放弃）：
+- `external_flower` 消息类型 — 右花通过 `kernel.Plugin` 标准接口注册，不需要专用协议消息。右花在系统中等同于普通 L4 插件，无需特殊步骤类型。
 
 ---
 
