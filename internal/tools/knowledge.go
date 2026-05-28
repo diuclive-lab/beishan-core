@@ -288,9 +288,12 @@ func findKnowledgeByRawRefLocked(rawRef string) *KnowledgeEntry {
 	return nil
 }
 
-func KnowledgeSearch(keyword string) *ToolResult {
+func KnowledgeSearch(keyword, namespace string) *ToolResult {
 	// 若关键词包含字段语法（tag: / type: / date:> 等），走结构化检索路径。
 	q := retrieval.ParseQuery(keyword)
+	if namespace != "" {
+		q.Namespace = namespace
+	}
 	if q.HasFieldFilters() {
 		scored := SearchWithQuery(q, 10)
 		if len(scored) == 0 {
@@ -303,7 +306,7 @@ func KnowledgeSearch(keyword string) *ToolResult {
 		return successResult(strings.Join(lines, "\n"))
 	}
 	// 普通关键词走全文检索路径
-	results := SearchMemoryFull(keyword, 5, nil)
+	results := searchMemoryFull(keyword, 5, nil, namespace)
 	if len(results) == 0 {
 		return successResult("未找到匹配的知识条目。")
 	}
@@ -3111,15 +3114,16 @@ func registerKnowledgeTools() {
 
 	Register("knowledge_search", "按关键词搜索知识条目（匹配 title/summary/content/tags/topics）。",
 		map[string]interface{}{
-			"type":     "object",
+			"type":                 "object",
 			"additionalProperties": true,
-			"required": []string{"keyword"},
+			"required":             []string{"keyword"},
 			"properties": map[string]interface{}{
-				"keyword": stringParam("搜索关键词"),
+				"keyword":   stringParam("搜索关键词"),
+				"namespace": stringParam("命名空间过滤：留空=全库，claude_dev=仅 Claude Code 开发记忆"),
 			},
 		},
 		func(args map[string]interface{}) *ToolResult {
-			return KnowledgeSearch(strArg(args, "keyword"))
+			return KnowledgeSearch(strArg(args, "keyword"), strArg(args, "namespace"))
 		},
 	)
 

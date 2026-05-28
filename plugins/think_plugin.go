@@ -184,7 +184,7 @@ func (p *ThinkPlugin) handleSystemCommand(userText, sessionID string) (kernel.Me
 	if isMergeReply(sessionID, userText) {
 		pr := confirmPendingRemember(sessionID)
 		if pr != nil {
-			searchResult := tools.KnowledgeSearch(pr.Title)
+			searchResult := tools.KnowledgeSearch(pr.Title, "")
 			var searchOut struct {
 				Results []struct {
 					ID    string `json:"id"`
@@ -495,6 +495,7 @@ func (p *ThinkPlugin) handleChat(userText, sessionID string, wantTrace bool, pro
 					// 接地校验：检测合成输出中不在工具来源里的数字
 					if warn := tools.UngroundedNumbersWarn(synthesized, toolSource); warn != "" {
 						fmt.Printf("[接地校验] %s\n", warn)
+						synthesized += "\n\n> ⚠️ " + warn
 					}
 					reply = synthesized
 				} else {

@@ -6,7 +6,9 @@
 //   2. 智能体自身能力：beishan-core 通过 internal/mcp/client.go
 //      连接本 server，知识库操作走统一 MCP 接口，与外部 MCP 生态对齐。
 //
-// 协议：MCP 2024-11-05，stdio 传输（一行一条 JSON-RPC 2.0 消息）
+// 传输模式（通过 -addr 参数切换）：
+//   stdio（默认）：一行一条 JSON-RPC 2.0 消息，由 Claude Code 自动 spawn
+//   HTTP/SSE：-addr :8094，Claude Code / FleetView 通过 http://localhost:8094/sse 连接
 //
 // 暴露的工具（6 个）：
 //   knowledge_search   — 关键词搜索（L0+L1）
@@ -18,15 +20,21 @@
 //
 // 启动方式：
 //   go build -o beishan-mcp ./cmd/beishan-mcp/
-//   # 注册到 .claude/settings.json 的 mcpServers 后由 Claude Code 自动管理
+//   ./beishan-mcp                  # stdio 模式（Claude Code CLI 自动 spawn）
+//   ./beishan-mcp -addr :8094      # HTTP/SSE 模式（FleetView / 远程访问）
 
 package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"sync"
 
 	"beishan/internal/tools"
 )
@@ -73,9 +81,17 @@ type mcpToolResult struct {
 // ─── 入口 ────────────────────────────────────────────────────────
 
 func main() {
+	addr := flag.String("addr", "", "HTTP/SSE 监听地址（留空=stdio 模式），例：:8094")
+	flag.Parse()
+
 	tools.Init()
 
-	// 4 MB 缓冲——知识条目内容可能很大
+	if *addr != "" {
+		serveHTTP(*addr)
+		return
+	}
+
+	// stdio 模式：4 MB 缓冲——知识条目内容可能很大
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
 	out := bufio.NewWriter(os.Stdout)
@@ -95,6 +111,110 @@ func main() {
 		out.Write(data)
 		out.WriteByte('\n')
 		out.Flush()
+	}
+}
+
+// ─── HTTP/SSE 传输层 ──────────────────────────────────────────────
+
+type sseSession struct {
+	ch chan []byte
+}
+
+var sessions sync.Map // sessionID -> *sseSession
+
+func newSessionID() string {
+	b := make([]byte, 8)
+	rand.Read(b) //nolint:errcheck — crypto/rand 在正常系统上不会失败
+	return hex.EncodeToString(b)
+}
+
+func serveHTTP(addr string) {
+	mux := http.NewServeMux()
+
+	// GET /sse — 建立 SSE 长连接，告知客户端消息投递地址
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		sid := newSessionID()
+		sess := &sseSession{ch: make(chan []byte, 32)}
+		sessions.Store(sid, sess)
+		defer sessions.Delete(sid)
+
+		// 告知客户端：请将 JSON-RPC 请求 POST 到此地址
+		fmt.Fprintf(w, "event: endpoint\ndata: /message?sessionId=%s\n\n", sid)
+		flusher.Flush()
+
+		for {
+			select {
+			case data := <-sess.ch:
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+
+	// POST /message — 接收 JSON-RPC 请求，响应经 SSE 推送
+	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		sid := r.URL.Query().Get("sessionId")
+		raw, ok := sessions.Load(sid)
+		if !ok {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		sess := raw.(*sseSession)
+
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		resp := dispatch(req)
+		if resp != nil {
+			data, _ := json.Marshal(resp)
+			select {
+			case sess.ch <- data:
+			default:
+				// 缓冲区满（32条）时丢弃，降级处理
+				fmt.Fprintf(os.Stderr, "[beishan-mcp] 会话 %s 缓冲区满，响应已丢弃\n", sid)
+			}
+		}
+
+		w.WriteHeader(http.StatusAccepted) // 202：已接收，响应将经 SSE 推送
+	})
+
+	// GET /health — 健康检查（供 glue sidecar 管理器使用）
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok","name":"beishan-knowledge"}`)
+	})
+
+	fmt.Fprintf(os.Stderr, "[beishan-mcp] HTTP/SSE 模式，监听 %s\n", addr)
+	fmt.Fprintf(os.Stderr, "[beishan-mcp] SSE:    http://localhost%s/sse\n", addr)
+	fmt.Fprintf(os.Stderr, "[beishan-mcp] Health: http://localhost%s/health\n", addr)
+
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		fmt.Fprintf(os.Stderr, "[beishan-mcp] 启动失败: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -139,12 +259,13 @@ func knowledgeTools() []mcpTool {
 	return []mcpTool{
 		{
 			Name:        "knowledge_search",
-			Description: "搜索 beishan 知识库（关键词匹配 title/summary/content/tags）。查历史决策、架构说明、踩坑记录首选此工具。",
+			Description: "搜索 beishan 知识库（关键词匹配 title/summary/content/tags）。查历史决策、架构说明、踩坑记录首选此工具。用 namespace=claude_dev 可只搜 Claude Code 开发记忆。",
 			InputSchema: mustJSON(`{
 				"type": "object",
 				"required": ["keyword"],
 				"properties": {
-					"keyword": {"type": "string", "description": "搜索关键词，支持中英文"}
+					"keyword":   {"type": "string", "description": "搜索关键词，支持中英文"},
+					"namespace": {"type": "string", "description": "命名空间过滤：留空=全库，\"claude_dev\"=仅 Claude Code 开发记忆"}
 				}
 			}`),
 		},
