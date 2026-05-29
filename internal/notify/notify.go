@@ -5,11 +5,21 @@ import (
 	"fmt"
 	"log"
 	"strings"
+
+	"beishan/internal/observatory"
 )
 
 /* Callback 回调路由：收到 callback:xxx 格式的回程地址，
    解析前缀，分派到对应的发送器。 */
 func Callback(raw string, payload json.RawMessage) {
+	// panic 兜底：kernel 在 kernel.go:246 以裸 goroutine `go notify.Callback(...)`
+	// 调用本函数，且这是唯一非测试调用点（grep 确认）。该 goroutine 内的 panic 不会被
+	// kernel 调用方的 recover 捕获，会掀翻整个进程。在此（goroutine 的实际执行体内）兜底，
+	// 等价于在 kernel.go:246 行兜底，但无需触碰冻结的 kernel/。SendSlack/SendEmail/
+	// SendWeChat 做网络 I/O，理论上可 panic（如底层库 nil deref），故需此防御。
+	// 见 DESIGN_PRINCIPLES.md「内核冻结治理」与 docs/MERGE_DECISIONS.md 决策 15。
+	defer observatory.Recover("notify.Callback")
+
 	// 格式: "callback:slack:https://hooks.slack.com/..."
 	//        "callback:email:smtp://user@host/to@addr"
 	//        "callback:wechat:https://qyapi.weixin.qq.com/..."

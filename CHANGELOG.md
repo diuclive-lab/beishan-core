@@ -36,6 +36,14 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 理由：重排会降低散文文档注释可读性 + 触碰冻结的 `kernel/` 仅为美观 + 制造淹没历史的巨型 churn
 - 文档：`DESIGN_PRINCIPLES.md` 新增"代码格式立场"节；`docs/MERGE_DECISIONS.md` 决策 14。**未改任何 `.go` 文件**
 
+### kernel.go:246 回调 goroutine panic 兜底——在 kernel 外解决（零内核改动）
+- R3 留下的唯一冻结区缺口：`kernel/kernel.go:246` 的 `go notify.Callback(...)` 裸 goroutine，panic 会掀翻进程
+- 用户**已批准**改 kernel，但调查发现该 goroutine 执行体 100% 是 `notify.Callback`（唯一非测试调用点就是这行 `go`）
+- **修复落在 `internal/notify/notify.go`**：`Callback` 顶部加 `defer observatory.Recover("notify.Callback")`，等价兜底、**零 kernel 改动**
+- `notify` 不在冻结区，`notify → observatory` 无环（observatory 是零内部依赖叶子包）
+- 治理记录：`DESIGN_PRINCIPLES.md`「内核冻结治理（特许令机制）」+ `docs/MERGE_DECISIONS.md` 决策 15 + KNOWN_LIMITATIONS §17 第 2 类标记为已修复
+- **不扩散原则**：这是经批准的防御性修复，不构成未来向 `kernel/` 加功能的先例——反证"想改内核先找内核外解法"通常成立
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

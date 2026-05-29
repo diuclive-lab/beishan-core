@@ -3,10 +3,11 @@
 本文件记录项目演进过程中的关键架构决策，以及被拒绝的方案和理由。
 目的是让后来者理解"为什么系统是这个样子"，而不是"系统是什么"。
 
-> **AI Summary:** 14 key architecture decisions. 
+> **AI Summary:** 15 key architecture decisions. 
 > #1: Four-layer architecture (L1 frozen). #7: Dual workflow engines (YAML + Go-DSL).
 > #10: TwinFlower absorption (2095 lines, zero kernel changes). #11: Right flower evolution闭环.
 > #12: Hermes absorption eval. #13: preRoute closure. #14: 拒绝全库强制 gofmt（`/* */` 块注释为有意风格）.
+> #15: kernel.go:246 panic 兜底在 notify.Callback 内解决（批准修内核但优先走 kernel 外，零内核改动）.
 > MCP skill framework: 15 servers. Tools: 104. Right flowers: 3.
 
 ## 格式
@@ -388,3 +389,33 @@ R3 goroutine 兜底改动时发现：`gofmt -l .` 列出约 115 个文件"未格
 ### 影响
 - `gofmt -l .` 输出约 115 文件是**预期且有意**的，不是疏忽——梳理开发过程时见到此数字请先读 `DESIGN_PRINCIPLES.md` 的"代码格式立场"节
 - 若未来确要统一格式，是一个独立的、需评估的决策，且必然牵涉"是否愿意为美观修改 kernel/"，须走内核冻结批准流程
+
+---
+
+## 15. kernel.go:246 回调 goroutine panic 兜底——在 kernel 外解决（2026-05-29）
+
+### 背景
+R1/R3 goroutine panic 兜底审计时，`kernel/kernel.go:246` 的 `go notify.Callback(msg.ReplyTo, msg.Payload)`
+被标为唯一未覆盖的高危裸 goroutine：它在冻结区，且 goroutine 内 panic（`notify.Callback` 走
+Slack/Email/WeChat 网络 I/O，理论上可 nil deref panic）不会被 kernel 调用方的 recover 捕获，会**掀翻整个进程**。
+用户**已明确批准**为此修改 kernel，并要求留"不扩散"治理记录。
+
+### 决策
+**不改 kernel。** 改在 `internal/notify/notify.go` 的 `Callback` 函数顶部加 `defer observatory.Recover("notify.Callback")`。
+依据：该 goroutine 的执行体 100% 是 `notify.Callback`（`msg.ReplyTo`/`msg.Payload` 在 `go` 之前的调用方
+goroutine 里求值，不在子 goroutine），且 `notify.Callback` 唯一非测试调用点就是 kernel.go:246 这行 `go`
+（grep 确认）。所以在 `notify.Callback` 内兜底 = 在 246 行兜底，**等价覆盖、零 kernel 改动**。
+
+### 理由
+- `internal/notify` 不在冻结区，可自由修改；`observatory` 是零内部依赖的叶子包，`notify → observatory` 无环
+- 用 `observatory.Recover` 而非裸 `recover()`：与 R1/R3 其余兜底点一致，panic 会进同一条 `system.panic_recovered` 事件流（裸 recover 只为省依赖，那是 kernel 才有的约束，notify 没有）
+- **手握批准仍优先走 kernel 外**：这正是内核冻结治理"特许令机制"第 2 关（外部不可达证明）的实践——绝大多数"要改内核"其实能在下游函数解决
+
+### 拒绝的方案
+- **在 kernel.go:246 包 recover**：动了冻结区，且收益与 notify 内兜底完全相同——为零增益触碰 kernel，违背冻结精神
+- **在 kernel 注册一个可注入的 callback hook**：给 kernel 加新职责（依赖注入点），比直接改一行更严重地扩散内核表面
+- **裸 `recover()` in notify**：可行但与全局 panic 观测不一致，放弃统一的 `EventPanicRecovered` 事件
+
+### 影响
+- `kernel/` 保持零改动，冻结完好；KNOWN_LIMITATIONS §17 中 kernel.go:246 一项从"待批准"改为"已修复（在 notify.Callback 内兜底，kernel 未触碰）"
+- 确立**不扩散先例**：这是一次经过批准的、为解决进程崩溃风险的防御性修复，**不构成**未来向 `kernel/` 添加功能的先例——反而证明了"想改内核先找内核外解法"通常成立。治理规则见 `DESIGN_PRINCIPLES.md`「内核冻结治理（特许令机制）」
