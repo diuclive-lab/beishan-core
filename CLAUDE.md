@@ -385,6 +385,7 @@ curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-d
 | `docs/ABSORPTION_GOVERNANCE.md` | 吸收治理框架：证据等级、吸收等级、风险分类、升级策略、决策登记册 |
 | `docs/DATA_FLOW.md` | 系统真实数据流——端到端路径状态 | |
 | `docs/V25_WORKFLOW_STANDARD.md` | v2.5 YAML 工作流参考标准：强制项、条件项、禁止项、骨架模板 |
+| `docs/REFACTOR_AUDIT_PLAYBOOK.md` | 审计/重构/验证的可复用配方（集成纪律的操作层补充；机械验证见 `scripts/verify.sh`）|
 | `docs/devlog/DEVLOG_20260526.md` | 全量 v2.5 升级记录：40 YAML + Go 工具反推 + 引擎修复 |
 | `docs/archived/absorb_right_flower.yaml` | Absorption process (v2.5, 14步, 已归档，不可执行) |
 
@@ -394,4 +395,5 @@ curl http://127.0.0.1:8090/v1/chat/completions -H "Authorization: Bearer local-d
 - "Is this known broken?" → KNOWN_LIMITATIONS.md
 - "What absorption level / evidence standard?" → docs/ABSORPTION_GOVERNANCE.md
 - "How to write a v2.5 workflow?" → docs/V25_WORKFLOW_STANDARD.md
+- "How to safely audit/refactor/verify a change?" → docs/REFACTOR_AUDIT_PLAYBOOK.md
 - "Where does this code live?" → DIRECTORY.md

@@ -75,6 +75,11 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 纯包内重定位，注册 / 路由 / 调用点 / 工具名 / 消息类型全不变 → DATA_FLOW.md 无需改；`go build`+`vet`+`test`（22 包）全绿
 - 有意停手：`main.go`(1017) / `think_plugin.go`(930) 无同样干净切口，不为凑数强拆，留待单独处理
 
+### 把工作模式固化：verify.sh（机械半）+ 操作手册（判断半）
+- 新增 `scripts/verify.sh`——一键变更验证（build/vet/test + 改动文件 gofmt 提示 + integration_check），「集成纪律」里可自动化的那一半收成一条命令；不用 `set -e`（跑完所有检查再汇总），gofmt 仅对改动文件提示不计失败（决策 14 不全库强制）
+- 新增 `docs/REFACTOR_AUDIT_PLAYBOOK.md`——判断那一半的四条可复用配方（资源/错误审计、改一处先查三端、导入不相交拆分+三验证、完成前 INTEGRATION_PROOF），提炼自 Task H–J；CLAUDE.md Key Documents + Quick lookup 加指针
+- 附"工作流模块化"可行性判断：引擎 `workflow_run` 组合机制现成（`agent_observer`/`batch_ingest` 已用），但只有**机械原语**适合做可信模块（verify/scan/inventory），**判断步骤**至多做"建议模块"（LLM step，输出非保证），把建议当决策违反硬化层原则；第一个该做的模块是 verify（verify.sh 的运行时外壳）
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
