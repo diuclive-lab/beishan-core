@@ -1,0 +1,62 @@
+# scan_large_files 工作流模块 v2.5 — 一键列出最大源文件（拆分候选）
+#
+# 这是第 2 个「机械且环境无关」的可组合模块（第 1 个是 verify）。
+# 列出仓库里行数最多的 Go 源文件，给重构/拆分前的「该先动哪个文件」提供机械证据
+# （本仓库已用这类排行指导过 skill_factory(1195)/code_analysis(933) 两次拆分）。
+#
+# 【实跑选型记录：为什么用 terminal_exec 而非 L3 工具 code_stats】
+# 初版想用 code_stats（描述里写明「替代 wc 和 find 计数」，list_files=true → top-N 排行），
+# 更贴合「优先用硬化层结构化工具」的架构偏好。但从现网守护进程（May 26 二进制）实跑，硬化层连报：
+#   未知字段: limit  →（去掉后）→  未知字段: list_files
+# ——部署二进制里的 code_stats schema 早于这两个字段（top-N 排行是 May 26 之后才加的），
+# 故在这台 stale daemon 上 code_stats 根本给不出排行。这是 verify 环境教训的**第三味**：
+#   verify 学到「不依赖 daemon 缺失的开发工具 / 不被其密钥扰动」，
+#   这里再加一条「不依赖 daemon 二进制里工具的 schema/feature 版本」。
+# 结论：要在「可能 stale 的守护进程」上稳跑，最环境无关的原语是 **terminal_exec + POSIX 命令**
+# （find/wc/sort/head 都在最小 PATH /usr/bin:/bin 里，且其 schema 永不漂移）。
+#
+# 为什么仍是「机械且环境无关」：纯 find|wc|sort，确定性、零判断、零 LLM、零网络、零密钥；
+# cd 到**绝对**仓库根（守护进程 CWD 是安装目录，相对路径会扫错地方——verify 的环境教训）。
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
+#
+# 输入：无（固定扫描 dev 仓库根，${input} 被忽略——与 verify 同 philosophy：零参门禁）
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"scan_large_files","input":""}}
+#
+# 作为模块被组合（在重构工作流里当「先看哪个文件最大」的前置步）：
+#   - id: scan
+#     plugin: workflow_plugin
+#     type: workflow_run
+#     inputs: {workflow: scan_large_files}
+#     on_error: done
+
+id: scan_large_files
+description: 一键列出最大的 Go 源文件（top-30 行数排行，拆分候选）
+output_target: chat
+
+steps:
+
+  # ── 唯一步骤：find|wc|sort 行数排行（机械、确定性、离线、schema 永不漂移） ──
+  # cd 绝对仓库根：守护进程 CWD = 安装目录，相对路径会扫错地方（verify 模块的环境教训）。
+  # grep -v ' total$' 去掉 wc 的 total 汇总行；head -30 取最大 30 个。
+  # terminal_exec 的 command/timeout 是核心老字段，stale daemon 也有（verify 模块已验证），
+  # 故本步不像 code_stats 那样吃 schema 版本——这正是选 terminal_exec 的原因。
+  - id: scan
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 30
+    on_error: done
+    inputs:
+      timeout: 20
+      command: >-
+        cd /Users/dc/Desktop/0 &&
+        find . -name '*.go' -not -path './.git/*' -print0
+        | xargs -0 wc -l 2>/dev/null
+        | sort -rn | grep -v ' total$' | head -30
+    next: done

@@ -87,6 +87,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **修法 = 让 verify.sh hermetic**：`go` 不可达时补 PATH 兜底（对开发 shell 是无害空操作）+ `unset` 所有 LLM/embedding key 走离线跳过路径；改 verify.yaml 用绝对路径（脚本自定位仓库根）、超时 300→180。daemon 实跑从 300s 超时变 **4.6s 全绿**
 - **教训回写** `docs/REFACTOR_AUDIT_PLAYBOOK.md`：可信模块判据从「机械」升级为**「机械且环境无关」**——不依赖守护进程缺失的开发工具、不被其密钥扰动；hermetic 离线门禁不该依赖外部服务可用性
 
+### `scan_large_files` 工作流模块 + verify 部署现网——「环境无关」第三味（可组合模块第 2 个）
+- 把 `verify.yaml` 部署到现网 daemon `workflows/` 目录（手动 cp，引擎每次 Run fresh `os.ReadFile` 故无需重启）；daemon 实跑 `verify` → Success / ElapsedMs 6783 / "✅ 全部通过"
+- 新增 `workflows/scan_large_files.yaml`——一键列出最大 Go 源文件（top-30 行数排行，拆分候选）；本仓库拆 skill_factory/code_analysis 就靠这类排行
+- **选型实跑**：先试架构偏好的 L3 工具 `code_stats`（描述写明"替代 wc/find，list_files→top-N"），但现网 daemon（May 26 二进制）硬化层连报 `未知字段: limit` → `未知字段: list_files`——部署二进制的 code_stats schema 早于这两个字段（top-N 排行 May 26 后才加），stale daemon 上根本给不出排行
+- **改用 `terminal_exec`+POSIX**（find|wc|sort|head，cd 绝对仓库根）→ daemon 实跑 Success / ElapsedMs 165 / 干净 top-30；command/timeout 是核心老字段，不吃 schema 版本
+- **环境无关第三味**：verify 学到①不依赖 daemon 缺失的开发工具 ②不被其密钥扰动；scan_large_files 再加③**不依赖 daemon 二进制里工具的 schema/feature 版本**——要在可能 stale 的 daemon 上稳跑，最 vintage-proof 的原语是 `terminal_exec`+POSIX
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
