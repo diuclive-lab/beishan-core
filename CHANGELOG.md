@@ -29,6 +29,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 新增内部依赖边 `bus/tools/plugins → observatory`（observatory 是零内部依赖的叶子包，无环）
 - **明确未覆盖**（见 KNOWN_LIMITATIONS §17）：glue 长循环（低风险 + 需逐迭代兜底）、`kernel.go:246`（冻结区，待批准）、`done <- cmd.Run()` 系列（stdlib 不 panic）
 
+### 代码格式立场：拒绝全库强制 gofmt（决策记录，无代码改动）
+- R3 期间发现 `gofmt -l .` 列出约 115 文件"漂移"；根因排查（`gofmt -d kernel/msg.go`）确认是
+  Go 1.26.1 gofmt 把项目手写的 `/* */` 散文块注释"规范化"（正文移出 `/*` 行 + 续行 tab 缩进）+ struct tag 重排
+- **决策**：把 `/* */` 块注释确认为有意风格；不全库 `gofmt -w`，不把 `gofmt -l` 加进 gate；新代码靠手维持 gofmt-clean
+- 理由：重排会降低散文文档注释可读性 + 触碰冻结的 `kernel/` 仅为美观 + 制造淹没历史的巨型 churn
+- 文档：`DESIGN_PRINCIPLES.md` 新增"代码格式立场"节；`docs/MERGE_DECISIONS.md` 决策 14。**未改任何 `.go` 文件**
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

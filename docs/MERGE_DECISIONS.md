@@ -3,10 +3,10 @@
 本文件记录项目演进过程中的关键架构决策，以及被拒绝的方案和理由。
 目的是让后来者理解"为什么系统是这个样子"，而不是"系统是什么"。
 
-> **AI Summary:** 13 key architecture decisions. 
+> **AI Summary:** 14 key architecture decisions. 
 > #1: Four-layer architecture (L1 frozen). #7: Dual workflow engines (YAML + Go-DSL).
 > #10: TwinFlower absorption (2095 lines, zero kernel changes). #11: Right flower evolution闭环.
-> #12: Hermes absorption eval. #13: preRoute closure.
+> #12: Hermes absorption eval. #13: preRoute closure. #14: 拒绝全库强制 gofmt（`/* */` 块注释为有意风格）.
 > MCP skill framework: 15 servers. Tools: 104. Right flowers: 3.
 
 ## 格式
@@ -359,3 +359,32 @@ Hermes Agent 作为第二个右花接入后，两个能力被标记为"已吸收
 ### 影响
 - 改为给 `callDeepSeek` 加 `RecordUsage("router", ...)` 埋点（已实现）
 - 之后跑几天可获得路由调用量的真实数据，瓶颈出现时再决策
+
+---
+
+## 14. 拒绝全库强制 gofmt（2026-05-29）
+
+### 背景
+R3 goroutine 兜底改动时发现：`gofmt -l .` 列出约 115 个文件"未格式化"。排查根因（读 `gofmt -d kernel/msg.go`）：
+不是缩进/语法问题，而是项目大量使用手写对齐的 `/* ... */` 块注释作为散文式文档注释（约 76 个 `.go` 文件），
+而 Go 1.26.1 的 gofmt 会把它们"规范化"——正文移出 `/*` 同行、续行改 tab 缩进，外加部分 struct tag 重排。
+用 homebrew gofmt 和 go1.26.1 工具链 gofmt 双重验证，确认 115 这个数字是真实的、非版本错位。
+
+### 决策
+**不全库 `gofmt -w`，也不把 `gofmt -l` 加进 CI gate。** 把这套 `/* */` 散文块注释正式确认为**有意的项目风格**。
+新代码靠手维持 gofmt-clean（漂移仅限"块注释规范化 + struct tag 对齐"两类纯排版）。
+
+### 理由
+- gofmt 的块注释规范化会让这些刻意排版的设计说明**更难读**（正文与 `/*` 分行 + tab 缩进破坏空格对齐）
+- 全量重排会触碰**冻结的 `kernel/`** 仅为美观，违反内核冻结精神
+- 一次性 115 文件的格式 churn 淹没真实变更历史，后续 `git blame` 与开发过程梳理都受害
+- 收益是纯美观，代价是可读性下降 + 触碰冻结区 + 巨型 churn——不划算
+
+### 拒绝的方案
+- **全量 `gofmt -w` 一把再加 gate**：见上，得不偿失，且强制改 kernel/
+- **只对新文件加 gofmt gate**：增量判定复杂（怎么界定"新"），且老文件漂移仍在，gate 输出仍噪声大
+- **改用 `//` 行注释替换所有 `/* */`**：等于换一种方式重排 76 个文件，churn 同样巨大且降低可读性
+
+### 影响
+- `gofmt -l .` 输出约 115 文件是**预期且有意**的，不是疏忽——梳理开发过程时见到此数字请先读 `DESIGN_PRINCIPLES.md` 的"代码格式立场"节
+- 若未来确要统一格式，是一个独立的、需评估的决策，且必然牵涉"是否愿意为美观修改 kernel/"，须走内核冻结批准流程
