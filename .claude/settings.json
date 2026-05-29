@@ -1,9 +1,7 @@
 {
   "mcpServers": {
     "beishan-knowledge": {
-      "command": "/Users/dc/Desktop/0/beishan-mcp",
-      "args": [],
-      "env": {}
+      "url": "http://localhost:8094/sse"
     }
   }
 }
