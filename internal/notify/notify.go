@@ -80,5 +80,3 @@ func SendViaChannel(channel, target, subject string, payload json.RawMessage) er
 		return fmt.Errorf("未知通知渠道: %s", channel)
 	}
 }
-
-var _ = fmt.Sprintf // suppress unused

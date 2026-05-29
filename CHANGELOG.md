@@ -51,6 +51,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 至此 panic 安全弧线 **R1→R3→kernel.go:246→glue 循环** 基本收口，KNOWN_LIMITATIONS §17 仅剩第 3 类（`cmd.Run`/`Wait`，stdlib 不 panic，风险可忽略）
 - 纯重构 + 兜底，无行为变化；`go build`+`vet`+`test`（glue 0.801s）全绿，新增代码 gofmt-clean
 
+### 资源/错误审计 + notify 死脚手架清理（可靠性第 2 项）
+- 全量审计三类隐患，结论**全部健康**：① HTTP `resp.Body` 泄漏=零（20+ 产生点逐文件 producer/close 配平）；② goroutine 泄漏=零（~20 个 `go` 启动点逐一归类：buffered `done`(cap 1) / buffered-to-N 扇出+`RecoverWith` 兜底发送 / 带 `stop` 路径的 daemon / 进程生命周期级 / fire-and-forget+Recover）；③ 被吞 err=全良性（`json.Marshal` 惯用法、best-effort 备份写、带注释的 unlock）
+- "零泄漏"是前面 R1→R3 panic 安全工作的副产品——扇出 goroutine 全带 `RecoverWith` 兜底发送，顺带也就 leak-safe
+- 扫描踩坑：`\.Do(` pattern 误匹配 `sync.Once.Do()`（`browserOnce`/`usageOnce`）→ 假阳性 HTTP 泄漏；改精确 pattern 重扫
+- 唯一动手项：删 `notify/{slack,email,notify}.go` 的遗留 suppress-unused 脚手架（`logPrefix` 死变量 + `_ = time.Second`/`_ = fmt.Sprintf`/`_ = json.Marshal` + 包级 `var _ = fmt.Sprintf`），共 8 行 + 1 死 import（`slack.go` 的 `time`）；三文件向本就干净的 `wechat.go` 看齐
+- `go build`+`vet`+`test`（21 包）全绿；清理 gofmt-中性（gofmt diff 全是既存决策 14 块注释漂移，未触及删改行）
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 /* SendSlack 发送消息到 Slack webhook。
@@ -34,9 +33,5 @@ func SendSlack(webhookURL string, payload json.RawMessage) error {
 		return fmt.Errorf("Slack 返回 %d", resp.StatusCode)
 	}
 
-	logPrefix := "[Slack]"
-	_ = time.Second // suppress unused
-	_ = fmt.Sprintf
-	_ = logPrefix
 	return nil
 }

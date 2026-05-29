@@ -55,8 +55,5 @@ func SendEmail(target string, payload json.RawMessage) error {
 		return fmt.Errorf("SMTP 发送失败: %w", err)
 	}
 
-	logPrefix := "[邮件]"
-	_ = json.Marshal
-	_ = logPrefix
 	return nil
 }
