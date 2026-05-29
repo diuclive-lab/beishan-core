@@ -481,12 +481,3 @@ func extractKnowledgeKeywords(s string) []string {
 	}
 	return kw
 }
-
-func matchesTag(tags []string, keyword string) bool {
-	for _, t := range tags {
-		if strings.Contains(strings.ToLower(t), keyword) {
-			return true
-		}
-	}
-	return false
-}
