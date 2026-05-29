@@ -44,6 +44,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 治理记录：`DESIGN_PRINCIPLES.md`「内核冻结治理（特许令机制）」+ `docs/MERGE_DECISIONS.md` 决策 15 + KNOWN_LIMITATIONS §17 第 2 类标记为已修复
 - **不扩散原则**：这是经批准的防御性修复，不构成未来向 `kernel/` 加功能的先例——反证"想改内核先找内核外解法"通常成立
 
+### glue 长循环逐迭代兜底——收口 panic 安全弧线（§17 第 1 类）
+- `glue/glue.go` 的 `demuxLoop` / `healthCheckLoop` 是裸 goroutine（`go g.demuxLoop(p)` / `go g.healthCheckLoop()`），循环体内 panic 会掀翻进程
+- 把循环体抽成单次处理函数 `demuxOne` / `runHealthCheck`，函数顶部 `defer observatory.Recover`——单次迭代 panic 被吞、**循环存活**
+- 关键：**不在循环顶部** `defer Recover`（那样 panic 会杀死整个循环 → IPC demux / 健康检查静默停摆，比崩溃更隐蔽）；循环控制（`Scan`/`<-ticker.C`/`<-stopHealth`）不 panic，无需覆盖
+- 至此 panic 安全弧线 **R1→R3→kernel.go:246→glue 循环** 基本收口，KNOWN_LIMITATIONS §17 仅剩第 3 类（`cmd.Run`/`Wait`，stdlib 不 panic，风险可忽略）
+- 纯重构 + 兜底，无行为变化；`go build`+`vet`+`test`（glue 0.801s）全绿，新增代码 gofmt-clean
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

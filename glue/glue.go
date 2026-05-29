@@ -311,29 +311,38 @@ func (g *GlueLayer) OnMessage(msg kernel.Message) (kernel.Message, error) {
 // 事件 → observatory.PublishEvent；响应 → proc.responseCh。
 func (g *GlueLayer) demuxLoop(p *proc) {
 	for p.stdout.Scan() {
-		var msg ProtocolMessage
-		if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
-			continue
-		}
-		switch msg.Type {
-		case "event":
-			observatory.PublishEvent(observatory.Event{
-				ID:   newTraceID(),
-				Type: "subprocess." + p.name,
-				Data: map[string]interface{}{
-					"payload": string(msg.Payload),
-					"sender":  p.name,
-				},
-			})
-		default:
-			select {
-			case p.responseCh <- &msg:
-			default:
-				log.Printf("[Glue] 插件 %s 响应通道已满，丢弃消息", p.name)
-			}
-		}
+		g.demuxOne(p)
 	}
 	p.alive = false
+}
+
+// demuxOne 处理单条 stdout 消息。逐迭代兜底：单条消息处理中的 panic（如 PublishEvent
+// 下游）不掀翻 demuxLoop 这个裸 goroutine，下一条消息继续读。把 Recover 放在单次处理
+// 函数顶部，而非 demuxLoop 循环顶部——后者 panic 会杀死整个 demux 循环（IPC 静默停摆）。
+// 见 KNOWN_LIMITATIONS §17 第 1 类。
+func (g *GlueLayer) demuxOne(p *proc) {
+	defer observatory.Recover("glue.demux " + p.name)
+	var msg ProtocolMessage
+	if err := json.Unmarshal(p.stdout.Bytes(), &msg); err != nil {
+		return
+	}
+	switch msg.Type {
+	case "event":
+		observatory.PublishEvent(observatory.Event{
+			ID:   newTraceID(),
+			Type: "subprocess." + p.name,
+			Data: map[string]interface{}{
+				"payload": string(msg.Payload),
+				"sender":  p.name,
+			},
+		})
+	default:
+		select {
+		case p.responseCh <- &msg:
+		default:
+			log.Printf("[Glue] 插件 %s 响应通道已满，丢弃消息", p.name)
+		}
+	}
 }
 
 // healthCheckLoop periodically checks subprocess + right flower health.
@@ -345,76 +354,84 @@ func (g *GlueLayer) healthCheckLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			g.mu.RLock()
-			names := make([]string, 0, len(g.procs))
-			for name, p := range g.procs {
-				if !p.alive {
-					names = append(names, name)
-				}
-			}
-			g.mu.RUnlock()
-
-			// Check sidecar health (TCP dial to port if alive flag is true)
-			g.mu.RLock()
-			sidecarDead := make([]string, 0)
-			for name, s := range g.sidecars {
-				if !s.alive {
-					sidecarDead = append(sidecarDead, name)
-					continue
-				}
-				if s.port > 0 {
-					conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.port), 2*time.Second)
-					if err != nil {
-						s.alive = false
-						sidecarDead = append(sidecarDead, name)
-					} else {
-						conn.Close()
-					}
-				}
-			}
-			g.mu.RUnlock()
-
-			// Check right flower health
-			rfStatus := g.RightFlowerStatus()
-			rfAlive := 0
-			for _, ok := range rfStatus {
-				if ok {
-					rfAlive++
-				}
-			}
-
-			// Unified health report to observatory Pulse
-			ok := len(names) == 0 && len(sidecarDead) == 0
-			pulse := observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
-				"subprocess_alive":  float64(len(g.procs) - len(names)),
-				"subprocess_dead":   float64(len(names)),
-				"rightflower_alive": float64(rfAlive),
-				"rightflower_total": float64(len(rfStatus)),
-			})
-			observatory.RecordPulse(pulse)
-
-			for _, name := range names {
-				log.Printf("[Glue] subprocess %s dead, restarting", name)
-				if err := g.respawn(name); err != nil {
-					log.Printf("[Glue] subprocess %s restart failed: %v", name, err)
-				}
-			}
-
-			for _, name := range sidecarDead {
-				log.Printf("[Glue] sidecar %s dead, restarting", name)
-				if err := g.restartSidecar(name); err != nil {
-					log.Printf("[Glue] sidecar %s restart failed: %v", name, err)
-				}
-			}
-
-			for name, alive := range rfStatus {
-				if !alive {
-					log.Printf("[Glue] right flower %s unreachable", name)
-				}
-			}
-
+			g.runHealthCheck()
 		case <-g.stopHealth:
 			return
+		}
+	}
+}
+
+// runHealthCheck 执行一次健康检查 tick。逐迭代兜底：单次 tick 的 panic 不掀翻
+// healthCheckLoop 裸 goroutine（否则死进程重启会随之静默停摆，比进程崩溃更隐蔽）。
+// Recover 放在单次 tick 函数顶部、而非 healthCheckLoop 循环顶部。见 KNOWN_LIMITATIONS §17 第 1 类。
+func (g *GlueLayer) runHealthCheck() {
+	defer observatory.Recover("glue.healthCheck")
+
+	g.mu.RLock()
+	names := make([]string, 0, len(g.procs))
+	for name, p := range g.procs {
+		if !p.alive {
+			names = append(names, name)
+		}
+	}
+	g.mu.RUnlock()
+
+	// Check sidecar health (TCP dial to port if alive flag is true)
+	g.mu.RLock()
+	sidecarDead := make([]string, 0)
+	for name, s := range g.sidecars {
+		if !s.alive {
+			sidecarDead = append(sidecarDead, name)
+			continue
+		}
+		if s.port > 0 {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.port), 2*time.Second)
+			if err != nil {
+				s.alive = false
+				sidecarDead = append(sidecarDead, name)
+			} else {
+				conn.Close()
+			}
+		}
+	}
+	g.mu.RUnlock()
+
+	// Check right flower health
+	rfStatus := g.RightFlowerStatus()
+	rfAlive := 0
+	for _, ok := range rfStatus {
+		if ok {
+			rfAlive++
+		}
+	}
+
+	// Unified health report to observatory Pulse
+	ok := len(names) == 0 && len(sidecarDead) == 0
+	pulse := observatory.Check(ok, len(g.procs), len(rfStatus), 0, "", 0, map[string]float64{
+		"subprocess_alive":  float64(len(g.procs) - len(names)),
+		"subprocess_dead":   float64(len(names)),
+		"rightflower_alive": float64(rfAlive),
+		"rightflower_total": float64(len(rfStatus)),
+	})
+	observatory.RecordPulse(pulse)
+
+	for _, name := range names {
+		log.Printf("[Glue] subprocess %s dead, restarting", name)
+		if err := g.respawn(name); err != nil {
+			log.Printf("[Glue] subprocess %s restart failed: %v", name, err)
+		}
+	}
+
+	for _, name := range sidecarDead {
+		log.Printf("[Glue] sidecar %s dead, restarting", name)
+		if err := g.restartSidecar(name); err != nil {
+			log.Printf("[Glue] sidecar %s restart failed: %v", name, err)
+		}
+	}
+
+	for name, alive := range rfStatus {
+		if !alive {
+			log.Printf("[Glue] right flower %s unreachable", name)
 		}
 	}
 }
