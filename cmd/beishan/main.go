@@ -659,9 +659,23 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]string{
-				"status": "sent",
-				"note":   err.Error(),
+			// 失败响应：包装成与成功响应同构的 {session_id, sender, type, payload}，
+			// 让 web / iOS / REPL 三端都能正确渲染错误。
+			// 历史上这里回 {"status":"sent", note}——"sent"（已发送）对失败是误导信号，
+			// 且缺 session_id 会让 iOS 的 ChatResponse 解码失败（session_id 非可选），
+			// 服务端的错误说明因此彻底丢失，用户只看到 Swift 解码报错。
+			// 保留 note 字段承载原始错误，REPL 仍读它（cmd/repl/main.go:89），向后兼容。
+			userMsg := "处理请求时出错：" + err.Error()
+			if strings.Contains(err.Error(), "超时") {
+				userMsg = "处理超时（超过 120 秒未完成）。可稍后重试，或把请求拆解为更小的步骤。"
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"session_id": sessionID,
+				"sender":     "system",
+				"type":       "error",
+				"status":     "error",
+				"payload":    userMsg,
+				"note":       err.Error(),
 			})
 			return
 		}

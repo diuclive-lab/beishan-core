@@ -1,6 +1,6 @@
 # 变更日志
 
-## 2026-05-29 可靠性优化：panic 安全 + 测试隔离 + knowledge.go 拆分 + goroutine 兜底覆盖
+## 2026-05-29 可靠性 + 可用性优化：panic 安全收口 + 资源审计 + knowledge.go 拆分 + 错误响应三端可读
 
 ### R1 panic 安全（`internal/observatory/recover.go`）
 - 新增 `Recover` / `RecoverWith` / `SafeGo`：6 个裸 goroutine 纳入 panic 兜底（HTTP handler、异步发送、会话摘要、并行 subagent、两处 workflow 并行）
@@ -57,6 +57,14 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 扫描踩坑：`\.Do(` pattern 误匹配 `sync.Once.Do()`（`browserOnce`/`usageOnce`）→ 假阳性 HTTP 泄漏；改精确 pattern 重扫
 - 唯一动手项：删 `notify/{slack,email,notify}.go` 的遗留 suppress-unused 脚手架（`logPrefix` 死变量 + `_ = time.Second`/`_ = fmt.Sprintf`/`_ = json.Marshal` + 包级 `var _ = fmt.Sprintf`），共 8 行 + 1 死 import（`slack.go` 的 `time`）；三文件向本就干净的 `wechat.go` 看齐
 - `go build`+`vet`+`test`（21 包）全绿；清理 gofmt-中性（gofmt diff 全是既存决策 14 块注释漂移，未触及删改行）
+
+### `/api/chat` 同步错误响应修复——三端可读（可用性第 3 项）
+- 老代码失败时回 `{"status":"sent", note}`：① `"sent"`（已发送）对失败是**误导信号**；② 缺 `session_id` 导致 iOS `ChatResponse` 解码失败（该字段非可选）→ 用户只看到 Swift 解码报错，**服务端错误说明彻底丢失**
+- 改为与成功响应同构的 `{session_id, sender:"system", type:"error", status:"error", payload:友好消息, note:原始错误}`：web/iOS 读 `payload`、REPL 读 `note`（向后兼容）、`status:"error"` 去掉谎言；超时错误（`Call 超时: …`）映射为"处理超时（超过 120 秒）…可稍后重试或拆小请求"
+- HTTP 保持 200（apple-core 对非 2xx 抛错，让错误以一条 system 消息内联进对话，比抛异常体验好）
+- 下游三端 + 测试全部 grep 核查无依赖旧形状；启动校验（缺 API key 的 `log.Fatal` 消息）与 `/status`（JSON + `/dashboard` HTML 分工）经审已足够清晰，无需改
+- async 路径同类问题（送失败不落 result、客户端轮询到超时才知）改动更大，已登记 devlog 留待后续
+- `go build`+`vet`+`test`（21 包）全绿；新增代码 gofmt-clean（main.go 既存 import/缩进漂移属决策 14，未触及改动行）
 
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
