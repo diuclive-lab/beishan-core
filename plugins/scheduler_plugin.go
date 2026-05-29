@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"beishan/internal/observatory"
 	"beishan/kernel"
 )
 
@@ -143,6 +144,8 @@ func (p *SchedulerPlugin) runCron(task *scheduledTask) {
 }
 
 func (p *SchedulerPlugin) triggerWorkflow(task *scheduledTask) {
+	// 单次触发 panic 不应掀翻 runCron/runInterval 循环，schedule 需存活
+	defer observatory.Recover("scheduler.trigger " + task.Name)
 	payload, _ := json.Marshal(map[string]string{
 		"workflow": task.Workflow,
 	})

@@ -1,6 +1,6 @@
 # 变更日志
 
-## 2026-05-29 可靠性优化：panic 安全 + 测试隔离 + knowledge.go 拆分
+## 2026-05-29 可靠性优化：panic 安全 + 测试隔离 + knowledge.go 拆分 + goroutine 兜底覆盖
 
 ### R1 panic 安全（`internal/observatory/recover.go`）
 - 新增 `Recover` / `RecoverWith` / `SafeGo`：6 个裸 goroutine 纳入 panic 兜底（HTTP handler、异步发送、会话摘要、并行 subagent、两处 workflow 并行）
@@ -15,6 +15,19 @@
 - 纯包内移动：93 函数零丢失/零重复，`go build`+`vet`+`test` 全绿，`-shuffle=on` 复测通过
 - 顺手清理 9 行失效注释（`RetrievalResult 已迁移` 指针 + `Tool 注册` 孤儿标题）
 - 文档同步：CLAUDE.md / DIRECTORY.md / DATA_FLOW.md / DESIGN_PRINCIPLES.md
+- 死代码清理：删除 `matchesTag`（commit 75e49fd 接入统一检索管道时漏删的孤儿函数）
+
+### R3 goroutine panic 兜底覆盖（R1 的延伸）
+
+R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆盖面扩到其余跑应用逻辑的裸 goroutine：
+- **事件总线** `internal/bus/bus.go`：`go h(evt)` → `SafeGo`——任一订阅者 panic 不再掀翻进程
+- **调度器** `plugins/scheduler_plugin.go`：`triggerWorkflow` 顶部 `defer Recover`，单次触发 panic 不杀死 runCron/runInterval 循环
+- **知识后台** `knowledge.go` 自动建链 + `knowledge_embedding.go` 批量补向量 → `SafeGo`
+- **web 搜索** `web.go`：Tavily/DuckDuckGo/Bing 三 goroutine `RecoverWith`，panic 时仍向 channel 发空结果，消费方不等满 10s 超时
+- **工作流** `engine.go`：异步 `routeOutput` → `SafeGo`；并行 batch `do()` 加 `Recover`（LIFO 在 wg.Done/`<-sem` 之后注册→先执行）
+- **其他** `review_handler` 通知 + `main.go` 会话落盘/故障切换监控
+- 新增内部依赖边 `bus/tools/plugins → observatory`（observatory 是零内部依赖的叶子包，无环）
+- **明确未覆盖**（见 KNOWN_LIMITATIONS §17）：glue 长循环（低风险 + 需逐迭代兜底）、`kernel.go:246`（冻结区，待批准）、`done <- cmd.Run()` 系列（stdlib 不 panic）
 
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 

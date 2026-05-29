@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"beishan/internal/observatory"
 )
 
 // checkWebAvailable returns true if any web search backend is configured.
@@ -135,18 +137,22 @@ func searchMultiEngine(query string, limit int) []WebResult {
 	}
 
 	ch := make(chan engineResult, 3)
+	// 每个引擎 goroutine 在 panic 时仍向 ch 发一个空结果，避免消费方等满 10s 超时
 	// Tavily（优先，API key 存在时使用）
 	go func() {
+		defer observatory.RecoverWith("web.tavily", func(interface{}) { ch <- engineResult{} })
 		r := searchTavily(query, limit)
 		ch <- engineResult{results: r}
 	}()
 	// DuckDuckGo
 	go func() {
+		defer observatory.RecoverWith("web.duckduckgo", func(interface{}) { ch <- engineResult{} })
 		r := performDuckDuckGoSearch(query, limit)
 		ch <- engineResult{results: r}
 	}()
 	// Bing
 	go func() {
+		defer observatory.RecoverWith("web.bing", func(interface{}) { ch <- engineResult{} })
 		r := searchBing(query, limit)
 		ch <- engineResult{results: r}
 	}()

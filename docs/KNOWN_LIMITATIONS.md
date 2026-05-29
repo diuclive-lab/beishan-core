@@ -5,7 +5,7 @@
 
 ---
 
-> **AI Summary:** 14 known limitations. Current: 115 tools, 0 MCP skills (框架保留), 3 right flowers, 40+ workflows, llmguard (7 files).
+> **AI Summary:** 15 known limitations. Current: 115 tools, 0 MCP skills (框架保留), 3 right flowers, 40+ workflows, llmguard (7 files).
 > Key: hardening only guarantees surface safety (not logic correctness).
 > No sandbox, no workflow persistence, no gate automation.
 > L2 glue doesn't manage right flower lifecycle (OS process manager does).
@@ -227,3 +227,32 @@ L2 glue 层原设计只管理子进程（Python/Go 插件）的 stdin/stdout IPC
 
 **跨平台注意**：如果你的部署环境无进程管理器（如裸容器），需要外部 watchdog 或
 Docker restart policy (`--restart=always`) 来保证右花的进程级可用性。
+
+---
+
+## 17. goroutine panic 兜底未全覆盖（R1+R3，刻意分级）
+
+裸 goroutine 里的 panic 不会被调用方 recover 捕获，会终止整个进程。R1 建了
+`observatory.Recover/RecoverWith/SafeGo` 基础设施并接入 8 个调用点，R3 又覆盖了其余
+跑应用逻辑的 goroutine（事件总线、调度器、知识后台、web 搜索、工作流异步/并行、通知、
+会话落盘/故障切换）。但有三类 goroutine **刻意未覆盖**：
+
+1. **glue 长循环**（`glue/glue.go` 的 `healthCheckLoop` / `demuxLoop`）——它们跑的几乎
+   全是 `bufio.Scanner.Scan` + `json.Unmarshal` + channel send 这类不会 panic 的 stdlib，
+   panic 风险低。更重要的是：在长循环顶部 `defer Recover` 会在 panic 时**杀死整个循环**
+   （IPC demux / 健康检查静默停摆），比崩溃更隐蔽。正确做法是**逐迭代兜底**（循环体内
+   wrap），这是一次需要重构循环结构的独立改动，未在本轮做。
+
+2. **`kernel/kernel.go:246`** 的 `go notify.Callback(msg.ReplyTo, msg.Payload)`——kernel 是
+   **冻结区**，不得擅自修改。回调执行用户/插件提供的函数，理论上能 panic 掀翻进程。
+   需用户明确批准才能在 kernel 内加兜底，或在 kernel 外包裹 callback。
+
+3. **`done <- cmd.Run()` / `cmd.Wait()` 系列**（`terminal.go` / `media.go` / `code_exec.go` /
+   `glue.go` 多处）——goroutine 体只调 `os/exec` 的 `Run`/`Wait`，stdlib 不 panic，加兜底
+   纯属噪声，刻意跳过。
+
+**影响**：上述三类 goroutine 内若发生未预期 panic（概率低），仍可能终止进程。
+
+**缓解**：第 1、3 类风险极低（stdlib）；第 2 类待批准后处理。新增持有 WaitGroup/channel
+完成契约的 goroutine 时，务必遵守 LIFO——`Done`/send 的 defer 先注册（后执行），
+`Recover`/`RecoverWith` 后注册（先执行），否则 panic 会让等待方死锁。

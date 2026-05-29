@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"beishan/internal/llm"
+	"beishan/internal/observatory"
 	"beishan/internal/tools"
 	"beishan/kernel"
 )
@@ -740,7 +741,8 @@ func (p *ThinkPlugin) handleReviewExtract(userText, sessionID string) (kernel.Me
 		}
 
 		// 异步发送通知（方向 B：通知闭环）
-		go p.sendReviewNotification(reviewID, len(result.Candidates))
+		cnt := len(result.Candidates)
+		observatory.SafeGo("review.notify "+reviewID, func() { p.sendReviewNotification(reviewID, cnt) })
 	}
 
 	// 渲染报告（deterministic renderer）

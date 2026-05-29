@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"beishan/internal/observatory"
 )
 
 type Event struct {
@@ -36,7 +38,7 @@ func (b *Bus) Publish(topic string, data interface{}) {
 	b.mu.RUnlock()
 	evt := Event{Topic: topic, Data: data, Timestamp: time.Now(), Source: fmt.Sprintf("bus:%s", topic)}
 	for _, h := range handlers {
-		go h(evt)
+		observatory.SafeGo("bus."+topic, func() { h(evt) })
 	}
 }
 

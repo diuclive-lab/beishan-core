@@ -367,6 +367,7 @@ func main() {
 				}
 				// Write asynchronously — disk I/O should not block agent completion
 				go func(path, name string, content map[string]interface{}) {
+					defer observatory.Recover("conv-save " + name)
 					if f, err := os.Create(path); err == nil {
 						json.NewEncoder(f).Encode(content)
 						f.Close()
@@ -434,7 +435,7 @@ func main() {
 			log.Printf("[main] 故障切换候选: %s (%s)", engine.Name, engine.Endpoint)
 
 			state := discovery.NewStrategyState()
-			go monitorFailover(k, state, engine)
+			observatory.SafeGo("monitorFailover", func() { monitorFailover(k, state, engine) })
 		}
 	} else {
 		log.Println("[main] 未发现本地推理引擎，故障切换不可用")

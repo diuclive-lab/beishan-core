@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"beishan/internal/observatory"
 )
 
 /* ─── embedding 引擎 ────────────────────────── */
@@ -123,7 +125,7 @@ func searchByEmbedding(queryEmb []float64, limit int, namespace string) []Scored
 	}
 
 	if len(pending) > 0 {
-		go batchFillEmbedding(pending)
+		observatory.SafeGo("knowledge.batchFillEmbedding", func() { batchFillEmbedding(pending) })
 	}
 
 	sort.Slice(scored, func(i, j int) bool {

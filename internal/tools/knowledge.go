@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"beishan/internal/observatory"
 )
 
 /* ─── TypedLink 有类型的知识关联 ──────────────── */
@@ -171,7 +173,9 @@ func KnowledgeAdd(sourceType, title, summary string, tags, topics, tasks, links 
 
 	// 后台自动建链：不阻塞入库
 	if sourceType != "memory" && summary != "" {
-		go autoLinkEntry(entry.ID, title, summary, tags, topics)
+		observatory.SafeGo("knowledge.autoLink "+entry.ID, func() {
+			autoLinkEntry(entry.ID, title, summary, tags, topics)
+		})
 	}
 
 	return successResult(fmt.Sprintf(`{"id":"%s","title":"%s","message":"知识已入库"}`, entry.ID, title))

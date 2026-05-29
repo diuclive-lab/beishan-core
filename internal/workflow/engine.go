@@ -218,7 +218,7 @@ func (e *Engine) Run(workflowID string, input json.RawMessage) (*WorkflowResult,
 	// chat（默认）：直接返回给调用方，由 workflow_plugin 返回给用户。
 	// 其他渠道：异步分发，不阻塞主返回。
 	if def.OutputTarget != "" && def.OutputTarget != "chat" {
-		go e.routeOutput(def, result)
+		observatory.SafeGo("workflow.routeOutput "+def.OutputTarget, func() { e.routeOutput(def, result) })
 	}
 
 	return result, nil
@@ -401,6 +401,8 @@ func (e *Engine) runBatch(step *StepDef, ctx map[string]interface{}, timeout int
 			if parallel {
 				defer wg.Done()
 				defer func() { <-sem }()
+				// LIFO：Recover 最后注册→ panic 时最先执行，随后 <-sem 与 wg.Done 仍会运行
+				defer observatory.Recover("workflow.batch " + step.ID)
 			}
 
 			// 并发安全：为每个 goroutine 创建独立的 ctx 副本
