@@ -18,6 +18,18 @@ set -uo pipefail
 # 切到仓库根（go.mod 所在），无论从哪里调用
 cd "$(dirname "$0")/.." || exit 2
 
+# PATH 兜底：launchd / cron 等最小 PATH 环境（如 beishan 守护进程，PATH 仅 /usr/bin:/bin:…）
+# 下 go 工具链不可见。这里仅在 go 不可达时补上常见安装目录，让 verify 在守护进程工作流里也能跑；
+# 对开发者交互 shell 是无害的空操作（go 已在 PATH，跳过）。
+command -v go >/dev/null 2>&1 || export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# 去密钥（hermetic）：verify 是确定性**离线**门禁。带 API key 跑 go test ./... 会让某些测试
+# 路径发起真实 LLM/embedding 调用——交互 shell 里多被结果缓存掩盖，但从 beishan 守护进程
+# （env 携带 DEEPSEEK_API_KEY）跑会真的联网、慢到撑爆 workflow 超时，且 terminal_exec 超时
+# 只返回空。门禁不该依赖外部服务可用性，故清掉 LLM/embedding 变量，让测试走离线跳过路径
+# （已验证：无任何 key 时 go test ./... 全绿）。这把「机械门禁」坐实为环境无关、可在守护进程里跑。
+unset DEEPSEEK_API_KEY LLM_API_KEY OPENAI_API_KEY XIAOMI_API_KEY EMBEDDING_ENDPOINT EMBEDDING_API_KEY
+
 FAIL=0
 step() { echo ""; echo "=== $1 ==="; }
 

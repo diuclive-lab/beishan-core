@@ -8,7 +8,7 @@
 - **build**: `go build ./...` ✅ | `go vet ./...` ✅ | `go test ./...` ✅ (22 packages)
 - **health**: `go run ./cmd/core-health` → pass
 - **tools**: ~120 registered
-- **plugins**: 25 L4 + 43 YAML workflows (all v2.5 standard)
+- **plugins**: 25 L4 + 44 YAML workflows (all v2.5 standard)
 - **right flowers**: 3 (OpenHuman personal_context + Hermes Agent coding_agent + OpenClaw agent)
 - **MCP servers**: 0 (框架保留，模板脚本已删除)
 - **UNIMPLEMENTED**: 0
@@ -57,7 +57,7 @@ kernel.Kernel  ─── 按 recipient 转发
 | L3 | internal/retrieval/ | No | L0 keyword + L1 semantic + L0.5 graph search | tools |
 | L3 | internal/workflow/ | No | YAML engine + Go-DSL engine | kernel, tools |
 | L4 | plugins/ | No | 25 orchestration plugins | kernel, tools |
-| L4 | workflows/ | No | 43 YAML workflow definitions | workflow_plugin |
+| L4 | workflows/ | No | 44 YAML workflow definitions | workflow_plugin |
 
 ## Key Design Rules
 

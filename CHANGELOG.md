@@ -80,6 +80,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 新增 `docs/REFACTOR_AUDIT_PLAYBOOK.md`——判断那一半的四条可复用配方（资源/错误审计、改一处先查三端、导入不相交拆分+三验证、完成前 INTEGRATION_PROOF），提炼自 Task H–J；CLAUDE.md Key Documents + Quick lookup 加指针
 - 附"工作流模块化"可行性判断：引擎 `workflow_run` 组合机制现成（`agent_observer`/`batch_ingest` 已用），但只有**机械原语**适合做可信模块（verify/scan/inventory），**判断步骤**至多做"建议模块"（LLM step，输出非保证），把建议当决策违反硬化层原则；第一个该做的模块是 verify（verify.sh 的运行时外壳）
 
+### `verify` 工作流模块——实跑暴露"机械≠可信"，hermetic 化坐实（可组合模块第 1 个）
+- 新增 `workflows/verify.yaml`——`scripts/verify.sh` 的运行时工作流外壳：单 step `terminal_exec` 跑 verify.sh，v2.5 合规（治理头注释 + 每 step `on_error`），可经 `workflow_run` 当"提交前门禁"嵌进更大工作流
+- **实跑翻车**：从现网守护进程（PID 1024，launchd 最小环境）跑当场 300s 撑爆超时、terminal_exec 超时只回空——验证了 CLAUDE.md"上一次写的代码可能没真正集成"，薄封装看着对、实跑才暴露
+- **根因二（都是环境非机械）**：① launchd PATH 仅 `/usr/bin:/bin:…`，`/opt/homebrew/bin/go` 不可见；② 守护进程 env 带真实 `DEEPSEEK_API_KEY`，`go test ./...` 遂发真实 LLM 调用联网挂死
+- **修法 = 让 verify.sh hermetic**：`go` 不可达时补 PATH 兜底（对开发 shell 是无害空操作）+ `unset` 所有 LLM/embedding key 走离线跳过路径；改 verify.yaml 用绝对路径（脚本自定位仓库根）、超时 300→180。daemon 实跑从 300s 超时变 **4.6s 全绿**
+- **教训回写** `docs/REFACTOR_AUDIT_PLAYBOOK.md`：可信模块判据从「机械」升级为**「机械且环境无关」**——不依赖守护进程缺失的开发工具、不被其密钥扰动；hermetic 离线门禁不该依赖外部服务可用性
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

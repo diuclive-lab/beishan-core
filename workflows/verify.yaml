@@ -1,0 +1,52 @@
+# verify 工作流模块 v2.5 — 一键机械验证门禁（可组合的最小单元）
+#
+# 这是「集成纪律」(CLAUDE.md) 里**可自动化的那一半**的运行时外壳：
+# 把 scripts/verify.sh（build → vet → test → gofmt → 集成检查）包成一个工作流 step，
+# 使其能被 workflow_run 当作模块嵌入任意更大的工作流（如吸收流程的「提交前门禁」环节）。
+#
+# 为什么能做成可信模块：它是**机械 / 确定性**的（代码层保证）。
+# 判断类工作（审计 / 定性遗漏 vs 设计 / 改一处查三端）不在此处，
+# 见 docs/REFACTOR_AUDIT_PLAYBOOK.md，靠人来跑。
+#
+# 治理框架引用：
+#   - 证据等级 E1-E4 → docs/ABSORPTION_GOVERNANCE.md §1
+#   - 风险分类       → docs/ABSORPTION_GOVERNANCE.md §3
+#
+# 输入：无（验证整个仓库，${input} 被忽略）
+#
+# 触发方式：
+#   POST /api/chat
+#   {"recipient":"workflow_plugin","type":"workflow_run",
+#    "payload":{"workflow":"verify","input":""}}
+#
+# 作为模块被组合（在更大的工作流里加一步当「提交前门禁」）：
+#   - id: gate
+#     plugin: workflow_plugin
+#     type: workflow_run
+#     inputs: {workflow: verify}
+#     on_error: done
+
+id: verify
+description: 一键机械验证门禁（build/vet/test/gofmt/集成检查）
+output_target: chat
+
+steps:
+
+  # ── 唯一步骤：跑 scripts/verify.sh（机械、确定性、hermetic 离线） ──
+  # verify.sh 自带 PATH 兜底 + 去密钥（见脚本注释），故能在守护进程的最小环境
+  # （PATH 仅 /usr/bin:/bin:…、env 携带 DEEPSEEK_API_KEY）里正确、快速跑完——
+  # 本模块已对 localhost:8013 实跑验证：hermetic 化前从守护进程跑会撑爆 300s 超时
+  # （go 不在 PATH / 测试发起真实 LLM 调用），hermetic 化后回到秒级全绿。
+  # 用绝对路径调用，脚本内部自定位仓库根（cd "$(dirname "$0")/.."），无需外部 cd。
+  # terminal_exec 在命令非零退出时仍把完整输出作为 successResult 返回，
+  # 故验证失败也会照常把 verify.sh 的失败明细回到 chat；on_error 仅兜底真正的超时。
+  - id: run_verify
+    plugin: terminal_plugin
+    type: terminal_exec
+    timeout: 200
+    on_error: done
+    inputs:
+      timeout: 180
+      command: >-
+        bash /Users/dc/Desktop/0/scripts/verify.sh
+    next: done
