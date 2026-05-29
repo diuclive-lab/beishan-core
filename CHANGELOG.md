@@ -1,6 +1,6 @@
 # 变更日志
 
-## 2026-05-29 可靠性 + 可用性优化：panic 安全收口 + 资源审计 + knowledge.go 拆分 + 错误响应三端可读
+## 2026-05-29 可靠性 + 可用性优化：panic 安全收口 + 资源审计 + 大文件拆分 + 错误响应三端可读
 
 ### R1 panic 安全（`internal/observatory/recover.go`）
 - 新增 `Recover` / `RecoverWith` / `SafeGo`：6 个裸 goroutine 纳入 panic 兜底（HTTP handler、异步发送、会话摘要、并行 subagent、两处 workflow 并行）
@@ -65,6 +65,15 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 下游三端 + 测试全部 grep 核查无依赖旧形状；启动校验（缺 API key 的 `log.Fatal` 消息）与 `/status`（JSON + `/dashboard` HTML 分工）经审已足够清晰，无需改
 - async 路径同类问题（送失败不落 result、客户端轮询到超时才知）改动更大，已登记 devlog 留待后续
 - `go build`+`vet`+`test`（21 包）全绿；新增代码 gofmt-clean（main.go 既存 import/缩进漂移属决策 14，未触及改动行）
+
+### skill_factory + code_analysis 大文件拆分（可维护性第 4 项）
+- `skill_factory_plugin.go`（1195）→ 三关注点：核心 246（生命周期 + `OnMessage` 分发 + list/view/delete + `buildPluginList`）/ `skill_factory_generate.go` 813（输出类型体系含 490 行 `workflowOutputTypes` 表 + LLM 生成管道）/ `skill_factory_validate.go` 155（L1–L4 硬化校验 + 落盘）
+- `code_analysis_tools.go`（933）→ 按**导入不相交**切：`code_ast_scan.go` 377（`go_struct_scan` 簇，独占 go/ast·parser·token·types + regexp）/ 剩余 565（read_external / dir_scan / code_tree / code_stats / code_lang_detect / base_capability_inventory + 注册，独占 mcp）；切前 grep 验证 235–595 行外零 `ast.|parser.|token.|types.|regexp.` 命中
+- 方法：`printf` 干净 import 头 + `sed` 区间字节级抽取（不手抄，零转录风险）；同包搬移调用方零改动，未用 import = 编译错误成为安全网
+- 纯搬移三验证：定义计数守恒（code_analysis 27=10+17；skill_factory 各函数恰一次，无丢失无重复）；build 全绿 = 每文件 import 与用量精确匹配；剩余文件 gofmt 漂移 171→**降至** 143（簇既存漂移随簇离开、在新文件被 gofmt 清掉；若接缝引入新双空行漂移会升而非降）
+- gofmt 不对称（决策 14）：带多行块注释的文件（skill_factory 核心、code_analysis 剩余）不 gofmt；无多行块注释的新文件 `gofmt -w` 清干净（顺修原 398 行多余前导空格）
+- 纯包内重定位，注册 / 路由 / 调用点 / 工具名 / 消息类型全不变 → DATA_FLOW.md 无需改；`go build`+`vet`+`test`（22 包）全绿
+- 有意停手：`main.go`(1017) / `think_plugin.go`(930) 无同样干净切口，不为凑数强拆，留待单独处理
 
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
