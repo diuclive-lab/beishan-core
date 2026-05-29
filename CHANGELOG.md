@@ -1,5 +1,21 @@
 # 变更日志
 
+## 2026-05-29 可靠性优化：panic 安全 + 测试隔离 + knowledge.go 拆分
+
+### R1 panic 安全（`internal/observatory/recover.go`）
+- 新增 `Recover` / `RecoverWith` / `SafeGo`：6 个裸 goroutine 纳入 panic 兜底（HTTP handler、异步发送、会话摘要、并行 subagent、两处 workflow 并行）
+- 契约保护：完成信号 defer 先注册（LIFO 后执行）、RecoverWith 后注册（先执行），panic 不再使等待方死锁
+
+### R2 测试隔离（`internal/tools/storage_test.go`）
+- `withTempKnowledge` 助手：恢复 `knowledgeDir` + 重置 `currentStorage` 懒缓存，消除潜在跨测试污染
+- 3 个 graph 测试去样板化
+
+### S1 knowledge.go 拆分（3578 → 492 行 core + 6 兄弟文件）
+- 按职责拆分：`knowledge_search`（检索管道）/ `_embedding` / `_links` / `_maintenance` / `_analysis` / `_tools`
+- 纯包内移动：93 函数零丢失/零重复，`go build`+`vet`+`test` 全绿，`-shuffle=on` 复测通过
+- 顺手清理 9 行失效注释（`RetrievalResult 已迁移` 指针 + `Tool 注册` 孤儿标题）
+- 文档同步：CLAUDE.md / DIRECTORY.md / DATA_FLOW.md / DESIGN_PRINCIPLES.md
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

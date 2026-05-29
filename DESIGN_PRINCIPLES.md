@@ -573,7 +573,7 @@ LLM 需要结构化的意图表达通道（如 tool_suggestion、search_suggesti
 |------|---------|------|
 | Block 模型（块树结构） | `internal/tools/storage.go` — Block/Document 类型 | 文档=块树，每块有 UUID/类型/父子关系 |
 | 块级存储（`.sy` JSON） | `internal/tools/storage.go` — BlockStorage | `notebooks/*.sy` 文件格式 |
-| 块级搜索 | `internal/tools/knowledge.go` — BlockContents 评分 | L0 +2/block 匹配 |
+| 块级搜索 | `internal/tools/knowledge_search.go` — BlockContents 评分 | L0 +2/block 匹配 |
 | [[wikilink]] 反向链接 | `internal/tools/link_index.go` | ExtractWikilinks + UpdateBacklinks |
 | 知识图谱（Local/Global） | `internal/tools/knowledge_graph.go` | BuildLocalGraph / BuildGlobalGraph |
 

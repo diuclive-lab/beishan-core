@@ -295,7 +295,13 @@ go build ./... && go vet ./... && go test ./...  # full CI check
 | File | Purpose |
 |------|---------|
 | `cmd/beishan/main.go` | Entry point, plugin + agent registration |
-| `internal/tools/knowledge.go` | Knowledge search (L0+L1+L0.5 pipeline) |
+| `internal/tools/knowledge.go` | 知识库核心：类型/存储引擎/CRUD/共享工具 |
+| `internal/tools/knowledge_search.go` | 检索管道（L0+L1+L0.5 + LRU 缓存 + 多跳 + Retrieval Trace） |
+| `internal/tools/knowledge_embedding.go` | 语义向量：endpoint/tryEmbedding/searchByEmbedding/reindex |
+| `internal/tools/knowledge_links.go` | TypedLink 自动关联/加载/确认/建议 |
+| `internal/tools/knowledge_maintenance.go` | 版本/探针/备份/查重/合并/自愈/反馈 |
+| `internal/tools/knowledge_analysis.go` | 主题图谱/时间线/知识图谱 |
+| `internal/tools/knowledge_tools.go` | knowledge_* 工具注册（registerKnowledgeTools） |
 | `internal/tools/code_security.go` | Security check + code_ai_review |
 | `internal/tools/toolsets.go` | 12 工具组 + BuildToolsetSummary |
 | `internal/tools/evidence_router.go` | 证据路由 + EWMA 自适应权重 |

@@ -467,7 +467,7 @@ RetrievalResult 新增字段：
   → block_type:    块类型 (heading/paragraph/list 等)
 ```
 
-**入口：** `internal/tools/knowledge.go` — `SearchWithScore` / `loadAllKnowledge`
+**入口：** `internal/tools/knowledge_search.go` — `SearchWithScore`；`internal/tools/knowledge.go` — `loadAllKnowledge`
 **新增包：** `internal/tools/storage.go` — StorageAdapter 接口 + BlockStorage 实现
 **块格式：** `notebooks/*.sy`（JSON，参考 SiYuan Note Block 模型）
 **验证日期：** 2026-05-28

@@ -31,6 +31,13 @@
 | `internal/tools/workspace.go` | 跨会话工作状态（workspace_save/load + 自动注入） | L3 |
 | `internal/tools/storage.go` | 存储适配器（StorageAdapter）：JSONStorage + BlockStorage 双实现 | L3 |
 | `internal/tools/link_index.go` | 自动双向链接索引（[[wikilink]] 解析 + UpdateBacklinks） | L3 |
+| `internal/tools/knowledge.go` | 知识库核心：类型/存储引擎/CRUD/共享工具 | L3 |
+| `internal/tools/knowledge_search.go` | 检索管道（L0+L1+L0.5 + LRU 缓存 + 多跳 + Trace） | L3 |
+| `internal/tools/knowledge_embedding.go` | 语义向量（endpoint/tryEmbedding/searchByEmbedding/reindex） | L3 |
+| `internal/tools/knowledge_links.go` | TypedLink 自动关联/加载/确认/建议 | L3 |
+| `internal/tools/knowledge_maintenance.go` | 版本/探针/备份/查重/合并/自愈/反馈 | L3 |
+| `internal/tools/knowledge_analysis.go` | 主题图谱/时间线/知识图谱 | L3 |
+| `internal/tools/knowledge_tools.go` | knowledge_* 工具注册（registerKnowledgeTools） | L3 |
 | `internal/tools/knowledge_graph.go` | 知识图谱（BuildLocalGraph / BuildGlobalGraph） | L3 |
 | `internal/tools/fact_check.go` | 事实核查（UngroundedNumbersWarn / StockCodeVerify / URLVerify） | L3 |
 | `internal/tools/filesystem_tools.go` | 8 个文件系统工具（guess_type/preview/archive/csv/json/stat/compare/extract） | L3 |
