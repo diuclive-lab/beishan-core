@@ -115,6 +115,16 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 验证：`com.beishan.ecs-relay` PID **稳定 30s 不变** + err 日志**零增长**（修前每几秒 flap 一次）→ 隧道已建稳；`com.fanglab` 从 `launchctl list` 消失
 - 回滚：`mv ~/Library/LaunchAgents/com.fanglab.ecs-relay.plist.disabled …/.plist && launchctl bootstrap gui/$(id -u) …`（但会重新引发端口冲突，仅在改留 fanglab 时用）
 
+### 启动降级：Go-DSL 构造期 panic → log-and-skip + /health degraded（彻底清掉 R1 构造期债务）
+- 把 R1 剩下的「构造期 fail-fast」债务处理干净：原 5 处构造期 panic（Go-DSL 工作流引用未注册/未配宿主工具 → **启动即崩、拖垮整个 daemon**）改为**返回 error → 降级跳过、daemon 照常启动**
+- `internal/workflow/gods_executor.go`：`validateGoStep` / `NewGoWorkflowPlugin` / `NewGoToolPlugin` 由 panic 改为返回 `error`
+- `internal/observatory/health.go`：新增**可复用**降级登记 `RecordDegradation(component,reason)` / `Degradations()` / `EventDegraded`（记日志 + 发事件，线程安全、返回副本）——任何非核心模块启动失败都能用
+- `cmd/beishan/legal_review_go_dsl.go`：注册拿到 error → `observatory.RecordDegradation` + 跳过；顺手删 `main.go` 一处丢弃返回值的死示例 `NewGoToolPlugin`
+- `cmd/beishan/main.go`：`/health` 有降级时升为 `{"status":"degraded","degradations":[…]}`（仍 **HTTP 200**，degraded≠down），抽出 `healthResponseJSON()` 便于单测
+- `scripts/daemon_drift.sh`：加健康降级提示（探 `/health` 的 degraded）——**刻意放这而非 hermetic 的 `verify.sh`**：运行期信号要探活，verify.sh 是离线门禁不依赖 daemon 在线（Task L 教训）
+- **4 个新测试**：构造期坏工具→error 不 panic（×2）+ 合法插件步骤 OK + 降级登记机制（含副本语义）+ `/health` ok→degraded 且保留 `version` 字段（deploy.sh 依赖）
+- 文档：`DESIGN_PRINCIPLES.md` 新增「核心 fail-fast，非核心降级」原则；`KNOWN_LIMITATIONS.md` §17 该项从「待决策」改为「已收口」
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

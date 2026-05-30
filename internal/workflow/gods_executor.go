@@ -512,11 +512,13 @@ type GoWorkflowPlugin struct {
 //
 //	ensureTool: 校验函数，如 func(name string) bool { return tools.GetToolSchema(name) != nil }
 //	            传 nil 则跳过校验
-func NewGoWorkflowPlugin(k *kernel.Kernel, toolHost map[string]string, ensureTool func(string) bool, router map[string]GoWorkflow) *GoWorkflowPlugin {
+func NewGoWorkflowPlugin(k *kernel.Kernel, toolHost map[string]string, ensureTool func(string) bool, router map[string]GoWorkflow) (*GoWorkflowPlugin, error) {
 	if ensureTool != nil {
 		for wfName, wf := range router {
 			for _, step := range wf.Steps {
-				validateGoStep(step, wfName, toolHost, ensureTool)
+				if err := validateGoStep(step, wfName, toolHost, ensureTool); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -524,21 +526,21 @@ func NewGoWorkflowPlugin(k *kernel.Kernel, toolHost map[string]string, ensureToo
 		kernel: k,
 		router: router,
 		exec:   NewGoExecutor(k, toolHost),
-	}
+	}, nil
 }
 
 // NewGoToolPlugin 简化版 — 直接将 msg.Type 映射到同名 Tool
 //
 //	routing: {"web_search": "web_search", "write_file": "write_file"}
 //	toolHost: {"web_search": "search_plugin", "write_file": "write_plugin"}
-func NewGoToolPlugin(k *kernel.Kernel, toolHost map[string]string, ensureTool func(string) bool, routing map[string]string) *GoWorkflowPlugin {
+func NewGoToolPlugin(k *kernel.Kernel, toolHost map[string]string, ensureTool func(string) bool, routing map[string]string) (*GoWorkflowPlugin, error) {
 	router := make(map[string]GoWorkflow, len(routing))
 	for typeStr, toolName := range routing {
 		if ensureTool != nil && !ensureTool(toolName) {
-			panic(fmt.Sprintf("Go-DSL: 工具 %q 未注册(路由类型 %q)", toolName, typeStr))
+			return nil, fmt.Errorf("Go-DSL: 工具 %q 未注册(路由类型 %q)", toolName, typeStr)
 		}
 		if _, ok := toolHost[toolName]; !ok {
-			panic(fmt.Sprintf("Go-DSL: 工具 %q 未配置 toolHost(路由类型 %q)", toolName, typeStr))
+			return nil, fmt.Errorf("Go-DSL: 工具 %q 未配置 toolHost(路由类型 %q)", toolName, typeStr)
 		}
 		router[typeStr] = GoWorkflow{
 			Name:       typeStr,
@@ -587,21 +589,26 @@ func (p *GoWorkflowPlugin) OnMessage(msg kernel.Message) (kernel.Message, error)
 	}, nil
 }
 
-func validateGoStep(step GoStep, wfName string, toolHost map[string]string, ensureTool func(string) bool) {
+// validateGoStep 校验单个步骤的工具接线，返回 error（而非 panic）。
+// 返回非 nil → 构造方 RecordDegradation + 跳过注册，daemon 照常启动（非核心降级，不崩库）。
+func validateGoStep(step GoStep, wfName string, toolHost map[string]string, ensureTool func(string) bool) error {
 	if step.Type == GoStepTool {
 		if step.Tool == "" {
-			panic(fmt.Sprintf("Go-DSL 工作流 %q: GoStepTool 步骤 %q 缺少 Tool 字段", wfName, step.ID))
+			return fmt.Errorf("Go-DSL 工作流 %q: GoStepTool 步骤 %q 缺少 Tool 字段", wfName, step.ID)
 		}
 		if !ensureTool(step.Tool) {
-			panic(fmt.Sprintf("Go-DSL 工作流 %q: 工具 %q 未注册(步骤 %q)", wfName, step.Tool, step.ID))
+			return fmt.Errorf("Go-DSL 工作流 %q: 工具 %q 未注册(步骤 %q)", wfName, step.Tool, step.ID)
 		}
 		if _, ok := toolHost[step.Tool]; !ok {
-			panic(fmt.Sprintf("Go-DSL 工作流 %q: 工具 %q 未配置宿主插件(步骤 %q)", wfName, step.Tool, step.ID))
+			return fmt.Errorf("Go-DSL 工作流 %q: 工具 %q 未配置宿主插件(步骤 %q)", wfName, step.Tool, step.ID)
 		}
 	}
 	for _, sub := range step.SubSteps {
-		validateGoStep(sub, wfName, toolHost, ensureTool)
+		if err := validateGoStep(sub, wfName, toolHost, ensureTool); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 /* ═══════════════════════════════════════════════════════════

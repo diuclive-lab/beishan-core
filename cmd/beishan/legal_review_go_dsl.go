@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"beishan/internal/observatory"
 	"beishan/internal/workflow"
 	"beishan/kernel"
 )
@@ -74,9 +75,15 @@ func registerLegalReviewGoDSL(k *kernel.Kernel, toolHost map[string]string, ensu
 		},
 	}
 
-	plugin := workflow.NewGoWorkflowPlugin(k, toolHost, ensureTool, map[string]workflow.GoWorkflow{
+	plugin, err := workflow.NewGoWorkflowPlugin(k, toolHost, ensureTool, map[string]workflow.GoWorkflow{
 		"legal_review": lrWorkflow,
 	})
+	if err != nil {
+		// 非核心模块启动失败：登记降级 + 跳过注册，daemon 照常服务其余功能（替代 panic 崩库）。
+		// /health 随之报 "degraded"，运维可经 scripts/daemon_drift.sh 看见。
+		observatory.RecordDegradation("go-dsl:legal_review", err.Error())
+		return
+	}
 	k.Register("legal_review_v2_plugin", plugin, kernel.Meta{
 		Description: "法律审查编排(Go-DSL版)，四步：冷启动→检索→分析→报告",
 		Tags:        []string{"legal", "workflow"},

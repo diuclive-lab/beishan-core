@@ -146,6 +146,27 @@ Router 永不解析 Payload 字段（内核冻结铁律的延伸）。
 
 删除提示词里的任意一句话，如果输出还能被硬化层校正到可用——说明那句话本来就应该写在代码里。
 
+## 核心 fail-fast，非核心降级
+
+两种失败分开对待，别用一种姿势套所有场景：
+
+- **核心路径 fail-fast / 不降级**：工具输入校验不通过 → 返回错误、不给降级机会（硬化层）；
+  首轮路由 DeepSeek 不可用 → 不退化成规则匹配（没有快捷方式）；缺 API key → `log.Fatal` 拒绝启动。
+  这些是系统的**契约底线**，宁可大声失败，不可静默将就。
+- **非核心模块启动失败 → 降级跳过，不崩库**：单个非核心组件（某个 Go-DSL 工作流、某个右花、
+  某个 sidecar）初始化失败时，**不该 panic 掀翻整个进程**——那等于一个坏模块把 chat / 知识库 /
+  其余一切全部拖下水。正确做法：记一条降级、跳过该模块、daemon 照常服务其余功能。
+
+**判据**：失败影响的是「整个系统的正确性契约」还是「单个可选模块的可用性」？前者 fail-fast，后者降级。
+
+**机制（2026-05-30 落地）**：`observatory.RecordDegradation(component, reason)` 登记降级（记日志 +
+发 `EventDegraded` 事件），`/health` 据此报 `{"status":"degraded","degradations":[…]}`（仍 HTTP 200，
+degraded≠down），`scripts/daemon_drift.sh` 探活提示。可复用于任何非核心模块的启动失败。
+
+**反面教训 → 已修**：早先 Go-DSL 执行器在构造期对「工具未注册」直接 `panic`——一个写错的工作流
+会让整个 daemon 启动即崩。已把 `validateGoStep`/`New*Plugin` 改为返回 error，注册方拿到 error
+即 `RecordDegradation` + 跳过。这就是「非核心不该拖垮核心」的具体兑现。
+
 ## 没有快捷方式（首轮路由）
 
 每个首轮自然语言路由都是独立的 DeepSeek 调用。

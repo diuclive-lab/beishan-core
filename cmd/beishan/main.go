@@ -85,6 +85,23 @@ var chatCounter int64
 var version = "dev"
 var buildTime = "unknown"
 
+// healthResponseJSON 构造 /health 响应体：无降级→{"status":"ok",…}；有非核心模块启动降级→
+// {"status":"degraded","degradations":[…]}（仍 HTTP 200，degraded≠down）。抽成函数以便单测。
+func healthResponseJSON() []byte {
+	degs := observatory.Degradations()
+	status := "ok"
+	if len(degs) > 0 {
+		status = "degraded"
+	}
+	b, _ := json.Marshal(struct {
+		Status       string                    `json:"status"`
+		Version      string                    `json:"version"`
+		Built        string                    `json:"built"`
+		Degradations []observatory.Degradation `json:"degradations,omitempty"`
+	}{status, version, buildTime, degs})
+	return b
+}
+
 func main() {
 	// -version / --version：只打印版本戳后退出，不启动服务器/端口/sidecar。
 	// 供 deploy.sh 在替换二进制前做「编译产物版本是否 == HEAD」冒烟校验。
@@ -278,11 +295,6 @@ func main() {
 		_, ok := tools.GetToolSchema(name)
 		return ok
 	}
-
-	// 示例：用 NewGoToolPlugin 注册简单 L3 插件
-	_ = workflow.NewGoToolPlugin(k, toolHost, ensureTool, map[string]string{
-		"web_search": "web_search",
-	})
 
 	// 注册 Go-DSL legal_review（等价于 YAML 版 legal_review）
 	registerLegalReviewGoDSL(k, toolHost, ensureTool)
@@ -502,8 +514,8 @@ func main() {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok","version":%q,"built":%q}`, version, buildTime)
+		w.WriteHeader(http.StatusOK) // degraded≠down：仍回 200，语义放 body，健康检查不因降级翻脸
+		w.Write(healthResponseJSON())
 	})
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {

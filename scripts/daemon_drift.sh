@@ -71,6 +71,18 @@ if [ "$BIN_STALE_BY_MTIME" = "1" ]; then
     fi
 fi
 
+# ── 1.5 健康降级（与漂移正交：degraded = 非核心模块启动失败被降级跳过）──────────
+# 刻意**不**计入 DRIFT 退出码——降级的 remediation 是查日志修模块，不是 deploy.sh。
+# 这正是把这个 curl 健康检查放在 daemon_drift.sh 而非 hermetic 的 verify.sh 的原因：
+# /health 是运行期信号，必须探活；verify.sh 是离线门禁，不依赖 daemon 在线（Task L 教训）。
+if [ -n "$HEALTH" ] && echo "$HEALTH" | grep -q '"status":"degraded"'; then
+    echo ""
+    echo "=== 健康降级（独立于漂移）==="
+    echo "⚠️  /health=degraded：有非核心模块启动失败被降级，daemon 仍在服务其余功能。"
+    echo "    详情: $(echo "$HEALTH" | grep -o '"degradations":\[[^]]*\]' | head -c 400)"
+    echo "    remediation：查启动日志定位失败模块、修复后重启；与版本/工作流漂移正交，deploy 不一定能修。"
+fi
+
 echo ""
 # ── 2. 工作流漂移（repo → daemon 增量同步检查）─────
 echo "=== 工作流 ==="

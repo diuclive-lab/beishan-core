@@ -120,3 +120,45 @@ func TestGoExecutorRun_ParallelSubStepPanicRecorded(t *testing.T) {
 		t.Fatalf("应恰有 1 个子步骤记为 panic 错误，实得 %d", panicCount)
 	}
 }
+
+// TestNewGoWorkflowPlugin_BadToolStepReturnsError 证明：GoStepTool 引用未注册工具时，
+// 构造返回 error（而非 panic 掀翻进程）——调用方据此降级跳过，daemon 照常启动。
+func TestNewGoWorkflowPlugin_BadToolStepReturnsError(t *testing.T) {
+	router := map[string]GoWorkflow{
+		"bad": {Name: "bad", Steps: []GoStep{{ID: "s", Type: GoStepTool, Tool: "ghost_tool"}}},
+	}
+	p, err := NewGoWorkflowPlugin(nil, map[string]string{}, func(string) bool { return false }, router)
+	if err == nil {
+		t.Fatal("引用未注册工具应返回 error，而非 panic")
+	}
+	if p != nil {
+		t.Fatal("出错时 plugin 应为 nil")
+	}
+	if !strings.Contains(err.Error(), "ghost_tool") {
+		t.Fatalf("error 应点名缺失工具，实得 %q", err.Error())
+	}
+}
+
+// TestNewGoWorkflowPlugin_PluginStepsOK 证明：全 GoStepPlugin 步骤（如 legal_review）
+// 不触发工具校验，正常返回 (plugin, nil)。
+func TestNewGoWorkflowPlugin_PluginStepsOK(t *testing.T) {
+	router := map[string]GoWorkflow{
+		"ok": {Name: "ok", Steps: []GoStep{{ID: "s", Type: GoStepPlugin, Recipient: "x", MsgType: "y"}}},
+	}
+	p, err := NewGoWorkflowPlugin(nil, map[string]string{}, func(string) bool { return true }, router)
+	if err != nil {
+		t.Fatalf("合法插件步骤不应出错: %v", err)
+	}
+	if p == nil {
+		t.Fatal("成功时 plugin 不应为 nil")
+	}
+}
+
+// TestNewGoToolPlugin_UnregisteredToolReturnsError 证明：NewGoToolPlugin 对未注册工具
+// 返回 (nil, error) 而非 panic。
+func TestNewGoToolPlugin_UnregisteredToolReturnsError(t *testing.T) {
+	p, err := NewGoToolPlugin(nil, map[string]string{}, func(string) bool { return false }, map[string]string{"t": "ghost"})
+	if err == nil || p != nil {
+		t.Fatalf("未注册工具应返回 (nil, error)，实得 p=%v err=%v", p, err)
+	}
+}
