@@ -40,7 +40,7 @@ func NewEngineKind(kind EngineKind) (Engine, error) {
 		}
 		return NewChrome(profile, true)
 	case EngineServo:
-		return nil, fmt.Errorf("Servo 引擎尚未实现，请使用 BEISHAN_BROWSER=chrome")
+		return NewServo()
 	default:
 		return nil, fmt.Errorf("未知浏览器引擎: %s", kind)
 	}
