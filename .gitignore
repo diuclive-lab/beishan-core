@@ -50,3 +50,4 @@ docs/HANDOVER_NEXT_SESSION.md
 /rightflowerctl
 /openhuman-flower-adapter
 __pycache__/
+/cmd/servo-embed/target/
