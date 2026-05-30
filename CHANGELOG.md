@@ -134,6 +134,14 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **验证**：全量 gate 7 BLOCKING 全 ✅ + 3 ADVISORY 提示、exit 0；负向单测坐实 block 失败→gate exit 1、advisory 默认不阻断 / `--strict` 阻断
 - 文档：`DESIGN_PRINCIPLES.md` 更正「core_gate 只跑 build/vet/test」的过时说法
 
+### 浏览器/搜索可靠性：止住「裸抓搜索引擎被反爬 + 静默把垃圾当成功」
+- 用户实测发现「智能体用浏览器搜索出问题」。排查坐实：`browser_navigate`→`fetchAndExtract` 是裸 HTTP GET + bot UA `HermesAgent/1.0` + 不渲染 JS，用它抓搜索引擎→**实测 DDG/Bing 回 302 同意页 / 202 反爬挑战页**，且 `fetchAndExtract` 只在 ≥400 报错→**把挑战页当成功返回垃圾**，智能体据此对空内容继续推理
+- **`web.go` 止血**：① `webSearchHandler` 0 结果→`Success:false`+`Error` 提示（不再静默 `Success:true`）；② `fetchAndExtract` UA 换真实 Chrome（bot UA 必被反爬）；③ 检测反爬（202/204 状态 + `unusual traffic`/`人机验证`/`/cdn-cgi/challenge` 等强信号）→报错而非返垃圾（不收 `captcha` 单词，避免误伤科普文）
+- **`browser.go` 硬化**：① 补 `isSafeURL`(SSRF)+`containsSecret`(密钥外泄) 检查——与 `web_fetch` 对齐，此前 `browser_navigate` **完全没有**这两道防护（能打内网 IP）；② `isSearchEngineURL` 识别搜索引擎搜索 URL→拒绝并指向 `web_search`（别用浏览器搜）；③ `browser_scroll`/`browser_back` 从假"成功"改为诚实告知文本模式不支持
+- **接入 Tavily 搜索后端**：dev `.env` 配 `TAVILY_API_KEY`（gitignored，未提交）；实测 `web_search`→Tavily 端到端返回真实结果。现网 daemon 需在其启动环境补 `TAVILY_API_KEY` 才生效（包装脚本含密钥、不由本仓库管）
+- **测试**：4 个——`isSearchEngineURL`(搜索 URL 拦/非搜索放)、`looksLikeAntiBot`(反爬识别/不误伤)、`browser_navigate` 私有 IP SSRF 拦截（hermetic，前缀短路不走 DNS）、`web_search`→Tavily 集成（有 key 才跑，verify.sh 去 key 故跳过）
+- **决策**：迭代不更换——免费爬搜索引擎时代已终结（DDG 都上 202 反爬），换浏览器工具也躲不开；架构（`web_search`+API、`web_render` Playwright、SSRF/密钥检查）本就齐全，是接线接错。FangLab 的「无头浏览器登录 DeepSeek 网页版用其免费搜索」方案不在本仓库，作为右花集成备选
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

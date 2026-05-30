@@ -29,6 +29,7 @@ command -v go >/dev/null 2>&1 || export PATH="/opt/homebrew/bin:/usr/local/bin:$
 # 只返回空。门禁不该依赖外部服务可用性，故清掉 LLM/embedding 变量，让测试走离线跳过路径
 # （已验证：无任何 key 时 go test ./... 全绿）。这把「机械门禁」坐实为环境无关、可在守护进程里跑。
 unset DEEPSEEK_API_KEY LLM_API_KEY OPENAI_API_KEY XIAOMI_API_KEY EMBEDDING_ENDPOINT EMBEDDING_API_KEY
+unset TAVILY_API_KEY FIRECRAWL_API_KEY BRAVE_API_KEY # 搜索后端 key：保证 web_search 集成测试在门禁里跳过、不联网
 
 FAIL=0
 step() { echo ""; echo "=== $1 ==="; }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 )
@@ -63,10 +64,48 @@ func registerBrowserTools() {
 	)
 }
 
+// isSearchEngineURL 判断是否在「用浏览器抓搜索引擎结果页」——这条路会被反爬拦成
+// 302 同意页 / 202 挑战页，应改用 web_search。只拦搜索路径（/search、?q=、/html），
+// 不拦这些域名的其它页面（如某篇 google 文档）。
+func isSearchEngineURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	engines := []string{"google.", "bing.com", "duckduckgo.com", "baidu.com",
+		"yandex.", "search.brave.com", "ecosia.org", "startpage.com", "sogou.com", "so.com"}
+	isEngine := false
+	for _, se := range engines {
+		if strings.Contains(host, se) {
+			isEngine = true
+			break
+		}
+	}
+	if !isEngine {
+		return false
+	}
+	low := strings.ToLower(rawURL)
+	return strings.Contains(low, "/search") || strings.Contains(low, "q=") ||
+		strings.Contains(strings.ToLower(u.Path), "/html")
+}
+
 func browserNavigateHandler(args map[string]interface{}) *ToolResult {
 	urlStr, _ := args["url"].(string)
 	if urlStr == "" {
 		return errorResult("url is required")
+	}
+
+	// 安全：与 web_fetch 对齐——SSRF + 密钥外泄防护（browser_navigate 此前漏了这两个）。
+	if containsSecret(urlStr) {
+		return errorResult("blocked: URL 含疑似 API key/token")
+	}
+	if !isSafeURL(urlStr) {
+		return errorResult("blocked: URL 解析到私有/内网地址")
+	}
+	// 搜索请走 web_search：裸 HTTP 抓搜索引擎会被反爬（302/202 挑战页），别用浏览器搜。
+	if isSearchEngineURL(urlStr) {
+		return errorResult("browser_navigate 不适合抓搜索引擎结果（会被反爬拦成 302/挑战页，拿不到结果）。请改用 web_search 工具搜索。")
 	}
 
 	content, title, err := fetchAndExtract(urlStr)
@@ -148,15 +187,16 @@ func browserClickHandler(args map[string]interface{}) *ToolResult {
 
 func browserScrollHandler(args map[string]interface{}) *ToolResult {
 	browserMu.Lock()
-	url := browserURL
+	curURL := browserURL
 	browserMu.Unlock()
-	if url == "" {
+	if curURL == "" {
 		return errorResult("No page loaded.")
 	}
-	// In text mode, scroll is a no-op (re-fetch won't paginate)
-	return successResult("Scrolled (text mode)")
+	// 文本模式无分页/滚动：页面已一次性全量抓取。诚实告知，别让智能体以为滚动生效。
+	return successResult("browser_scroll 在文本模式浏览器里无效：页面已一次性全量抓取、无分页。用 browser_snapshot {\"full\":true} 看全文。")
 }
 
 func browserBackHandler(args map[string]interface{}) *ToolResult {
-	return successResult("Back (no history in text mode)")
+	// 文本模式无历史栈：诚实告知，别让智能体以为回退生效。
+	return successResult("browser_back 在文本模式浏览器里不支持（无历史栈）。请用 browser_navigate 重新指定 URL。")
 }

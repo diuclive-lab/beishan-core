@@ -121,9 +121,14 @@ func webSearchHandler(args map[string]interface{}) *ToolResult {
 	// 多引擎并行搜索
 	results := searchMultiEngine(query, limit)
 
+	// 0 结果 = 搜索失败（后端被反爬/限流，或未配 TAVILY_API_KEY 等）——不再静默 Success:true，
+	// 否则智能体把空结果当"搜到了但没内容"，对垃圾继续推理。
 	out := WebSearchOutput{
-		Success: true,
+		Success: len(results) > 0,
 		Data:    &WebSearchData{Web: results},
+	}
+	if len(results) == 0 {
+		out.Error = "所有搜索后端均无结果：请确认已配置 TAVILY_API_KEY（免费 scrape 引擎 DDG/Bing 多已被反爬拦截）"
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	return successResult(string(b))
@@ -537,10 +542,31 @@ func parseDDGSnippets(html string) []string {
 
 // ─── URL Fetch ────────────────────────────────────────────────────────────
 
+// browserUA 是裸 HTTP 抓取统一用的真实浏览器 UA。bot UA（如旧的 HermesAgent/1.0）会被
+// 搜索引擎/CDN 直接 302 到同意页或 202 反爬挑战，拿不到真实内容。
+const browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+// looksLikeAntiBot 检测抓取结果是不是反爬/同意/JS 墙页（而非真实内容），用于把
+// 「挑战页当成功返回垃圾」改成报错。只认强信号，避免误伤正常页（不收 "captcha" 单词，
+// 因为正常文章也可能讨论它）。
+func looksLikeAntiBot(text string) bool {
+	low := strings.ToLower(text)
+	for _, m := range []string{
+		"unusual traffic", "verify you are human", "are you a robot",
+		"/cdn-cgi/challenge", "px-captcha", "请开启 javascript",
+		"访问验证", "人机验证", "enable javascript to continue",
+	} {
+		if strings.Contains(low, m) {
+			return true
+		}
+	}
+	return false
+}
+
 func fetchAndExtract(rawURL string) (content, title string, err error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest("GET", rawURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; HermesAgent/1.0)")
+	req.Header.Set("User-Agent", browserUA)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -550,6 +576,9 @@ func fetchAndExtract(rawURL string) (content, title string, err error) {
 
 	if resp.StatusCode >= 400 {
 		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	if resp.StatusCode == 202 || resp.StatusCode == 204 {
+		return "", "", fmt.Errorf("HTTP %d（疑似反爬挑战/无内容页，非真实内容）", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB limit
@@ -569,6 +598,10 @@ func fetchAndExtract(rawURL string) (content, title string, err error) {
 
 	if len(raw) > 50000 {
 		raw = raw[:50000] + fmt.Sprintf("\n... [truncated, total %d chars]", len(raw))
+	}
+
+	if looksLikeAntiBot(raw) {
+		return "", "", fmt.Errorf("目标页疑似反爬/同意/JS 墙（非真实内容）；搜索请用 web_search，JS 重的页面可用 web_render")
 	}
 
 	return raw, title, nil
