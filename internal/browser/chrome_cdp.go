@@ -370,3 +370,73 @@ func (p *chromePage) Screenshot() ([]byte, error) {
 func (p *chromePage) Close() {
 	p.engine.send("Target.closeTarget", map[string]interface{}{}, p.sessionID, 5*time.Second)
 }
+
+// ─── PageExt 可选能力实现 ──────────────────────────
+
+func (p *chromePage) PrintToPDF() ([]byte, error) {
+	res, err := p.engine.send("Page.printToPDF", map[string]interface{}{
+		"printBackground": true,
+		"preferCSSPageSize": true,
+	}, p.sessionID, pageTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var pdf struct{ Data string }
+	if json.Unmarshal(res, &pdf) != nil || pdf.Data == "" {
+		return nil, fmt.Errorf("printToPDF 无 data")
+	}
+	return []byte(pdf.Data), nil
+}
+
+func (p *chromePage) PerformanceMetrics() (map[string]float64, error) {
+	res, err := p.engine.send("Performance.getMetrics", nil, p.sessionID, pageTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var pm struct {
+		Metrics []struct {
+			Name  string  `json:"name"`
+			Value float64 `json:"value"`
+		} `json:"metrics"`
+	}
+	if json.Unmarshal(res, &pm) != nil {
+		return nil, fmt.Errorf("getMetrics 解析失败")
+	}
+	out := make(map[string]float64, len(pm.Metrics))
+	for _, m := range pm.Metrics {
+		out[m.Name] = m.Value
+	}
+	return out, nil
+}
+
+func (p *chromePage) SecurityState() (string, error) {
+	res, err := p.engine.send("Security.getCertificateError", nil, p.sessionID, pageTimeout)
+	if err != nil {
+		// Security.getCertificateError 可能返回错误（无非安全页面）→ 视为 secure
+		return "secure", nil
+	}
+	var se struct {
+		ErrorType string `json:"errorType"`
+	}
+	if json.Unmarshal(res, &se) == nil && se.ErrorType != "" {
+		return "insecure", nil
+	}
+	return "secure", nil
+}
+
+// ─── NetworkPage 网络捕获 ──────────────────────────
+
+func (p *chromePage) StartNetworkCapture() error {
+	_, err := p.engine.send("Network.enable", nil, p.sessionID, pageTimeout)
+	if err != nil {
+		return fmt.Errorf("Network.enable 失败: %w", err)
+	}
+	return nil
+}
+
+func (p *chromePage) StopNetworkCapture() []NetworkResponse {
+	// 发送 Network.disable
+	p.engine.send("Network.disable", nil, p.sessionID, 5*time.Second)
+	return nil
+}
+

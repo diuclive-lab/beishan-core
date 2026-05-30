@@ -40,3 +40,33 @@ type Page interface {
 	// Close 关闭页面。
 	Close()
 }
+
+// PageExt 可选页面能力扩展。通过类型断言检测是否支持：
+//
+//	if ext, ok := page.(PageExt); ok { ext.PrintToPDF() }
+type PageExt interface {
+	// PrintToPDF 将当前页面导出为 PDF（返回 bytes）。
+	PrintToPDF() ([]byte, error)
+	// PerformanceMetrics 返回页面性能指标。
+	PerformanceMetrics() (map[string]float64, error)
+	// SecurityState 返回页面安全状态（secure / warning / insecure）。
+	SecurityState() (string, error)
+}
+
+// NetworkPage 网络捕获扩展（Chrome CDP 特有）。
+type NetworkPage interface {
+	// StartNetworkCapture 开始捕获网络响应。同一页面重复调用是 no-op。
+	StartNetworkCapture() error
+	// StopNetworkCapture 停止捕获并返回已捕获的响应列表。
+	StopNetworkCapture() []NetworkResponse
+}
+
+// NetworkResponse 捕获的网络响应。
+type NetworkResponse struct {
+	URL        string `json:"url"`
+	Status     int    `json:"status"`
+	StatusCode int    `json:"status_code"`
+	Type       string `json:"type"` // Document/Script/Stylesheet/XHR/Fetch/Media
+	MimeType   string `json:"mime_type"`
+	Body       string `json:"body,omitempty"`
+}

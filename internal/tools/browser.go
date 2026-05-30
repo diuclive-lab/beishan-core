@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	beishan_browser "beishan/internal/browser"
+	"encoding/json"
 	"sync"
 )
 
@@ -86,6 +87,38 @@ func registerBrowserTools() {
 			},
 		},
 		browserScreenshotHandler,
+	)
+
+	Register("browser_print_pdf", "Export the current CDP-powered page as PDF.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		browserPrintPDFHandler,
+	)
+
+	Register("browser_performance", "Get performance metrics from the CDP-powered page.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		browserPerformanceHandler,
+	)
+
+	Register("browser_security", "Check the security state of the CDP-powered page.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		browserSecurityHandler,
+	)
+
+	Register("browser_network_capture", "Start network capture. Returns captured responses after stopping.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		browserNetworkCaptureHandler,
 	)
 }
 
@@ -278,4 +311,73 @@ func browserScreenshotHandler(args map[string]interface{}) *ToolResult {
 		return errorResult("截图失败: " + err.Error())
 	}
 	return successResult(fmt.Sprintf("data:image/png;base64,%s", string(data)))
+}
+
+
+func withPage(fn func(beishan_browser.Page) *ToolResult) *ToolResult {
+	if GlobalEngine == nil {
+		return errorResult("CDP 浏览器引擎未初始化")
+	}
+	page, err := GlobalEngine.NewPage("about:blank")
+	if err != nil {
+		return errorResult("创建页面失败: " + err.Error())
+	}
+	defer page.Close()
+	return fn(page)
+}
+
+func withPageExt(fn func(beishan_browser.PageExt) *ToolResult) *ToolResult {
+	return withPage(func(page beishan_browser.Page) *ToolResult {
+		ext, ok := page.(beishan_browser.PageExt)
+		if !ok {
+			return errorResult("当前浏览器引擎不支持此 CDP 扩展能力")
+		}
+		return fn(ext)
+	})
+}
+
+func browserPrintPDFHandler(_ map[string]interface{}) *ToolResult {
+	return withPageExt(func(ext beishan_browser.PageExt) *ToolResult {
+		data, err := ext.PrintToPDF()
+		if err != nil {
+			return errorResult("PDF 导出失败: " + err.Error())
+		}
+		return successResult(fmt.Sprintf("data:application/pdf;base64,%s", string(data)))
+	})
+}
+
+func browserPerformanceHandler(_ map[string]interface{}) *ToolResult {
+	return withPageExt(func(ext beishan_browser.PageExt) *ToolResult {
+		metrics, err := ext.PerformanceMetrics()
+		if err != nil {
+			return errorResult("性能指标获取失败: " + err.Error())
+		}
+		b, _ := json.MarshalIndent(metrics, "", "  ")
+		return successResult(string(b))
+	})
+}
+
+func browserSecurityHandler(_ map[string]interface{}) *ToolResult {
+	return withPageExt(func(ext beishan_browser.PageExt) *ToolResult {
+		state, err := ext.SecurityState()
+		if err != nil {
+			return errorResult("安全状态检测失败: " + err.Error())
+		}
+		return successResult("{\"security_state\":\"" + state + "\"}")
+	})
+}
+
+func browserNetworkCaptureHandler(_ map[string]interface{}) *ToolResult {
+	return withPage(func(page beishan_browser.Page) *ToolResult {
+		netPage, ok := page.(beishan_browser.NetworkPage)
+		if !ok {
+			return errorResult("当前浏览器引擎不支持网络捕获")
+		}
+		if err := netPage.StartNetworkCapture(); err != nil {
+			return errorResult("网络捕获启动失败: " + err.Error())
+		}
+		resp := netPage.StopNetworkCapture()
+		b, _ := json.MarshalIndent(resp, "", "  ")
+		return successResult(string(b))
+	})
 }
