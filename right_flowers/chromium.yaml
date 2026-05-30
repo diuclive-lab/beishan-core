@@ -1,0 +1,11 @@
+id: chromium
+type: browser_engine
+version: "1.0"
+description: "Chromium 无头浏览器引擎 — CDP-over-pipe，进程由智能体拥有"
+endpoint: internal
+capabilities:
+  - browser.navigate
+  - browser.eval
+  - browser.input
+  - browser.screenshot
+route_exposed: false

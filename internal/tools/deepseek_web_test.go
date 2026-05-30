@@ -2,6 +2,7 @@ package tools
 
 import (
 	"os"
+	"beishan/internal/browser"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ func TestDeepseekWebSearchLive(t *testing.T) {
 	if os.Getenv("BEISHAN_DEEPSEEK_TEST") == "" {
 		t.Skip("设 BEISHAN_DEEPSEEK_TEST=1 才跑（起 Chrome + 联网）")
 	}
-	if findChrome() == "" {
+	if browser.FindChromePath() == "" {
 		t.Skip("未找到 Chrome")
 	}
 	out := deepseekWebSearch("2026年 AI agent 框架 趋势", 4)

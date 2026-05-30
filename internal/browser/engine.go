@@ -1,0 +1,42 @@
+// Package browser 提供引擎无关的浏览器接口。
+//
+// Engine 抽象了一个浏览器引擎（Chrome/Servo），Page 抽象了一个页面。
+// 上层工具（deepseek_web_search 等）通过接口调用，不依赖具体引擎。
+//
+// 当前实现：
+//   - chromeCDP：CDP-over-pipe（走系统 Chrome，今天可用）
+//   - servoEngine：WebDriver / 自定义 IPC（开发中）
+package browser
+
+import "time"
+
+// pageTimeout 是 CDP 命令的默认超时。
+const pageTimeout = 30 * time.Second
+
+// Engine 浏览器引擎。抽象 Chrome/Servo 的共性。
+type Engine interface {
+	// NewPage 创建新页面，返回 Page 实例。
+	NewPage(url string) (Page, error)
+	// Close 关闭引擎（释放浏览器进程等）。
+	Close()
+}
+
+// Page 单个页面控制句柄。
+type Page interface {
+	// Eval 执行 JS，返回字符串结果。
+	Eval(js string) (string, error)
+	// InnerText 读取 document.body.innerText。
+	InnerText() (string, error)
+	// InsertText 模拟真实输入（React 受控组件友好）。
+	InsertText(text string) error
+	// PressKey 模拟按键。
+	PressKey(key string) error
+	// Navigate 导航到 URL。
+	Navigate(url string) error
+	// URL 返回当前页面 URL。
+	URL() (string, error)
+	// Screenshot 截取页面截图（可选，返回 nil 表示不支持）。
+	Screenshot() ([]byte, error)
+	// Close 关闭页面。
+	Close()
+}

@@ -1,14 +1,5 @@
 package tools
 
-// deepseek_web.go — 把 DeepSeek 网页版当成「会联网搜索的 LLM」用：beishan 用自己拥有的
-// headless Chrome（CDP-over-pipe，见 cdp.go）打开 chat.deepseek.com（复用一次性登录的 profile），
-// 往输入框敲一段提示词让它联网搜索并只回结构化 JSON，轮询正文抽取结果，并顺带捕获「已思考」。
-//
-// 移植自 FangLab scripts/mcp_runtime/browser_mcp_server.py 的 search_via_deepseek，
-// 但用原生 Go + CDP-over-pipe（不依赖 playwright 库），且新增「已思考」捕获。
-//
-// 定位：Tavily 仍是主搜索后端；这是一个免费的备选/补充（且深度思考推理时有惊喜）。
-
 import (
 	"encoding/json"
 	"fmt"
@@ -17,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"beishan/internal/browser"
 )
 
 const (
@@ -24,13 +17,8 @@ const (
 	deepseekEndMarker   = "</BEISHAN_JSON>"
 )
 
-// deepseekMu 串行化搜索：同一 Chrome profile 同时只能被一个 Chrome 进程持有（SingletonLock）。
 var deepseekMu sync.Mutex
 
-// FindChrome 暴露给登录辅助命令用。
-func FindChrome() string { return findChrome() }
-
-// DeepseekProfileDir 是持久化登录态的 Chrome profile 目录（BEISHAN_DEEPSEEK_PROFILE 覆盖）。
 func DeepseekProfileDir() string {
 	if p := os.Getenv("BEISHAN_DEEPSEEK_PROFILE"); p != "" {
 		return p
@@ -56,7 +44,7 @@ type deepseekSearchOutput struct {
 	Success  bool          `json:"success"`
 	Query    string        `json:"query"`
 	Results  []deepseekHit `json:"results"`
-	Thinking string        `json:"thinking,omitempty"` // DeepSeek「已思考」深度推理（bonus）
+	Thinking string        `json:"thinking,omitempty"`
 	Backend  string        `json:"backend"`
 	Error    string        `json:"error,omitempty"`
 }
@@ -70,7 +58,6 @@ func buildDeepseekPrompt(query string, maxResults int) string {
 		"查询：" + query
 }
 
-// extractMarkedJSON 从正文里抽出最后一对 <BEISHAN_JSON>...</BEISHAN_JSON> 并解析。
 func extractMarkedJSON(text string) (map[string]interface{}, bool) {
 	start := strings.LastIndex(text, deepseekStartMarker)
 	end := strings.LastIndex(text, deepseekEndMarker)
@@ -85,8 +72,6 @@ func extractMarkedJSON(text string) (map[string]interface{}, bool) {
 	if json.Unmarshal([]byte(raw), &parsed) == nil {
 		return parsed, true
 	}
-	// 修复：开「智能搜索」后 DeepSeek 会把引用角标/换行注入 JSON 字符串值里（字符串内含裸换行=非法 JSON）。
-	// 把内部空白折成空格再试一次（残留的角标数字成为 snippet 噪声，可接受）。
 	repaired := strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(raw)
 	if json.Unmarshal([]byte(repaired), &parsed) == nil {
 		return parsed, true
@@ -94,7 +79,6 @@ func extractMarkedJSON(text string) (map[string]interface{}, bool) {
 	return nil, false
 }
 
-// deepseekLoginState 判断当前页面是否需要登录。
 func deepseekLoginState(curURL, bodyText string) string {
 	u := strings.ToLower(curURL)
 	if strings.Contains(u, "sign_in") || strings.Contains(bodyText, "登录") ||
@@ -141,7 +125,6 @@ func normalizeDeepseekResults(parsed map[string]interface{}, maxResults int) []d
 	return hits
 }
 
-// focusInputJS 找到第一个可见的输入框（textarea / contenteditable）并聚焦。
 const focusInputJS = `(() => {
   const sels = ["textarea", "div[contenteditable='true']", "input[type='text']"];
   for (const s of sels) {
@@ -153,8 +136,6 @@ const focusInputJS = `(() => {
   return "false";
 })()`
 
-// extractThinking 从正文抽「已深度思考」推理段。DeepSeek 类名是哈希的，靠文本锚点而非选择器：
-// 深度思考响应以「已深度思考（用时 Xs）」开头，到结构化 JSON 标记前为推理内容。
 func extractThinking(body string) string {
 	idx := strings.Index(body, "已思考（用时")
 	if idx == -1 {
@@ -174,8 +155,7 @@ func extractThinking(body string) string {
 	return seg
 }
 
-// ensureDeepseekToggleOn 确保某开关（智能搜索/深度思考）为开（aria-pressed=true），仅在关时点一下、不盲翻。
-func ensureDeepseekToggleOn(conn *cdpConn, sess, label string) {
+func ensureDeepseekToggleOn(page browser.Page, label string) {
 	js := fmt.Sprintf(`(() => {
 	  for (const el of document.querySelectorAll("div[role='button'].ds-toggle-button")) {
 	    if ((el.innerText||"").trim() === %q) {
@@ -185,10 +165,9 @@ func ensureDeepseekToggleOn(conn *cdpConn, sess, label string) {
 	  }
 	  return "not-found";
 	})()`, label)
-	conn.evalString(sess, js, 5*time.Second)
+	page.Eval(js)
 }
 
-// deepseekWebSearch 是核心流程。
 func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 	deepseekMu.Lock()
 	defer deepseekMu.Unlock()
@@ -197,30 +176,26 @@ func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 	if maxResults <= 0 || maxResults > 10 {
 		maxResults = 5
 	}
-	chrome := findChrome()
-	if chrome == "" {
-		out.Error = "未找到 Chrome（设 BEISHAN_CHROME 或安装 Google Chrome）"
-		return out
-	}
+
 	profile := DeepseekProfileDir()
 	os.MkdirAll(profile, 0755)
 
-	conn, err := newCDPConn(chrome, profile, true)
+	eng, err := browser.NewChrome(profile, true)
 	if err != nil {
 		out.Error = err.Error()
 		return out
 	}
-	defer conn.Close()
+	defer eng.Close()
 
-	sess, err := conn.attachPage(deepseekURL(), 60*time.Second)
+	page, err := eng.NewPage(deepseekURL())
 	if err != nil {
 		out.Error = "打开 DeepSeek 失败: " + err.Error()
 		return out
 	}
+	defer page.Close()
 
-	// 等 SPA 渲染
 	for i := 0; i < 20; i++ {
-		rs, _ := conn.evalString(sess, "document.readyState", 5*time.Second)
+		rs, _ := page.Eval("document.readyState")
 		if rs == "complete" {
 			break
 		}
@@ -228,40 +203,37 @@ func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 	}
 	time.Sleep(1500 * time.Millisecond)
 
-	bodyText, _ := conn.evalString(sess, "document.body ? document.body.innerText : ''", 10*time.Second)
-	curURL, _ := conn.evalString(sess, "location.href", 5*time.Second)
+	bodyText, _ := page.Eval("document.body ? document.body.innerText : ''")
+	curURL, _ := page.Eval("location.href")
 	if deepseekLoginState(curURL, bodyText) == "sign_in_required" {
 		out.Error = "DeepSeek 网页版需要一次性登录：运行  go run ./cmd/deepseek-login  登录一次（profile 持久化后自动复用）"
 		return out
 	}
 
-	// 确保「智能搜索」开（真联网搜索）+「深度思考」开（带回已思考）。仅在关时点开，不盲翻状态。
-	ensureDeepseekToggleOn(conn, sess, "智能搜索")
-	ensureDeepseekToggleOn(conn, sess, "深度思考")
+	ensureDeepseekToggleOn(page, "智能搜索")
+	ensureDeepseekToggleOn(page, "深度思考")
 	time.Sleep(600 * time.Millisecond)
 
-	focused, _ := conn.evalString(sess, focusInputJS, 5*time.Second)
+	focused, _ := page.Eval(focusInputJS)
 	if !strings.Contains(focused, "true") {
 		out.Error = "未找到 DeepSeek 输入框（可能未登录或页面结构变化）"
 		return out
 	}
 
-	if err := conn.insertText(sess, buildDeepseekPrompt(query, maxResults), 15*time.Second); err != nil {
+	if err := page.InsertText(buildDeepseekPrompt(query, maxResults)); err != nil {
 		out.Error = "输入提示词失败: " + err.Error()
 		return out
 	}
-	// 关键：插入后等一下再回车——让 React 登记输入值、发送键就绪，否则 Enter 可能空发（之前 90s 超时的根因）。
 	time.Sleep(900 * time.Millisecond)
-	if err := conn.pressEnter(sess, 5*time.Second); err != nil {
+	if err := page.PressKey("Enter"); err != nil {
 		out.Error = "提交失败: " + err.Error()
 		return out
 	}
 
-	// 轮询正文抓 marked JSON（深度思考 + 联网搜索较慢，给 120s）
 	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(1500 * time.Millisecond)
-		text, err := conn.evalString(sess, "document.body ? document.body.innerText : ''", 10*time.Second)
+		text, err := page.Eval("document.body ? document.body.innerText : ''")
 		if err != nil {
 			continue
 		}
@@ -300,7 +272,7 @@ func deepseekWebSearchHandler(args map[string]interface{}) *ToolResult {
 
 func registerDeepseekWebTools() {
 	Register("deepseek_web_search",
-		"用 DeepSeek 网页版的免费联网搜索做搜索（beishan 自有 headless 浏览器驱动，需一次性登录）。返回 {success, results:[{title,url,snippet}], thinking}。Tavily 不可用或想要 DeepSeek 深度思考时用。",
+		"用 DeepSeek 网页版的免费联网搜索做搜索（beishan 自有 headless Chrome 驱动，需一次性登录）。返回 {success, results:[{title,url,snippet}], thinking}。Tavily 不可用或想要 DeepSeek 深度思考时用。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

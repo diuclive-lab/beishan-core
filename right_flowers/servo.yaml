@@ -1,0 +1,10 @@
+id: servo
+type: browser_engine
+version: "0.1"
+description: "Servo 浏览器引擎 — WebDriver / 自定义 IPC（开发中）"
+endpoint: internal
+capabilities:
+  - browser.navigate
+  - browser.eval
+  - browser.input
+route_exposed: false
