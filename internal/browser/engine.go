@@ -61,6 +61,24 @@ type NetworkPage interface {
 	StopNetworkCapture() []NetworkResponse
 }
 
+// FingerprintEngine 指纹配置能力接口（Chrome 特有）。
+type FingerprintEngine interface {
+	// ApplyFingerprint 对页面应用指纹覆盖。
+	ApplyFingerprint(page Page, fp *FingerprintConfig) error
+}
+
+// GetDefaultFingerprint 返回默认隐身指纹配置。
+func GetDefaultFingerprint() *FingerprintConfig {
+	return &FingerprintConfig{
+		UserAgent:     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+		Platform:       "MacIntel",
+		WebGLVendor:    "Google Inc.",
+		WebGLRenderer:  "ANGLE (Apple, Apple M4 Pro, OpenGL 4.1)",
+		ScreenWidth:    1728,
+		ScreenHeight:   1117,
+	}
+}
+
 // NetworkResponse 捕获的网络响应。
 type NetworkResponse struct {
 	URL        string `json:"url"`

@@ -71,6 +71,24 @@ type ChromeConfig struct {
 	// Incognito 启用临时会话（独立 temp profile，结束后自动清理）。
 	// 参考 OWL StoragePartition 的 ephemeral logged-out context 设计。
 	Incognito bool
+	// Fingerprint 浏览器指纹配置。用于反爬对抗。
+	Fingerprint *FingerprintConfig
+}
+
+// FingerprintConfig 浏览器指纹配置。
+// 参考：headless 检测在多个层面发生——UA、WebGL、Canvas、Fonts。
+type FingerprintConfig struct {
+	// UserAgent 覆盖 navigator.userAgent。空=默认。
+	UserAgent string
+	// Platform 覆盖 navigator.platform。空=默认。
+	Platform string
+	// WebGLVendor 覆盖 WebGL 渲染器字符串。空=不覆盖。
+	WebGLVendor string
+	// WebGLRenderer 覆盖 WebGL 渲染器名。空=不覆盖。
+	WebGLRenderer string
+	// ScreenWidth / ScreenHeight 覆盖 screen 尺寸（px）。
+	ScreenWidth  int
+	ScreenHeight int
 }
 
 // NewChrome 创建并启动一个 Chrome 引擎实例。
@@ -120,6 +138,17 @@ func NewChromeWithConfig(cfg ChromeConfig) (Engine, error) {
 		"--disable-features=Translate,MediaRouter",
 		"--mute-audio",
 	)
+	// 指纹配置：启用/禁用自动化特征
+	if cfg.Fingerprint != nil {
+		if cfg.Fingerprint.UserAgent == "" {
+			args = append(args, "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+		}
+		if cfg.Fingerprint.ScreenWidth > 0 && cfg.Fingerprint.ScreenHeight > 0 {
+			args = append(args, fmt.Sprintf("--window-size=%d,%d", cfg.Fingerprint.ScreenWidth, cfg.Fingerprint.ScreenHeight))
+		}
+		// --disable-blink-features=AutomationControlled 移除 navigator.webdriver 标志
+		args = append(args, "--disable-blink-features=AutomationControlled")
+	}
 	if cfg.Headless {
 		args = append(args, "--headless=new")
 	}
@@ -252,6 +281,54 @@ func (c *chromeCDP) NewPage(url string) (Page, error) {
 		return nil, fmt.Errorf("attachToTarget 无 sessionId")
 	}
 	return &chromePage{engine: c, sessionID: at.SessionID}, nil
+}
+
+// ApplyFingerprint 对已有页面应用指纹覆盖（CDP + JS）。
+func (c *chromeCDP) ApplyFingerprint(page Page, fp *FingerprintConfig) error {
+	if fp == nil {
+		return nil
+	}
+	// 1. UA 覆盖
+	if fp.UserAgent != "" {
+		c.send("Network.setUserAgentOverride", map[string]interface{}{
+			"userAgent": fp.UserAgent,
+			"platform":  fp.Platform,
+		}, "", pageTimeout)
+	}
+	// 2. JS 层指纹覆盖（WebGL vendor/renderer、screen 尺寸）
+	var js string
+	if fp.WebGLVendor != "" || fp.WebGLRenderer != "" {
+		js += `(() => {
+		  const getExt = WebGLRenderingContext.prototype.getExtension;
+		  WebGLRenderingContext.prototype.getExtension = function(name) {
+		    const ext = getExt.call(this, name);
+		    if (ext && name === "WEBGL_debug_renderer_info") {
+		      const orig = ext.UNMASKED_VENDOR_WEBGL;
+		      Object.defineProperty(ext, "UNMASKED_VENDOR_WEBGL", {get:()=>"` + fp.WebGLVendor + `"});
+		      Object.defineProperty(ext, "UNMASKED_RENDERER_WEBGL", {get:()=>"` + fp.WebGLRenderer + `"});
+		    }
+		    return ext;
+		  };
+		})();`
+	}
+	if fp.ScreenWidth > 0 && fp.ScreenHeight > 0 {
+		js += fmt.Sprintf(`Object.defineProperty(screen,"width",{get:()=>%d});
+		Object.defineProperty(screen,"height",{get:()=>%d});`, fp.ScreenWidth, fp.ScreenHeight)
+	}
+	if js != "" {
+		c.send("Runtime.evaluate", map[string]interface{}{
+			"expression":    js,
+			"returnByValue": true,
+			"awaitPromise":  false,
+		}, "", pageTimeout)
+	}
+	// 3. 移除 webdriver 标志
+	c.send("Runtime.evaluate", map[string]interface{}{
+		"expression":    `Object.defineProperty(navigator,"webdriver",{get:()=>undefined})`,
+		"returnByValue": true,
+		"awaitPromise":  false,
+	}, "", pageTimeout)
+	return nil
 }
 
 func (c *chromeCDP) Close() {

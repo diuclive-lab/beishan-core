@@ -120,6 +120,18 @@ func registerBrowserTools() {
 		},
 		browserNetworkCaptureHandler,
 	)
+
+	Register("browser_configure", "Configure browser fingerprint for anti-bot. Set env BEISHAN_BROWSER_FP=1 for default stealth config.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"ua":          stringParam("User-Agent string (empty = default stealth)"),
+				"webgl_vendor": stringParam("WebGL vendor (e.g. Google Inc.)"),
+				"webgl_renderer": stringParam("WebGL renderer (e.g. ANGLE (Apple, Apple M4 Pro, OpenGL 4.1))"),
+			},
+		},
+		browserConfigureHandler,
+	)
 }
 
 // isSearchEngineURL 判断是否在「用浏览器抓搜索引擎结果页」——这条路会被反爬拦成
@@ -380,4 +392,34 @@ func browserNetworkCaptureHandler(_ map[string]interface{}) *ToolResult {
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return successResult(string(b))
 	})
+}
+
+
+func browserConfigureHandler(args map[string]interface{}) *ToolResult {
+	if GlobalEngine == nil {
+		return errorResult("CDP 浏览器引擎未初始化")
+	}
+	fpEng, ok := GlobalEngine.(beishan_browser.FingerprintEngine)
+	if !ok {
+		return errorResult("当前引擎不支持指纹配置（仅 Chrome）")
+	}
+	fp := beishan_browser.GetDefaultFingerprint()
+	if ua, ok := args["ua"].(string); ok && ua != "" {
+		fp.UserAgent = ua
+	}
+	if v, ok := args["webgl_vendor"].(string); ok && v != "" {
+		fp.WebGLVendor = v
+	}
+	if r, ok := args["webgl_renderer"].(string); ok && r != "" {
+		fp.WebGLRenderer = r
+	}
+	page, err := GlobalEngine.NewPage("about:blank")
+	if err != nil {
+		return errorResult("创建页面失败: " + err.Error())
+	}
+	defer page.Close()
+	if err := fpEng.ApplyFingerprint(page, fp); err != nil {
+		return errorResult("指纹配置失败: " + err.Error())
+	}
+	return successResult("{\"status\":\"configured\",\"ua\":\"" + fp.UserAgent + "\"}")
 }
