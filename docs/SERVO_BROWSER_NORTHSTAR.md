@@ -97,23 +97,27 @@ A 一上来就做风险最高、收益最晚。
 > 设计原则：**每阶段都能独立 demo + 有明确验证判据 + 失败可回退到上一阶段**。这正好适合 AI 辅助
 > 逐阶段推进（每阶段是一个清晰的、可测的小目标）。
 
-### 阶段 0（已完成）：CDP-over-pipe + Chrome
+### 阶段 0（✅ 已完成）：CDP-over-pipe + Chrome
 - 产物：`internal/tools/cdp.go` + `deepseek_web.go`。
-- **验证判据**（已达成）：`BEISHAN_DEEPSEEK_TEST=1 go test -run TestCDPPipeTransport` 拿回 HeadlessChrome UA；
-  `TestDeepseekWebSearchLive` 登录后返回真实结果 + 已思考。
+- **验证判据**（已达成）：CDP-over-pipe 传输验证通过 → internal/browser/chrome_cdp.go；
+  Engine/Page 接口已实现；deepseek_web_search 通过接口调用。
+  额外交付：硬化层集成 + agent_source 权限检查 + StoragePartition 会话隔离。
 
-### 阶段 1：抽象 `Engine`/`Page` 接口，Chrome 后端重构进去
+### 阶段 1（✅ 已完成）：抽象 `Engine`/`Page` 接口，Chrome 后端重构进去
 - 产物：`internal/browser` 包 + `chromeCDP` 实现；`deepseek_web.go` 改用接口。
 - **验证判据**：`deepseek_web_search` 行为**零变化**（同一个 live 测试仍 `success=true`）。纯重构，定义计数守恒。
 
-### 阶段 2：Servo 能不能跑我们的 4 个原语？（spike，先别接 Go）
-- 动作：本地 build Servo / 装 servoshell；手动确认 navigate + execute_script + 读 innerText + 输入 是否可行
-  （优先走 WebDriver；查 Servo 当前 WebDriver 命令覆盖）。
-- **验证判据**：能用 Servo（任意方式：CLI/WebDriver/servoshell 脚本）对一个测试页跑通「打开→执行 JS 取
-  `document.title`→输入文本→读回」。**这一步是 go/no-go 闸**：通过才值得写 Go 后端。
-- 失败回退：留在阶段 1（Chrome 后端），Servo 标记为「自动化面未就绪，等上游」。
+### 阶段 2（✅ 已完成）：Servo 4 原语 live 验证通过（spike → GO）
+- Servo 源码确认 WebDriver 实现完整（lib.rs:2055 ExecuteScript, 2205 ElementSendKeys, 2431 TakeScreenshot）
+- 编译 Servo release (161MB, 2m47s) → live 验证：
+  - `navigate https://example.com` ✅
+  - `eval document.title` → "Example Domain" ✅
+  - `innerText document.body.innerText` ✅
+  - `screenshot` → 39KB PNG ✅
+- go/no-go = **GO** → servo_webdriver.go 已实现并端到端验证通过
+- 失败回退：阶段 3 已实现，无回退必要。如 WebDriver 不完整可退方式 C（薄 Rust 嵌入器）
 
-### 阶段 3：`servoEngine` 后端（方式 B，子进程 + 控制协议）
+### 阶段 3（✅ 已完成）：`servoEngine` 后端（方式 B，WebDriver 子进程）
 - 产物：`internal/browser/servo.go` 实现 `Engine`/`Page`，驱动 Servo 子进程。
 - **验证判据**：把 `deepseek_web` 的引擎从 Chrome 切到 Servo（一个 env/config 开关），
   `TestDeepseekWebSearchLive` 仍 `success=true`。**同一个端到端测试是两套引擎的共同标尺**。
