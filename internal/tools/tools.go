@@ -374,6 +374,7 @@ func Init() {
 	registerTerminalTools()
 	registerCodeExecTool()
 	registerBrowserTools()
+	registerDeepseekWebTools()
 	registerSessionSearchTools()
 	registerTodoTools()
 	registerClarifyTools()

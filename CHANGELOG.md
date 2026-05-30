@@ -142,6 +142,14 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **测试**：4 个——`isSearchEngineURL`(搜索 URL 拦/非搜索放)、`looksLikeAntiBot`(反爬识别/不误伤)、`browser_navigate` 私有 IP SSRF 拦截（hermetic，前缀短路不走 DNS）、`web_search`→Tavily 集成（有 key 才跑，verify.sh 去 key 故跳过）
 - **决策**：迭代不更换——免费爬搜索引擎时代已终结（DDG 都上 202 反爬），换浏览器工具也躲不开；架构（`web_search`+API、`web_render` Playwright、SSRF/密钥检查）本就齐全，是接线接错。FangLab 的「无头浏览器登录 DeepSeek 网页版用其免费搜索」方案不在本仓库，作为右花集成备选
 
+### DeepSeek 网页版搜索：CDP-over-pipe 原生 Go 移植（吸收 FangLab，免费备选后端）
+- 用户拍板把 FangLab 的「无头浏览器登录 DeepSeek 网页版、用其免费联网搜索」吸收进来、落地为**原生 Go**。机制：把 DeepSeek 网页版当成「会联网搜索的 LLM」——填提示词让它只回包在 `<BEISHAN_JSON>` 标记里的结构化 JSON，轮询正文抽取
+- **`internal/tools/cdp.go`**：极小 **CDP-over-pipe** 客户端——beishan 用 `--remote-debugging-pipe`（fd 3/4 null 分隔 JSON）自己**启动并拥有**一个 headless Chrome，**不经 websocket、不用 playwright 库、不起外部 driver**。零新增依赖。这是「让浏览器成为智能体一部分」的第一步（远期 north-star：内嵌 Servo 引擎）
+- **`internal/tools/deepseek_web.go`**：移植 `search_via_deepseek`——navigate→登录检测→`Input.insertText` 敲提示词→Enter→轮询 `body.innerText` 抽 `<BEISHAN_JSON>`→规范化；**新增「已思考」捕获**（FangLab 版没有）。注册工具 `deepseek_web_search`
+- **`cmd/deepseek-login`**：一次性「有头」登录命令（持久化 profile，之后 headless 复用）
+- **已验证（live）**：CDP-over-pipe 传输（起 Chrome 跑 JS 拿回 HeadlessChrome UA）；navigate chat.deepseek.com + 登录检测（profile 未登录→正确返回「需一次性登录」指引，5.8s 不挂）；标记 JSON 抽取/登录态判定纯函数单测
+- **待验证**：完整搜索（输入→DeepSeek 联网搜索→JSON+已思考）需先 `go run ./cmd/deepseek-login` 登录一次再端到端跑通+调参。Chrome 相关测试 gate 在 `BEISHAN_DEEPSEEK_TEST=1`（verify.sh 跳过、保持 hermetic）。Tavily 仍是主搜索后端
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
