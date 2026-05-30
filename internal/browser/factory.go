@@ -9,9 +9,10 @@ import (
 type EngineKind string
 
 const (
-	EngineChrome  EngineKind = "chrome"
-	EngineServo   EngineKind = "servo"
-	EngineUnknown EngineKind = ""
+	EngineChrome    EngineKind = "chrome"
+	EngineServo     EngineKind = "servo"
+	EngineServoEmbed EngineKind = "servo_embed"
+	EngineUnknown   EngineKind = ""
 )
 
 // DetectEngine 从环境变量检测要使用的浏览器引擎。
@@ -20,6 +21,8 @@ func DetectEngine() EngineKind {
 	switch os.Getenv("BEISHAN_BROWSER") {
 	case "servo":
 		return EngineServo
+	case "servo_embed":
+		return EngineServoEmbed
 	default:
 		return EngineChrome
 	}
@@ -41,6 +44,8 @@ func NewEngineKind(kind EngineKind) (Engine, error) {
 		return NewChrome(profile, true)
 	case EngineServo:
 		return NewServo()
+	case EngineServoEmbed:
+		return NewServoEmbed()
 	default:
 		return nil, fmt.Errorf("未知浏览器引擎: %s", kind)
 	}
