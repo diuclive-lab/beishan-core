@@ -98,8 +98,16 @@ func NewGoExecutor(k *kernel.Kernel, toolHost map[string]string) *GoExecutor {
 }
 
 // Run 执行 GoWorkflow，返回与 YAML 引擎兼容的 WorkflowResult
-func (ex *GoExecutor) Run(wf GoWorkflow, rawInput map[string]interface{}) *WorkflowResult {
+func (ex *GoExecutor) Run(wf GoWorkflow, rawInput map[string]interface{}) (result *WorkflowResult) {
 	tStart := time.Now()
+	// R1: 同步执行路径 panic 兜底。开发者提供的 TransformFn / BeforeExecute / AfterExecute
+	// 或任何步骤实现里的 panic，在此转成失败 WorkflowResult 返回，而非带栈异常中断整个请求。
+	// （并行子步骤的 goroutine 各自另有 RecoverWith 兜底，见 runGoStepParallel。）
+	defer observatory.RecoverWith("gods.Run "+wf.Name, func(r interface{}) {
+		result = buildGoResult(wf.Name, nil, "", false,
+			fmt.Sprintf("Go-DSL 工作流 %q 执行 panic: %v", wf.Name, r),
+			time.Since(tStart).Milliseconds())
+	})
 	state := NewStateStore(rawInput)
 	ctx := GoContext{
 		WorkflowName: wf.Name,
@@ -450,7 +458,16 @@ func (ex *GoExecutor) runGoStepParallel(step GoStep, input map[string]interface{
 		wg.Add(1)
 		go func(s GoStep) {
 			defer wg.Done()
-			defer observatory.Recover("gods.parallel " + s.ID)
+			// RecoverWith（而非 Recover）：子步骤 panic 时补记一条失败 StepResult，
+			// 而非让该子步骤结果静默消失。wg.Done 先注册→后执行，完成契约不破。
+			defer observatory.RecoverWith("gods.parallel "+s.ID, func(r interface{}) {
+				mu.Lock()
+				subResults = append(subResults, StepResult{
+					ID:    s.ID,
+					Error: fmt.Sprintf("panic: %v", r),
+				})
+				mu.Unlock()
+			})
 			sr := ex.runGoStepWithRetry(s, input)
 			mu.Lock()
 			subResults = append(subResults, sr)

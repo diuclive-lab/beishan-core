@@ -101,6 +101,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **`scripts/deploy.sh`**（一键）：①带戳编译到 `.new` 临时文件 ②`-version` 冒烟校验（戳≠HEAD 则中止不替换）③原子 `mv` 换二进制 + 增量 `cp` 工作流（只增不删，保留 daemon-only）④`launchctl kickstart -k` 重启服务（KeepAlive 兜底）⑤轮询 `/health` 直到 version==HEAD。**绝不碰** plist 配置与含密钥的启动包装脚本——只重启服务，不改配置
 - **关键顺序**：版本戳打 HEAD 短哈希，故**必须先 commit 使 HEAD==被编译源码、再 deploy**，否则二进制被打上旧 HEAD（含未提交新代码）会让漂移探测误报
 
+### R1 收尾：Go-DSL 执行器请求路径 panic 兜底（原始可靠性清单第 1 项）
+- 此前 `GoExecutor.Run`（同步执行路径）**零 recover**：开发者提供的 `TransformFn`/`BeforeExecute`/`AfterExecute` 或任一步骤实现 panic 会一路冒泡，把整个工作流请求**带栈中断**（HTTP 按请求 recover 不崩进程，但该请求异常终止、无干净错误）
+- `Run` 加 `defer observatory.RecoverWith`：panic→失败 `WorkflowResult`(Success=false, Error 含 panic)，返回值改命名 `(result *WorkflowResult)`
+- `runGoStepParallel`：`Recover` 升级为 `RecoverWith`——并行子步骤 panic 时**补记一条失败 StepResult**（此前被静默吞掉、结果凭空消失）；`wg.Done` 先注册→完成契约不破
+- 2 个测试坐实：同步步骤 panic→失败结果含 "panic"；并行子步骤 panic→记为 error、整体不 crash
+- **未改**：`gods_executor.go` 另 5 处 panic 是**构造期(boot) fail-fast**（Go-DSL 工作流引用未注册工具→启动即崩），属开发者配置守卫、语义为有意 fail-fast；是否改 log-and-skip 留待决策（见 KNOWN_LIMITATIONS §14 边界）
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
