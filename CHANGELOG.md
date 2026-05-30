@@ -108,6 +108,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - 2 个测试坐实：同步步骤 panic→失败结果含 "panic"；并行子步骤 panic→记为 error、整体不 crash
 - **未改**：`gods_executor.go` 另 5 处 panic 是**构造期(boot) fail-fast**（Go-DSL 工作流引用未注册工具→启动即崩），属开发者配置守卫、语义为有意 fail-fast；是否改 log-and-skip 留待决策（见 KNOWN_LIMITATIONS §14 边界）
 
+### U2 修复：去掉重复的 ecs-relay launchd 服务（原始可用性清单第 2 项，运维变更）
+- 根因：两个 launchd 服务 `com.beishan.ecs-relay`（May 25）与 `com.fanglab.ecs-relay`（Mar 27）**都把同一远程 `:18013` 反向 SSH 隧道转发到本地 `:8013`**——撞同一远程端口，输家 ssh 报 `remote port forwarding failed for listen port 18013`、`ExitOnForwardFailure` 致 exit 255，KeepAlive 永久重启 → 两个 err 日志累计 **23k+ 行** flap 噪声（持续吃 CPU/磁盘）
+- 二者功能等价（端口集相同 `8013/18013`、撞同一远程即证同一服务器）；用户拍板**留 `com.beishan`（当前命名，与 `com.beishan.mcp-knowledge` 同代）、删 `com.fanglab`（FangLab 旧命名）**
+- 操作（仅动 ecs-relay，其余 `com.fanglab.*` 服务不碰）：`launchctl bootout` 停止+卸载 fanglab → 其 plist 改名 `.plist.disabled`（**可逆备份，不真删**）→ 截断 23k 行 flap 日志 → `kickstart -k` 重启 beishan 抢占释放的 `:18013`
+- 验证：`com.beishan.ecs-relay` PID **稳定 30s 不变** + err 日志**零增长**（修前每几秒 flap 一次）→ 隧道已建稳；`com.fanglab` 从 `launchctl list` 消失
+- 回滚：`mv ~/Library/LaunchAgents/com.fanglab.ecs-relay.plist.disabled …/.plist && launchctl bootstrap gui/$(id -u) …`（但会重新引发端口冲突，仅在改留 fanglab 时用）
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
