@@ -51,3 +51,14 @@ func DefaultProfileDir() string {
 	home, _ := os.UserHomeDir()
 	return home + "/.hermes/chrome_profile"
 }
+
+
+// NewAgentSession 创建隔离的 Agent 浏览器会话（临时 profile，用完销毁）。
+// 参考 OWL StoragePartition ephemeral logged-out context 设计。
+func NewAgentSession() (Engine, error) {
+	return NewChromeWithConfig(ChromeConfig{
+		UserDataDir: "",
+		Headless:    true,
+		Incognito:   true,
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	beishan_browser "beishan/internal/browser"
 	"sync"
 )
 
@@ -13,6 +14,9 @@ var (
 	browserTitle string
 	browserHTML  string
 )
+
+// GlobalEngine 是 CDP 浏览器引擎全局实例（由 main.go 初始化）。
+var GlobalEngine beishan_browser.Engine
 
 func registerBrowserTools() {
 	Register("browser_navigate", "Load a URL and extract its text content.",
@@ -61,6 +65,27 @@ func registerBrowserTools() {
 	Register("browser_back", "Go back to the previous page.",
 		emptyObjParams(),
 		browserBackHandler,
+	)
+
+	Register("browser_eval", "Execute JavaScript on the current CDP-powered page and return result.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"script"},
+			"properties": map[string]interface{}{
+				"script": stringParam("JavaScript expression to evaluate"),
+			},
+		},
+		browserEvalHandler,
+	)
+
+	Register("browser_screenshot", "Take a screenshot of the current CDP-powered page.",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{
+				"format": stringParam("Image format: png or jpeg (default png)"),
+			},
+		},
+		browserScreenshotHandler,
 	)
 }
 
@@ -199,4 +224,58 @@ func browserScrollHandler(args map[string]interface{}) *ToolResult {
 func browserBackHandler(args map[string]interface{}) *ToolResult {
 	// 文本模式无历史栈：诚实告知，别让智能体以为回退生效。
 	return successResult("browser_back 在文本模式浏览器里不支持（无历史栈）。请用 browser_navigate 重新指定 URL。")
+}
+
+
+// agentSourceAllowed 检查调用来源是否有权限执行高风险浏览器操作。
+// source="agent" 时不允许 eval（避免 Agent 获得浏览器特权）。
+// 参考 OWL 的 Direct-to-Renderer 原则：Agent 输入不能绕过 DOM security boundary。
+func agentSourceAllowed(args map[string]interface{}, highRisk bool) (string, bool) {
+	src, _ := args["agent_source"].(string)
+	if src == "agent" && highRisk {
+		return "agent 不允许执行浏览器特权操作（eval/screenshot）。请使用 user 来源或降低权限", false
+	}
+	return "", true
+}
+
+func browserEvalHandler(args map[string]interface{}) *ToolResult {
+	script, _ := args["script"].(string)
+	if script == "" {
+		return errorResult("script is required")
+	}
+	if msg, ok := agentSourceAllowed(args, true); !ok {
+		return errorResult(msg)
+	}
+	if GlobalEngine == nil {
+		return errorResult("CDP 浏览器引擎未初始化（main.go 未调用 InitBrowserEngine）")
+	}
+	page, err := GlobalEngine.NewPage("about:blank")
+	if err != nil {
+		return errorResult("创建页面失败: " + err.Error())
+	}
+	defer page.Close()
+	result, err := page.Eval(script)
+	if err != nil {
+		return errorResult("JS 执行失败: " + err.Error())
+	}
+	return successResult(result)
+}
+
+func browserScreenshotHandler(args map[string]interface{}) *ToolResult {
+	if msg, ok := agentSourceAllowed(args, true); !ok {
+		return errorResult(msg)
+	}
+	if GlobalEngine == nil {
+		return errorResult("CDP 浏览器引擎未初始化")
+	}
+	page, err := GlobalEngine.NewPage("about:blank")
+	if err != nil {
+		return errorResult("创建页面失败: " + err.Error())
+	}
+	defer page.Close()
+	data, err := page.Screenshot()
+	if err != nil {
+		return errorResult("截图失败: " + err.Error())
+	}
+	return successResult(fmt.Sprintf("data:image/png;base64,%s", string(data)))
 }

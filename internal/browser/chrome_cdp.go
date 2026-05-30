@@ -15,9 +15,10 @@ import (
 // beishan 自己启动并「拥有」一个 Chrome 进程，
 // CDP 走 --remote-debugging-pipe（fd 3/4，null 分隔 JSON）。
 type chromeCDP struct {
-	cmd *exec.Cmd
-	w   *os.File
-	r   *os.File
+	cmd         *exec.Cmd
+	w           *os.File
+	r           *os.File
+	userDataDir string
 	wmu    sync.Mutex
 	idmu   sync.Mutex
 	nextID int64
@@ -61,13 +62,40 @@ func FindChromePath() string {
 	return ""
 }
 
+// ChromeConfig 控制 Chrome 引擎的启动参数。
+type ChromeConfig struct {
+	// UserDataDir 是持久化 Chrome profile 目录。空时使用默认路径。
+	UserDataDir string
+	// Headless 是否使用无头模式。
+	Headless bool
+	// Incognito 启用临时会话（独立 temp profile，结束后自动清理）。
+	// 参考 OWL StoragePartition 的 ephemeral logged-out context 设计。
+	Incognito bool
+}
+
 // NewChrome 创建并启动一个 Chrome 引擎实例。
-// userDataDir 为浏览器 profile 目录。
-// headless=true 无头模式；headless=false 有头（用于一次性登录）。
 func NewChrome(userDataDir string, headless bool) (Engine, error) {
+	return NewChromeWithConfig(ChromeConfig{
+		UserDataDir: userDataDir,
+		Headless:    headless,
+		Incognito:   false,
+	})
+}
+
+// NewChromeWithConfig 使用完整配置创建 Chrome 引擎实例。
+func NewChromeWithConfig(cfg ChromeConfig) (Engine, error) {
 	chromePath := FindChromePath()
 	if chromePath == "" {
 		return nil, fmt.Errorf("未找到 Chrome（设 BEISHAN_CHROME 或安装 Google Chrome）")
+	}
+	userDataDir := cfg.UserDataDir
+	if cfg.Incognito {
+		// 临时目录，用完清理
+		tmpDir, err := os.MkdirTemp("", "beishan-chrome-*")
+		if err != nil {
+			return nil, fmt.Errorf("创建临时 profile 失败: %w", err)
+		}
+		userDataDir = tmpDir
 	}
 	r3, w3, err := os.Pipe()
 	if err != nil {
@@ -81,13 +109,18 @@ func NewChrome(userDataDir string, headless bool) (Engine, error) {
 	args := []string{
 		"--remote-debugging-pipe",
 		"--user-data-dir=" + userDataDir,
+	}
+	if cfg.Incognito {
+		args = append(args, "--incognito")
+	}
+	args = append(args,
 		"--no-first-run", "--no-default-browser-check",
 		"--disable-gpu", "--disable-extensions",
 		"--disable-background-networking", "--disable-sync",
 		"--disable-features=Translate,MediaRouter",
 		"--mute-audio",
-	}
-	if headless {
+	)
+	if cfg.Headless {
 		args = append(args, "--headless=new")
 	}
 	args = append(args, "about:blank")
@@ -106,6 +139,7 @@ func NewChrome(userDataDir string, headless bool) (Engine, error) {
 	c := &chromeCDP{
 		cmd: cmd, w: w3, r: r4,
 		pending: make(map[int64]chan cdpMessage),
+		userDataDir: userDataDir,
 	}
 	go c.readLoop()
 	return c, nil
@@ -230,6 +264,10 @@ func (c *chromeCDP) Close() {
 	if c.cmd != nil && c.cmd.Process != nil {
 		c.cmd.Process.Kill()
 		c.cmd.Wait()
+	}
+	// Incognito: 清理临时 profile 目录
+	if c.userDataDir != "" {
+		os.RemoveAll(c.userDataDir)
 	}
 }
 
