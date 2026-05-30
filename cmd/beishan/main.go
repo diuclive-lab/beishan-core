@@ -78,7 +78,21 @@ var startTime = time.Now()
 // chatCounter 统计对话轮次，每 10 轮触发一次习惯推断
 var chatCounter int64
 
+// version / buildTime 由 scripts/deploy.sh 在编译时通过 -ldflags 注入，例如：
+// go build -ldflags "-X main.version=<git短哈希> -X main.buildTime=<ISO8601>"
+// 未注入时保持下面的默认值（如 go run 或手动 go build）。
+// 暴露于 /health 与 `beishan-core -version`，用于检测「部署二进制 vs 源码」漂移。
+var version = "dev"
+var buildTime = "unknown"
+
 func main() {
+	// -version / --version：只打印版本戳后退出，不启动服务器/端口/sidecar。
+	// 供 deploy.sh 在替换二进制前做「编译产物版本是否 == HEAD」冒烟校验。
+	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Printf("%s %s\n", version, buildTime)
+		return
+	}
+
 	apiKey := os.Getenv("LLM_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("DEEPSEEK_API_KEY")
@@ -489,7 +503,7 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		fmt.Fprintf(w, `{"status":"ok","version":%q,"built":%q}`, version, buildTime)
 	})
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {

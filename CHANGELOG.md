@@ -94,6 +94,13 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **改用 `terminal_exec`+POSIX**（find|wc|sort|head，cd 绝对仓库根）→ daemon 实跑 Success / ElapsedMs 165 / 干净 top-30；command/timeout 是核心老字段，不吃 schema 版本
 - **环境无关第三味**：verify 学到①不依赖 daemon 缺失的开发工具 ②不被其密钥扰动；scan_large_files 再加③**不依赖 daemon 二进制里工具的 schema/feature 版本**——要在可能 stale 的 daemon 上稳跑，最 vintage-proof 的原语是 `terminal_exec`+POSIX
 
+### 根治 dev↔daemon 漂移：版本戳 + 只读漂移探测 + 一键部署（devlog Task N）
+- 根因：Task L/M 反复撞见的「部署二进制太老 / daemon 缺工作流」都是同一个 dev↔daemon 漂移，过去无机制让它可见可消除。用户点出模式、拍板全做。
+- **二进制版本戳**（`cmd/beishan/main.go` +13 行）：`-ldflags "-X main.version=<git短哈希> -X main.buildTime=<ISO8601>"` 注入；`/health` 升为 `{"status":"ok","version":…,"built":…}`，让「现网跑哪个版本」成为可 curl 的事实；加 `-version` 标志（只打印即退，不启服务/端口/sidecar）供部署冒烟校验
+- **`scripts/daemon_drift.sh`**（只读）：curl `/health` 权威比对 version==HEAD（老二进制无字段→退回 mtime 比对），`cmp -s` 逐个比对工作流，daemon-only 文件只提示不算漂移；退出 0/1。刻意**独立于 verify.sh**（后者 hermetic 离线、不探活；本脚本必须探活，职责相反）。首跑量化现状：二进制 STALE + 42/45 工作流漂移
+- **`scripts/deploy.sh`**（一键）：①带戳编译到 `.new` 临时文件 ②`-version` 冒烟校验（戳≠HEAD 则中止不替换）③原子 `mv` 换二进制 + 增量 `cp` 工作流（只增不删，保留 daemon-only）④`launchctl kickstart -k` 重启服务（KeepAlive 兜底）⑤轮询 `/health` 直到 version==HEAD。**绝不碰** plist 配置与含密钥的启动包装脚本——只重启服务，不改配置
+- **关键顺序**：版本戳打 HEAD 短哈希，故**必须先 commit 使 HEAD==被编译源码、再 deploy**，否则二进制被打上旧 HEAD（含未提交新代码）会让漂移探测误报
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）

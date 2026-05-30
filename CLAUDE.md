@@ -13,6 +13,7 @@
 - **MCP servers**: 0 (框架保留，模板脚本已删除)
 - **UNIMPLEMENTED**: 0
 - **launchd**: beishan-core + openhuman-adapter registered, KeepAlive enabled
+- **deploy**: `/health` 带 version/built 戳；`scripts/deploy.sh`（带戳重建→冒烟→原子替换→重启）+ `scripts/daemon_drift.sh`（只读漂移探测）
 
 ## Architecture
 
@@ -288,7 +289,15 @@ go test ./...                 # 21 packages
 go run ./cmd/core-health      # health check
 go run ./cmd/beishan/         # start (port :8013)
 go build ./... && go vet ./... && go test ./...  # full CI check
+bash scripts/verify.sh        # hermetic 门禁（build/vet/test/gofmt/集成检查一键）
+bash scripts/daemon_drift.sh  # 只读：现网 daemon vs 源码漂移报告（curl /health + cmp 工作流）
+bash scripts/deploy.sh        # 一键部署：带版本戳重建→冒烟→原子替换→同步工作流→重启 daemon→验证
 ```
+
+**部署 / 漂移**：现网 daemon（`~/.local/bin/beishan-core` + `~/.local/share/beishan/workflows/`）
+会与 dev 仓库漂移。`/health` 暴露 `version`(git 短哈希)/`built`，`-version` 标志只打印版本即退。
+改完代码**先 commit（使 HEAD==源码）再 `bash scripts/deploy.sh`**（否则版本戳打旧 HEAD，漂移探测误报）。
+`deploy.sh` 不碰 plist 配置与含密钥的启动包装脚本，只重启服务。
 
 ## Key Files
 
