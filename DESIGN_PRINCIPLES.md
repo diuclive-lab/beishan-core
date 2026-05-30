@@ -237,8 +237,9 @@ Go 1.26.1 的 gofmt 会把它"规范化"成 Go 标准块注释形式：正文移
   文档注释**变得更难读**（正文与 `/*` 分行、tab 缩进破坏空格对齐）；(2) 重排会触碰
   **冻结的 `kernel/`** 仅为了美观——违反内核冻结的精神；(3) 一次性 115 文件的格式 churn
   会淹没真实变更历史，后续 `git blame` / 梳理开发过程都受害。
-- **gofmt 刻意不进 gate。** `core_gate.sh` / `integration_check.sh` 只跑 build/vet/test，
-  **不**跑 `gofmt -l`。这是有意的：加了它就得先全量重排，得不偿失。
+- **gofmt 刻意不进 gate。** `core_gate.sh`（BLOCKING 档：test/vet/boundary/workflow-v2.5/
+  docs/workspace/security；ADVISORY 档：health/eval/rightflower，默认不阻断）与
+  `integration_check.sh` 均**不**跑 `gofmt -l`。这是有意的：加了它就得先全量重排，得不偿失。
 - **新代码靠手维持 gofmt-clean。** 漂移集中在"块注释规范化 + struct tag 对齐"这两类**纯排版**
   上，不涉及缩进错误或语法。新增代码的缩进、空格、括号仍遵循 gofmt；只有当你写
   `/* */` 散文文档注释、或手工对齐 struct tag 时，允许偏离 gofmt 的规范化结果。

@@ -33,9 +33,9 @@ done <<< "$V"
 if [ "$DEBT" -eq 0 ]; then
     echo "✅"
 else
-    KNOWN=$(echo "$V" | grep -c 'think_plugin\|review_handler\|skill_factory' 2>/dev/null || true)
+    KNOWN=$(echo "$V" | grep -c 'think_plugin\|review_handler\|skill_factory\|workflow_plugin\|knowledge_calibration' 2>/dev/null || true)
     if [ "$DEBT" -le "$KNOWN" ] 2>/dev/null; then
-        echo "    ⚠️ 仅已知债务（D01-D03），见 docs/reports/boundary_debt_register.md"
+        echo "    ⚠️ 仅已知债务（D01-D05），见 docs/reports/boundary_debt_register.md"
     else
         echo "    ❌ 违规（含未知调用）"; FAILED=1
     fi

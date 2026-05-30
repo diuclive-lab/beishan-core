@@ -125,6 +125,15 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **4 个新测试**：构造期坏工具→error 不 panic（×2）+ 合法插件步骤 OK + 降级登记机制（含副本语义）+ `/health` ok→degraded 且保留 `version` 字段（deploy.sh 依赖）
 - 文档：`DESIGN_PRINCIPLES.md` 新增「核心 fail-fast，非核心降级」原则；`KNOWN_LIMITATIONS.md` §17 该项从「待决策」改为「已收口」
 
+### R4 门禁硬化：core_gate 从「看着全实则只挡 test/vet」改为诚实分层 + 退出码判定（原始可靠性清单第 4 项）
+- 病根：旧 `core_gate.sh` 除 test/vet 外 8 项默认全降级 ⚠️ 不阻断（仅 `--strict` 才阻断），「门禁看着全、实则只挡编译+测试」；且用 grep 末行关键词判过——`一致` 是 `不一致` 的子串，失败会被误判为通过
+- **改判定方式**：改用脚本**退出码**（不再 grep 末行关键词），消除子串误判
+- **诚实分层**：BLOCKING（离线确定性，恒阻断，无视 flag）= test / vet / boundary / workflow-v2.5 / docs / workspace / security 共 7 项；ADVISORY（需活服务/网络，默认只提示，`--strict` 才阻断）= core-health / core-eval / rightflower
+- **修两处「检查本身是 theater」**：① `check_security_model.sh` 4 项 grep 全 `|| echo ❌` 却**从不设 FAILED**→永远 exit 0（补 `FAILED=1`，4 目标现存故仍绿但已为真）；② `scan_boundary.sh` 实际**在失败**——`workflow_plugin.go` / `knowledge_calibration.go` 两处内部路径 I/O 边界债务未登记
+- **补登记 D04/D05**（`docs/reports/boundary_debt_register.md`）：均为内部固定路径 I/O（引擎读自身 workflow 目录 / 校准 JSONL 日志），同 D02/D03 性质、非用户输入、非路径穿越；`scan_boundary.sh` 的 KNOWN pattern 同步加这两文件 → 扫描转「仅已知债务」通过
+- **验证**：全量 gate 7 BLOCKING 全 ✅ + 3 ADVISORY 提示、exit 0；负向单测坐实 block 失败→gate exit 1、advisory 默认不阻断 / `--strict` 阻断
+- 文档：`DESIGN_PRINCIPLES.md` 更正「core_gate 只跑 build/vet/test」的过时说法
+
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 
 ### Plugin 层修复（8 文件，按 §6.1 逐项核对）
