@@ -147,8 +147,10 @@ R1 建好 `Recover/RecoverWith/SafeGo` 基础设施 + 8 个调用点；R3 把覆
 - **`internal/tools/cdp.go`**：极小 **CDP-over-pipe** 客户端——beishan 用 `--remote-debugging-pipe`（fd 3/4 null 分隔 JSON）自己**启动并拥有**一个 headless Chrome，**不经 websocket、不用 playwright 库、不起外部 driver**。零新增依赖。这是「让浏览器成为智能体一部分」的第一步（远期 north-star：内嵌 Servo 引擎）
 - **`internal/tools/deepseek_web.go`**：移植 `search_via_deepseek`——navigate→登录检测→`Input.insertText` 敲提示词→Enter→轮询 `body.innerText` 抽 `<BEISHAN_JSON>`→规范化；**新增「已思考」捕获**（FangLab 版没有）。注册工具 `deepseek_web_search`
 - **`cmd/deepseek-login`**：一次性「有头」登录命令（持久化 profile，之后 headless 复用）
-- **已验证（live）**：CDP-over-pipe 传输（起 Chrome 跑 JS 拿回 HeadlessChrome UA）；navigate chat.deepseek.com + 登录检测（profile 未登录→正确返回「需一次性登录」指引，5.8s 不挂）；标记 JSON 抽取/登录态判定纯函数单测
-- **待验证**：完整搜索（输入→DeepSeek 联网搜索→JSON+已思考）需先 `go run ./cmd/deepseek-login` 登录一次再端到端跑通+调参。Chrome 相关测试 gate 在 `BEISHAN_DEEPSEEK_TEST=1`（verify.sh 跳过、保持 hermetic）。Tavily 仍是主搜索后端
+- **已端到端验证（live，登录后）**：用户一次性登录后实跑——`success=true / 4 条真实 2026 结果（baidu/economictimes/morphllm，智能搜索真联网）/ 已思考 2105 字节（"搜索到 34 个网页…浏览 9 个页面…"的推理）/ 45s`
+- **登录后调参的 3 个真实坑**（实测取证）：① 插入提示词后**必须等 ~900ms 再回车**（React 未登记输入就 Enter→空发，正是首跑 90s 超时根因）；② 开关是「**智能搜索/深度思考**」（非"联网搜索"），用 `aria-pressed` 判状态、`ensureDeepseekToggleOn` 仅在关时点开（不盲翻）；③ 开「智能搜索」后引用角标/换行被注入 JSON 字符串值→非法 JSON，`extractMarkedJSON` 加「内部空白折空格重试」修复；「已思考」锚点是「已思考（用时」非"已深度思考"
+- **测试**：纯函数单测（标记 JSON 抽取/登录态）hermetic 常驻；CDP 传输 + 端到端搜索 gate 在 `BEISHAN_DEEPSEEK_TEST=1`（verify.sh 跳过、保持 hermetic，Task L）。Tavily 仍是主搜索后端，这是免费备选 + 已思考有惊喜
+- **north-star 文档**：`docs/SERVO_BROWSER_NORTHSTAR.md`——把浏览器引擎内嵌进智能体根茎的完整设计 + 验证思路（交付另一名开发者 AI 辅助推进）
 
 ## 2026-05-28 Plugin 层系统性审查 + Workflow v2.5 合规扫描
 

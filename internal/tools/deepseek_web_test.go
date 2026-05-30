@@ -2,28 +2,28 @@ package tools
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
-// TestDeepseekLoginDetection 实跑：headless 打开 chat.deepseek.com（profile 未登录），
-// 应快速返回「需要一次性登录」而非挂起/崩溃。仅在 BEISHAN_DEEPSEEK_TEST=1 时跑
-// （要起 Chrome + 联网，默认不在门禁里跑）。
-func TestDeepseekLoginDetection(t *testing.T) {
+// TestDeepseekWebSearchLive 端到端实跑：用 beishan 自有浏览器在登录态 DeepSeek 网页版搜索，
+// 应返回真实结果（+ 已思考）。未登录则 Skip（提示先跑 deepseek-login）。
+// 仅 BEISHAN_DEEPSEEK_TEST=1 时跑（起 Chrome + 联网，默认不在 hermetic 门禁里）。
+func TestDeepseekWebSearchLive(t *testing.T) {
 	if os.Getenv("BEISHAN_DEEPSEEK_TEST") == "" {
 		t.Skip("设 BEISHAN_DEEPSEEK_TEST=1 才跑（起 Chrome + 联网）")
 	}
 	if findChrome() == "" {
 		t.Skip("未找到 Chrome")
 	}
-	out := deepseekWebSearch("beishan core test query", 3)
-	t.Logf("success=%v backend=%s error=%q results=%d thinkinglen=%d",
-		out.Success, out.Backend, out.Error, len(out.Results), len(out.Thinking))
-	// 未登录时不应 Success；且必须有明确 Error（不能静默/挂起）
-	if out.Success {
-		t.Log("注意：竟然 success 了（profile 可能已登录）")
+	out := deepseekWebSearch("2026年 AI agent 框架 趋势", 4)
+	t.Logf("success=%v results=%d thinkingBytes=%d error=%q",
+		out.Success, len(out.Results), len(out.Thinking), out.Error)
+	if strings.Contains(out.Error, "登录") {
+		t.Skip("需先 go run ./cmd/deepseek-login 登录一次")
 	}
-	if !out.Success && out.Error == "" {
-		t.Fatal("未成功却无 Error——不可接受（静默失败）")
+	if !out.Success || len(out.Results) == 0 {
+		t.Fatalf("登录态下应搜到结果，实得 error=%q", out.Error)
 	}
 }
 

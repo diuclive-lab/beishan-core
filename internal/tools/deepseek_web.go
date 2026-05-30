@@ -82,10 +82,16 @@ func extractMarkedJSON(text string) (map[string]interface{}, bool) {
 		return nil, false
 	}
 	var parsed map[string]interface{}
-	if json.Unmarshal([]byte(raw), &parsed) != nil {
-		return nil, false
+	if json.Unmarshal([]byte(raw), &parsed) == nil {
+		return parsed, true
 	}
-	return parsed, true
+	// 修复：开「智能搜索」后 DeepSeek 会把引用角标/换行注入 JSON 字符串值里（字符串内含裸换行=非法 JSON）。
+	// 把内部空白折成空格再试一次（残留的角标数字成为 snippet 噪声，可接受）。
+	repaired := strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(raw)
+	if json.Unmarshal([]byte(repaired), &parsed) == nil {
+		return parsed, true
+	}
+	return nil, false
 }
 
 // deepseekLoginState 判断当前页面是否需要登录。
@@ -147,18 +153,40 @@ const focusInputJS = `(() => {
   return "false";
 })()`
 
-// extractThinkingJS 尽力读取 DeepSeek「深度思考」推理块（启发式选择器；找不到则空）。
-const extractThinkingJS = `(() => {
-  const sels = ["[class*='think']","[class*='Think']","[class*='reason']","[class*='Reason']"];
-  let best = "";
-  for (const s of sels) {
-    for (const el of document.querySelectorAll(s)) {
-      const t = (el.innerText || "").trim();
-      if (t.length > best.length) best = t;
-    }
-  }
-  return best.slice(0, 4000);
-})()`
+// extractThinking 从正文抽「已深度思考」推理段。DeepSeek 类名是哈希的，靠文本锚点而非选择器：
+// 深度思考响应以「已深度思考（用时 Xs）」开头，到结构化 JSON 标记前为推理内容。
+func extractThinking(body string) string {
+	idx := strings.Index(body, "已思考（用时")
+	if idx == -1 {
+		idx = strings.Index(body, "已思考")
+	}
+	if idx == -1 {
+		return ""
+	}
+	seg := body[idx:]
+	if end := strings.Index(seg, deepseekStartMarker); end != -1 {
+		seg = seg[:end]
+	}
+	seg = strings.TrimSpace(seg)
+	if len(seg) > 6000 {
+		seg = seg[:6000]
+	}
+	return seg
+}
+
+// ensureDeepseekToggleOn 确保某开关（智能搜索/深度思考）为开（aria-pressed=true），仅在关时点一下、不盲翻。
+func ensureDeepseekToggleOn(conn *cdpConn, sess, label string) {
+	js := fmt.Sprintf(`(() => {
+	  for (const el of document.querySelectorAll("div[role='button'].ds-toggle-button")) {
+	    if ((el.innerText||"").trim() === %q) {
+	      if (el.getAttribute("aria-pressed") !== "true") { el.click(); return "clicked"; }
+	      return "on";
+	    }
+	  }
+	  return "not-found";
+	})()`, label)
+	conn.evalString(sess, js, 5*time.Second)
+}
 
 // deepseekWebSearch 是核心流程。
 func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
@@ -207,6 +235,11 @@ func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 		return out
 	}
 
+	// 确保「智能搜索」开（真联网搜索）+「深度思考」开（带回已思考）。仅在关时点开，不盲翻状态。
+	ensureDeepseekToggleOn(conn, sess, "智能搜索")
+	ensureDeepseekToggleOn(conn, sess, "深度思考")
+	time.Sleep(600 * time.Millisecond)
+
 	focused, _ := conn.evalString(sess, focusInputJS, 5*time.Second)
 	if !strings.Contains(focused, "true") {
 		out.Error = "未找到 DeepSeek 输入框（可能未登录或页面结构变化）"
@@ -217,15 +250,17 @@ func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 		out.Error = "输入提示词失败: " + err.Error()
 		return out
 	}
+	// 关键：插入后等一下再回车——让 React 登记输入值、发送键就绪，否则 Enter 可能空发（之前 90s 超时的根因）。
+	time.Sleep(900 * time.Millisecond)
 	if err := conn.pressEnter(sess, 5*time.Second); err != nil {
 		out.Error = "提交失败: " + err.Error()
 		return out
 	}
 
-	// 轮询正文抓 marked JSON（深度思考较慢，给 90s）
-	deadline := time.Now().Add(90 * time.Second)
+	// 轮询正文抓 marked JSON（深度思考 + 联网搜索较慢，给 120s）
+	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
-		time.Sleep(1200 * time.Millisecond)
+		time.Sleep(1500 * time.Millisecond)
 		text, err := conn.evalString(sess, "document.body ? document.body.innerText : ''", 10*time.Second)
 		if err != nil {
 			continue
@@ -235,16 +270,14 @@ func deepseekWebSearch(query string, maxResults int) deepseekSearchOutput {
 			continue
 		}
 		out.Results = normalizeDeepseekResults(parsed, maxResults)
-		if think, terr := conn.evalString(sess, extractThinkingJS, 5*time.Second); terr == nil {
-			out.Thinking = think
-		}
+		out.Thinking = extractThinking(text)
 		out.Success = len(out.Results) > 0
 		if !out.Success {
 			out.Error = "DeepSeek 返回了 JSON 但无有效结果"
 		}
 		return out
 	}
-	out.Error = "等待 DeepSeek 结构化结果超时（90s）"
+	out.Error = "等待 DeepSeek 结构化结果超时（120s）"
 	return out
 }
 
