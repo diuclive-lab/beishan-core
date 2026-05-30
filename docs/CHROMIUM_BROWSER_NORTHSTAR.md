@@ -1,5 +1,9 @@
 # North-Star：把 Chromium 浏览器引擎深度内化（参考 OWL 架构）
 
+> ✅ **状态(2026-05-30 决策)：选定为主力。执行以 `docs/BROWSER_RUNTIME_DECISION.md` 为准。**
+> 该决策文档含最终结论(Chromium 深绑 / Servo 暂停)+ 分阶段执行计划(Stage D 清理 → A 自带 Chromium
+> → B 反爬护城河 → C 异步+深控)+ 验证判据。本文作为背景路线参考,**具体执行序看决策文档**。
+>
 > 这是一份交接文档，给 AI 辅助开发的接手者。
 > 读完应能：理解 Chromium 路线 vs Servo 路线的定位差异、看清现状、按分阶段路线图推进。
 >
